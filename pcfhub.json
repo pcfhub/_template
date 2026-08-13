@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+
+  "slug": "__SLUG__",
+  "name": "__TITLE__",
+  "tagline": "__TAGLINE__",
+  "category": "__CATEGORY__",
+  "tags": [],
+
+  "control": {
+    "namespace": "__NAMESPACE__",
+    "constructor": "__CONTROL__",
+    "type": "field",
+    "framework": "standard",
+    "manifestPath": "__CONTROL__/ControlManifest.Input.xml"
+  },
+
+  "links": {
+    "homepage": "https://github.com/__OWNER__/__REPO__",
+    "support": "https://github.com/__OWNER__/__REPO__/issues",
+    "license": "MIT"
+  },
+
+  "docs": {
+    "path": "docs"
+  },
+
+  "media": {
+    "logo": "media/logo.svg",
+    "screenshots": []
+  },
+
+  "demo": {
+    "fidelity": "none"
+  }
+}

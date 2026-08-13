@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest>
+  <!--
+    The version here is what the Power Platform upgrades on, and the release
+    workflow refuses to publish a tag that disagrees with it. Bump this in the
+    same commit as the tag.
+  -->
+  <control namespace="__NAMESPACE__"
+           constructor="__CONTROL__"
+           version="0.1.0"
+           display-name-key="__CONTROL___Name"
+           description-key="__CONTROL___Desc"
+           control-type="standard">
+
+    <!--
+      Leave this disabled unless the control calls a third-party service. A
+      control that declares external usage is treated as premium, and every
+      domain it talks to has to be listed.
+    -->
+    <external-service-usage enabled="false" />
+
+    <!--
+      PCFHub generates the component's API reference from this file, at the tag
+      of each release.
+
+      It records `display-name-key` and `description-key` *verbatim* — it does
+      not read the .resx — so a reader sees the key itself unless something
+      changes it. Two ways to get readable text: keep the keys themselves
+      readable, or correct them once in the hub's admin panel, where editing a
+      property locks that field so later syncs leave it alone.
+
+      The platform still resolves these against the .resx for the maker's
+      properties pane, so the keys must exist there either way.
+    -->
+    <property name="value"
+              display-name-key="value_Name"
+              description-key="value_Desc"
+              of-type="SingleLine.Text"
+              usage="bound"
+              required="true" />
+
+    <property name="placeholder"
+              display-name-key="placeholder_Name"
+              description-key="placeholder_Desc"
+              of-type="SingleLine.Text"
+              usage="input"
+              required="false" />
+
+    <resources>
+      <code path="index.ts" order="1" />
+      <css path="css/__CONTROL__.css" order="1" />
+      <resx path="strings/__CONTROL__.1033.resx" version="1.0.0" />
+    </resources>
+
+    <!--
+      Uncomment only the features actually used. Each one becomes a permission
+      prompt for the maker installing the control.
+
+    <feature-usage>
+      <uses-feature name="Utility" required="true" />
+      <uses-feature name="WebAPI" required="true" />
+    </feature-usage>
+    -->
+  </control>
+</manifest>
