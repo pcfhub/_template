@@ -96,6 +96,19 @@ jobs:
           Copy-Item $managed.FullName artifacts/
           Copy-Item $unmanaged.FullName ("artifacts/" + $unmanaged.BaseName + "_unmanaged.zip")
 
+          # The demo bundle is the same bundle.js `npm run build` already
+          # produces under out/controls/ — a standard pcf-scripts build calls
+          # window.ComponentFramework.registerControl if present, which is
+          # the exact hook PCFHub's demo harness boots against, so there is
+          # nothing hub-specific to build here. Attached under its own name
+          # because PCFHub's ingestion matches a demo_bundle release asset
+          # literally named "bundle.js" by default. Attaching it costs
+          # nothing even while pcfhub.json's demo.fidelity is still "none" —
+          # the hub only starts showing the demo once fidelity says to.
+          $bundle = Get-ChildItem out/controls -Filter bundle.js -Recurse | Select-Object -First 1
+          if (-not $bundle) { throw "npm run build did not produce a bundle.js under out/controls." }
+          Copy-Item $bundle.FullName artifacts/bundle.js
+
           Get-ChildItem artifacts | ForEach-Object { Write-Host "attaching $($_.Name) ($($_.Length) bytes)" }
 
       - name: Publish the release
@@ -103,7 +116,9 @@ jobs:
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           generate_release_notes: true
-          files: artifacts/*.zip
+          files: |
+            artifacts/*.zip
+            artifacts/bundle.js
 
       # Nothing notifies PCFHub from here, on purpose. Publishing the release
       # above fires GitHub's own `release` webhook, which the hub authenticates

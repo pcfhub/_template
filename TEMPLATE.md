@@ -86,6 +86,32 @@ control's property list.
   renames msbuild's unmanaged output to suit — which is why no artifact patterns
   are needed here. If you change the workflow, change them together.
 
+## Demo
+
+The release workflow already attaches a demo bundle to every release — the
+same `bundle.js` `npm run build` produces under `out/controls/`, a standard
+PCF control bundle that already calls
+`window.ComponentFramework.registerControl` if the hub's demo harness has
+defined it. There is nothing hub-specific to build; the workflow just finds
+and attaches the file that is already there.
+
+That bundle does nothing by itself. `pcfhub.json`'s `demo.fidelity` starts at
+`"none"`, and at `"none"` the hub never even requests a manifest — the
+component page shows the video/screenshot fallback instead, regardless of
+whether a bundle is attached to the release. Turning the demo on is a
+`pcfhub.json` edit, not a workflow change:
+
+| `fidelity` | Means |
+| --- | --- |
+| `full` | Fully interactive — the control never reaches Dataverse, WebAPI, or anything else the harness cannot fake. |
+| `mocked` | Interactive, but against simulated data instead of a real platform call. |
+| `limited` | Partially interactive; `demo.limitations` must list what is stubbed. |
+| `none` (default) | No demo — video/screenshots only. |
+
+Only the author knows which applies; the hub cannot infer it from the code. Guess
+`full` when unsure and you are wrong: a demo that silently falls back to
+mocked data is worse than one that declines to run at all.
+
 ## Wiring the webhook
 
 Once per repository, so a tag publishes in seconds rather than within the hour:
