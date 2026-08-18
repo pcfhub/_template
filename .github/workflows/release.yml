@@ -96,8 +96,15 @@ jobs:
           Copy-Item $managed.FullName artifacts/
           Copy-Item $unmanaged.FullName ("artifacts/" + $unmanaged.BaseName + "_unmanaged.zip")
 
-          # The demo bundle is the same bundle.js `npm run build` already
-          # produces under out/controls/ — a standard pcf-scripts build calls
+          # The demo bundle is the production bundle.js under out/controls —
+          # written by the pack above, not by `npm run build`.
+          # __CONTROL__.pcfproj sets PcfBuildMode=production, so msbuild
+          # rebuilds into the same directory and overwrites the earlier
+          # development output. Worth being precise about: reading this the
+          # other way round suggests an unminified bundle is being shipped to
+          # the hub, which would be a bug rather than the current behaviour.
+          #
+          # A standard pcf-scripts build calls
           # window.ComponentFramework.registerControl if present, which is
           # the exact hook PCFHub's demo harness boots against, so there is
           # nothing hub-specific to build here. Attached under its own name
@@ -106,7 +113,16 @@ jobs:
           # nothing even while pcfhub.json's demo.fidelity is still "none" —
           # the hub only starts showing the demo once fidelity says to.
           $bundle = Get-ChildItem out/controls -Filter bundle.js -Recurse | Select-Object -First 1
-          if (-not $bundle) { throw "npm run build did not produce a bundle.js under out/controls." }
+          if (-not $bundle) { throw "No bundle.js under out/controls after the pack." }
+
+          # Same 5 MB default web resource ceiling build.yml checks. Repeated
+          # here because this is the artifact people actually install, and a
+          # tag can be cut from a commit that never went through build.yml.
+          $limit = 5242880
+          if ($bundle.Length -gt $limit) {
+            throw "bundle.js is $($bundle.Length) bytes, over the $limit byte default Dataverse web resource limit."
+          }
+
           Copy-Item $bundle.FullName artifacts/bundle.js
 
           Get-ChildItem artifacts | ForEach-Object { Write-Host "attaching $($_.Name) ($($_.Length) bytes)" }
