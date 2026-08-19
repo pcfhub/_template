@@ -14,12 +14,58 @@ template; everything in `README.md` is about the component you are building.
 npm run setup
 ```
 
-You are asked for eight values; the rest are derived or generated. Then:
+You are asked for ten values, four of which offer a derived default. Then:
 
 ```bash
 npm install
 npm run build
 ```
+
+**Commit the `package-lock.json` that `npm install` writes.** This template
+ships none, and both workflows run `npm ci`, which fails outright without one —
+so the first push of a freshly adopted repository fails for a reason that has
+nothing to do with the control.
+
+## Standard or React
+
+The template scaffolds a standard DOM control. For a React (virtual) one:
+
+```bash
+node scripts/setup.mjs --framework react …
+```
+
+That switches `control-type` to `virtual`, adds the React and Fluent
+`<platform-library>` entries, sets `pcfhub.json`'s `control.framework` to
+`react_virtual`, swaps in a `ReactControl` entry point with a `components/`
+directory, and adds the React devDependencies along with
+`eslint-plugin-react-hooks` — without which an `eslint-disable
+react-hooks/exhaustive-deps` comment fails the build for an unrelated-looking
+reason.
+
+The React version is `16.14.0` rather than `16.8.6`, and that is deliberate.
+`pcf-scripts` maps any declared 16.8–16.14.0 onto the platform's 16.14.0 build,
+so both work at runtime — but `@fluentui/react-components` requires
+`react >=16.14.0`, and npm refuses to install the pair if the devDependency says
+16.8.6.
+
+Reach for `standard` more often than instinct suggests: one input and a button
+does not earn a React tree.
+
+## Running it non-interactively
+
+Every value must be answerable without a prompt under `--yes`, and `TAGLINE`,
+`CATEGORY` and `OWNER` have no derived default. A short command does not fall
+back to sensible values — it exits 1:
+
+```bash
+node scripts/setup.mjs --yes \
+  --control ColorPicker --namespace PCFHub --slug pcf-color-picker \
+  --title "Color Picker" --tagline "A WCAG-compliant colour picker." \
+  --category pickers --owner pcfhub --repo pcf-color-picker \
+  --publisher PCFHub --prefix pcfhu
+```
+
+Note `SLUG` derives from `CONTROL` as `color-picker`, not `pcf-color-picker`.
 
 `npm run check` — which CI runs first, before the slow Windows build — fails
 while any placeholder remains, so a half-adopted template cannot reach a

@@ -4,7 +4,19 @@
  * one, and generate the identifiers that must be unique per repository.
  *
  *   node scripts/setup.mjs
- *   node scripts/setup.mjs --control ColorPicker --namespace PCFHub --yes
+ *   node scripts/setup.mjs --yes \
+ *     --control ColorPicker --namespace PCFHub --slug pcf-color-picker \
+ *     --title "Color Picker" --tagline "A WCAG-compliant colour picker." \
+ *     --category pickers --owner pcfhub --repo pcf-color-picker \
+ *     --publisher PCFHub --prefix pcfhu
+ *
+ * Under `--yes` every value must be answerable without a prompt, and TAGLINE,
+ * CATEGORY and OWNER have no `derive` — so a short example that omits them does
+ * not "use the defaults", it exits 1. SLUG derives from CONTROL as
+ * `color-picker`, which is probably not the slug you want either.
+ *
+ * Add `--framework react` for a React (virtual) control instead of a standard
+ * DOM one; see applyFramework() below for exactly what that changes.
  *
  * Run it once, review the diff, commit. `scripts/check-template.mjs` fails the
  * build until it has been run, so a half-adopted template cannot reach a
@@ -14,7 +26,7 @@
  */
 
 import { randomUUID } from 'node:crypto';
-import { existsSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
@@ -24,10 +36,27 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /** Never walked: build output, dependencies, and git's own storage. */
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'out', 'bin', 'obj', 'generated']);
 
+/**
+ * React and Fluent are resolved by the host at runtime, not bundled, so these
+ * are devDependencies. The React version is not arbitrary: pcf-scripts maps a
+ * declared 16.8–16.14.0 onto the platform's 16.14.0 build, and
+ * @fluentui/react-components requires react >=16.14.0 — so pinning 16.8.6 here
+ * makes `npm install` refuse the pair even though both resolve identically at
+ * runtime.
+ */
+const REACT_VERSION = '16.14.0';
+const FLUENT_VERSION = '9.46.2';
+
 /** Binary-ish or generated files whose contents must not be rewritten. */
 const SKIP_FILES = new Set(['package-lock.json']);
 
 const args = parseArgs(process.argv.slice(2));
+
+const framework = args.framework ?? 'standard';
+
+if (framework !== 'standard' && framework !== 'react') {
+    fail(`--framework must be "standard" or "react", not "${framework}".`);
+}
 
 const rules = {
     CONTROL: {
@@ -182,6 +211,25 @@ for (const path of walkPaths(root)) {
     }
 }
 
+applyFramework(answers.CONTROL);
+
+/*
+ * The variants directory has done its job either way — the react sources have
+ * been copied into place, or they were never wanted. Leaving it behind would
+ * ship a second, unreferenced copy of the control in every adopted repository.
+ */
+rmSync(join(root, 'variants'), { recursive: true, force: true });
+
+/*
+ * `migration.md` ships with `appliesTo: ">=1.0.0"`, which matches no release of
+ * a control that starts at 0.1.0. The hub reports the range as matching nothing
+ * and skips the page, and `check-template.mjs` cannot catch it because it only
+ * validates filenames. There is nothing to migrate from on a new control, so
+ * the page is removed rather than shipped broken. Write it when the first
+ * breaking change lands.
+ */
+rmSync(join(root, 'docs', 'migration.md'), { force: true });
+
 const templateDoc = join(root, 'TEMPLATE.md');
 
 if (existsSync(templateDoc)) {
@@ -198,17 +246,106 @@ for (const line of renamed) {
 }
 
 console.log(`
+Adopted as a ${framework} control.
+
 Next:
   1. Review the diff — the publisher prefix and the solution unique name are
      permanent once this ships.
-  2. npm install
+  2. npm install — then COMMIT package-lock.json. Both workflows run "npm ci",
+     which fails outright without it, and this template ships none.
   3. npm run build
   4. Fill in docs/*.md. Every file there becomes a page on the hub; the ones you
      do not write simply do not appear.
-  5. Add the repository to PCFHub with the slug "${answers.SLUG}", then tag v0.1.0.
+  5. Replace media/logo.png — the one here is a placeholder, and nothing in CI
+     checks what it looks like.
+  6. Add the repository to PCFHub with the slug "${answers.SLUG}", then tag v0.1.0.
 `);
 
 // ------------------------------------------------------------------ helpers
+
+/**
+ * Turn the standard DOM control into a React (virtual) one.
+ *
+ * This is a patch rather than a second full template on purpose: the manifest's
+ * comments, the CSS, the resx and the workflows are the same either way, and
+ * they are most of what the template is actually for. Duplicating them into a
+ * parallel tree guarantees the two drift.
+ *
+ * Everything here was learned by doing the conversion by hand for
+ * pcf-choices-picker. Each edit below is one that build actually required.
+ */
+function applyFramework(control) {
+    if (framework !== 'react') {
+        return;
+    }
+
+    const source = join(root, 'variants', 'react');
+    const target = join(root, control);
+
+    mkdirSync(join(target, 'components'), { recursive: true });
+    cpSync(join(source, 'index.ts'), join(target, 'index.ts'));
+    cpSync(join(source, 'components'), join(target, 'components'), { recursive: true });
+
+    // control-type drives which interface the platform expects the class to
+    // implement; pcfhub.json's control.framework must agree with it, and
+    // nothing validates that agreement but a reader.
+    edit('pcfhub.json', (text) => text.replace('"framework": "standard"', '"framework": "react_virtual"'));
+
+    edit(join(control, 'ControlManifest.Input.xml'), (text) =>
+        text
+            .replace('control-type="standard"', 'control-type="virtual"')
+            .replace(
+                '<resx path=',
+                `<platform-library name="React" version="${REACT_VERSION}" />\n      <platform-library name="Fluent" version="${FLUENT_VERSION}" />\n      <resx path=`,
+            ));
+
+    edit('package.json', (text) => {
+        const pkg = JSON.parse(text);
+
+        pkg.devDependencies = Object.fromEntries(
+            Object.entries({
+                ...pkg.devDependencies,
+                '@fluentui/react-components': FLUENT_VERSION,
+                '@types/react': '^16.14.62',
+                '@types/react-dom': '^16.9.24',
+                'eslint-plugin-react-hooks': '^4.6.0',
+                react: REACT_VERSION,
+                'react-dom': REACT_VERSION,
+            }).sort(([a], [b]) => a.localeCompare(b)),
+        );
+
+        return `${JSON.stringify(pkg, null, 2)}\n`;
+    });
+
+    // Without the plugin, an `eslint-disable react-hooks/exhaustive-deps`
+    // comment fails the build with "Definition for rule was not found" — which
+    // reads as a config error rather than a missing dependency.
+    edit('.eslintrc.json', (text) => {
+        const config = JSON.parse(text);
+
+        config.parserOptions = { ...config.parserOptions, ecmaFeatures: { jsx: true } };
+        config.plugins = [...(config.plugins ?? []), 'react-hooks'];
+        config.rules = {
+            ...config.rules,
+            'react-hooks/rules-of-hooks': 'error',
+            'react-hooks/exhaustive-deps': 'warn',
+        };
+
+        return `${JSON.stringify(config, null, 4)}\n`;
+    });
+}
+
+function edit(relative, transform) {
+    const path = join(root, relative);
+    const before = readFileSync(path, 'utf8');
+    const after = transform(before);
+
+    if (after === before) {
+        fail(`Could not apply the react framework patch to ${relative}.`);
+    }
+
+    writeFileSync(path, after);
+}
 
 function* walkPaths(dir) {
     for (const entry of readdirSync(dir).sort()) {

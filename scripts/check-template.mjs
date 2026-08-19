@@ -127,6 +127,45 @@ if (exists(join(root, docsPath))) {
     problems.push(`No ${docsPath}/ directory, so this component would publish with no documentation.`);
 }
 
+// ------------------------------------------------------------------- media
+//
+// A missing image is one of the quietest failures the hub has: ingestion drops
+// the file and the component page renders without it, with nothing in the
+// repository to suggest anything is wrong. It costs a `statSync` to catch here.
+//
+// Only paths declared in pcfhub.json are checked. Images referenced from the
+// docs are the hub's to resolve at render time, and guessing at Markdown here
+// would produce false failures.
+
+const media = [
+    ...(manifest.media?.logo ? [['media.logo', manifest.media.logo]] : []),
+    ...(manifest.media?.screenshots ?? []).map((path, index) => [`media.screenshots[${index}]`, path]),
+];
+
+for (const [key, path] of media) {
+    if (!exists(join(root, path))) {
+        problems.push(`pcfhub.json names ${key} as "${path}", which does not exist.`);
+    }
+}
+
+// The demo bundle is written by the build, so it is only checked when one has
+// already run — otherwise a clean checkout would fail for having built nothing.
+const demoPaths = [
+    ...(manifest.demo?.bundle ? [['demo.bundle', manifest.demo.bundle]] : []),
+    ...(manifest.demo?.styles ?? []).map((path, index) => [`demo.styles[${index}]`, path]),
+];
+
+if (manifest.demo?.fidelity && manifest.demo.fidelity !== 'none' && exists(join(root, 'out'))) {
+    for (const [key, path] of demoPaths) {
+        if (!exists(join(root, path))) {
+            problems.push(
+                `pcfhub.json names ${key} as "${path}", which the build did not produce. ` +
+                'The path is out/controls/<Constructor>/… — the constructor alone, with no namespace prefix.',
+            );
+        }
+    }
+}
+
 if (problems.length > 0) {
     console.error('');
     for (const problem of problems) {
@@ -136,7 +175,7 @@ if (problems.length > 0) {
     process.exit(1);
 }
 
-console.log('Template adopted, pcfhub.json readable, docs named correctly.');
+console.log('Template adopted, pcfhub.json readable, docs named correctly, media present.');
 
 // ------------------------------------------------------------------ helpers
 
