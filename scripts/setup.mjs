@@ -287,9 +287,17 @@ function applyFramework(control) {
     cpSync(join(source, 'components'), join(target, 'components'), { recursive: true });
 
     // control-type drives which interface the platform expects the class to
-    // implement; pcfhub.json's control.framework must agree with it, and
-    // nothing validates that agreement but a reader.
-    edit('pcfhub.json', (text) => text.replace('"framework": "standard"', '"framework": "react_virtual"'));
+    // implement, and pcfhub.json has to agree with it on two keys, not one.
+    //
+    // `control.type` is the one people miss. The hub's ControlManifestParser
+    // resolves dataset -> virtual -> field in that order, so a virtual *field*
+    // control is recorded as "virtual" — "field" would be re-derived as
+    // "virtual" at every release and quietly disagree with the repository.
+    // `npm run check` enforces this now.
+    edit('pcfhub.json', (text) =>
+        text
+            .replace('"type": "field"', '"type": "virtual"')
+            .replace('"framework": "standard"', '"framework": "react_virtual"'));
 
     edit(join(control, 'ControlManifest.Input.xml'), (text) =>
         text

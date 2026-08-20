@@ -34,3 +34,25 @@
     opacity: 0.6;
     cursor: not-allowed;
 }
+
+/* `mode.isVisible` is false. Canvas relies on this; model-driven hides the
+   section itself, so this is the cheap half of supporting both. */
+.__CONTROL__--hidden {
+    display: none;
+}
+
+/* The bound property reported `error`. The colour is a system keyword rather
+   than a hex value so it survives a themed environment and high contrast. */
+.__CONTROL__--invalid .__CONTROL__-input {
+    border-color: LinkText;
+}
+
+.__CONTROL__ .__CONTROL__-message {
+    margin: 4px 0 0;
+    font-size: 12px;
+    color: LinkText;
+}
+
+.__CONTROL__ .__CONTROL__-message[hidden] {
+    display: none;
+}

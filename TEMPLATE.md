@@ -5,8 +5,11 @@ This is the starting point for a PCF control published on
 the three things the hub needs: `pcfhub.json`, a `docs/` directory, and a
 release workflow that attaches assets under names the hub recognises.
 
-`npm run setup` deletes this file. Everything below is about adopting the
-template; everything in `README.md` is about the component you are building.
+`npm run setup` deletes this file, along with `variants/` and
+`docs/migration.md` — a first release has nothing to migrate from. Everything
+below is about adopting the template; everything in `README.md` is about the
+component you are building, and `SPEC.md` is where you record what building it
+taught you.
 
 ## Adopt it
 
@@ -69,7 +72,13 @@ Note `SLUG` derives from `CONTROL` as `color-picker`, not `pcf-color-picker`.
 
 `npm run check` — which CI runs first, before the slow Windows build — fails
 while any placeholder remains, so a half-adopted template cannot reach a
-release. That guard exists because two of the answers are permanent:
+release. It also reads `pcfhub.json` structurally: that `control.type` and
+`control.framework` are real values and agree with what the manifest actually
+declares, that `demo.fidelity` is one of the four, and that a `limited` demo
+lists its `demo.limitations`. It still does **not** check images referenced
+from the docs — a broken one there ships silently.
+
+The placeholder guard exists because two of the answers are permanent:
 
 | Answer | Why it cannot change later |
 | --- | --- |
@@ -157,6 +166,48 @@ whether a bundle is attached to the release. Turning the demo on is a
 Only the author knows which applies; the hub cannot infer it from the code. Guess
 `full` when unsure and you are wrong: a demo that silently falls back to
 mocked data is worse than one that declines to run at all.
+
+### Presets
+
+`demo.presets` gives the demo named states — an empty one, a full one, one that
+hits an overflow path. Each has a `slug`, `name`, `description` and a `props`
+object keyed by property name; mark one `isDefault`. `props` covers **bound
+properties as well as inputs**, and for a field control it is the only way to
+give the demo any data at all.
+
+**Set every input property in every preset**, including the ones whose manifest
+`default-value` looks like it would cover them. A `default-value` reaches the
+harness as the raw XML *string*, and `Boolean("false")` is `true` — so
+`default-value="false"` arrives switched **on** in any preset that omits it.
+Numeric types have the same problem. Do not work around this in the control by
+coercing strings; that pollutes production code to suit a harness.
+
+## Localisation
+
+The template ships one `.resx`, at `1033` (English). Everything a user or a
+maker can read belongs in it — the property display names and descriptions the
+manifest points at, and any string `index.ts` renders, read back with
+`context.resources.getString()`.
+
+Prefer that over an input property a maker hand-types a translation into. An
+input property makes each maker know and type the translation themselves, once
+per instance, where the `.resx` lets the org’s provisioned language pick it up
+automatically.
+
+To add a language, copy the file and list it under `<resources>`:
+
+```xml
+<resx path="strings/__CONTROL__.1033.resx" version="1.0.0" />
+<resx path="strings/__CONTROL__.3082.resx" version="1.0.0" />
+```
+
+Common LCIDs: `1031` German, `1033` English, `1036` French, `1041` Japanese,
+`3082` Spanish.
+
+Every file must carry the **same key set**. A key missing from one language
+falls back to the key name in that language only, which nobody notices until a
+customer does — so generate the files from one list rather than copying and
+editing by hand.
 
 ## Wiring the webhook
 

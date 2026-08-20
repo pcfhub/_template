@@ -72,10 +72,11 @@ jobs:
 
       # PCFHub matches release assets by glob, and with no `release.artifacts`
       # block in pcfhub.json it uses its defaults: `*_managed.zip` and
-      # `*_unmanaged.zip`. msbuild names the managed zip to suit, but calls the
-      # unmanaged one `<UniqueName>.zip` — which matches neither pattern and
-      # would leave the hub's unmanaged download empty. Renaming it here is why
-      # pcfhub.json needs no artifact patterns at all.
+      # `*_unmanaged.zip`. msbuild names the managed zip to suit, but names the
+      # unmanaged one after the *project file* — `Solution.zip` for this
+      # template's Solution.cdsproj, not the solution's <UniqueName> — which
+      # matches neither pattern and would leave the hub's unmanaged download
+      # empty. Renaming it here is why pcfhub.json needs no artifact patterns.
       #
       # Found by glob rather than by name so that renaming the solution does not
       # quietly stop producing artifacts.

@@ -98,6 +98,67 @@ if (manifestPath && !exists(join(root, manifestPath))) {
     problems.push(`pcfhub.json points control.manifestPath at "${manifestPath}", which does not exist.`);
 }
 
+// ------------------------------------------------------- the control shape
+//
+// `control.type` and `control.framework` are the repository claiming what the
+// control is. The hub re-derives the type from the manifest at every release
+// regardless, so a disagreement changes nothing on the hub and quietly misleads
+// every reader of the repository — which is precisely the class of mistake that
+// survives a review, because nothing fails.
+//
+// Still a light structural read: the manifest is matched, not parsed.
+
+const TYPES = ['field', 'dataset', 'virtual'];
+const FRAMEWORKS = ['standard', 'react', 'react_virtual'];
+
+const type = manifest.control?.type;
+const framework = manifest.control?.framework;
+
+if (type !== undefined && !TYPES.includes(type)) {
+    problems.push(`pcfhub.json has control.type "${type}". Expected one of: ${TYPES.join(', ')}.`);
+}
+
+if (framework !== undefined && !FRAMEWORKS.includes(framework)) {
+    problems.push(
+        `pcfhub.json has control.framework "${framework}". Expected one of: ${FRAMEWORKS.join(', ')}.`,
+    );
+}
+
+if (manifestPath && exists(join(root, manifestPath))) {
+    const xml = readFileSync(join(root, manifestPath), 'utf8');
+    const declared = /control-type\s*=\s*"([^"]*)"/.exec(xml)?.[1] ?? '';
+
+    // The hub's ControlManifestParser resolves dataset -> virtual -> field, in
+    // that order. So a virtual *dataset* control records as "dataset" and a
+    // virtual *field* control records as "virtual".
+    const derived = /<data-set[\s>]/.test(xml)
+        ? 'dataset'
+        : declared === 'virtual'
+          ? 'virtual'
+          : 'field';
+
+    if (type !== undefined && TYPES.includes(type) && type !== derived) {
+        problems.push(
+            `pcfhub.json says control.type is "${type}", but ${manifestPath} describes a "${derived}" control. ` +
+            'The hub derives it from the manifest at every release, so the manifest wins.',
+        );
+    }
+
+    if (framework === 'react_virtual' && declared !== 'virtual') {
+        problems.push(
+            `pcfhub.json says control.framework is "react_virtual", but ${manifestPath} has ` +
+            `control-type="${declared}". A React virtual control needs control-type="virtual" and the ` +
+            'React/Fluent <platform-library> entries.',
+        );
+    }
+
+    if (framework === 'standard' && declared === 'virtual') {
+        problems.push(
+            `pcfhub.json says control.framework is "standard", but ${manifestPath} has control-type="virtual".`,
+        );
+    }
+}
+
 // The hub reads docs from the default branch and reports any file it does not
 // recognise, so a misnamed page is published nowhere and mentioned only in an
 // ingestion run nobody is watching.
@@ -148,6 +209,30 @@ for (const [key, path] of media) {
     }
 }
 
+// --------------------------------------------------------------------- demo
+//
+// `fidelity` decides whether the hub runs the control at all, and only the
+// author knows which value is true. What can be checked is that it is one of
+// the four, and that "limited" carries the explanation that is its entire
+// point — an unexplained "limited" tells a visitor the demo is broken without
+// telling them how.
+
+const FIDELITIES = ['full', 'mocked', 'limited', 'none'];
+const fidelity = manifest.demo?.fidelity;
+
+if (fidelity !== undefined && !FIDELITIES.includes(fidelity)) {
+    problems.push(
+        `pcfhub.json has demo.fidelity "${fidelity}". Expected one of: ${FIDELITIES.join(', ')}.`,
+    );
+}
+
+if (fidelity === 'limited' && !(manifest.demo?.limitations?.length > 0)) {
+    problems.push(
+        'pcfhub.json sets demo.fidelity to "limited" but lists no demo.limitations. ' +
+        'Name each interaction that does not work in the demo, and why.',
+    );
+}
+
 // The demo bundle is written by the build, so it is only checked when one has
 // already run — otherwise a clean checkout would fail for having built nothing.
 const demoPaths = [
@@ -155,7 +240,7 @@ const demoPaths = [
     ...(manifest.demo?.styles ?? []).map((path, index) => [`demo.styles[${index}]`, path]),
 ];
 
-if (manifest.demo?.fidelity && manifest.demo.fidelity !== 'none' && exists(join(root, 'out'))) {
+if (fidelity && fidelity !== 'none' && exists(join(root, 'out'))) {
     for (const [key, path] of demoPaths) {
         if (!exists(join(root, path))) {
             problems.push(
@@ -175,7 +260,10 @@ if (problems.length > 0) {
     process.exit(1);
 }
 
-console.log('Template adopted, pcfhub.json readable, docs named correctly, media present.');
+console.log(
+    'Template adopted, pcfhub.json readable, control shape agrees with the manifest, ' +
+        'docs named correctly, media present.',
+);
 
 // ------------------------------------------------------------------ helpers
 

@@ -88,4 +88,18 @@
   <data name="placeholder_Desc" xml:space="preserve">
     <value>Hint text shown while the field is empty.</value>
   </data>
+  <!--
+    Runtime strings, read with context.resources.getString(). Anything the user
+    can read belongs here rather than as a literal in index.ts or as an input
+    property a maker hand-translates per instance.
+
+    Add a language by copying this file — __CONTROL__.3082.resx for Spanish,
+    1036 French, 1031 German, 1041 Japanese — with the SAME key set, then
+    listing each one under <resources> in the manifest. A key missing from one
+    language falls back to the key name in that language only, which nobody
+    notices until a customer does.
+  -->
+  <data name="__CONTROL___NoAccess" xml:space="preserve">
+    <value>You do not have access to this value.</value>
+  </data>
 </root>
