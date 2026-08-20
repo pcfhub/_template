@@ -39,6 +39,30 @@
           <property-set name="labelField" display-name-key="LabelField_Name"
                         of-type="SingleLine.Text" usage="bound" required="true" />
         </data-set>
+
+      The other attribute worth knowing is `cds-data-set-options`, which decides
+      whether a model-driven subgrid keeps its own chrome. Off by default; add it
+      to show any of the three:
+
+        <data-set name="records" display-name-key="Records_DataSet_Name"
+                  cds-data-set-options="displayCommandBar:true;displayViewSelector:true;displayQuickFind:true" />
+
+      It belongs on `<data-set>`, not on `<control>` — it configures the host's
+      furniture, which sounds like a control-level concern and is not.
+
+      Turn the **command bar** on if the control calls `setSelectedRecordIds()`:
+      without it, selection is a value the control reports and nothing acts on.
+      The **view selector** is only sensible if the control renders whatever
+      columns arrive, since switching view changes them. A control with fixed
+      property-set roles usually wants all three off, because its layout does not
+      survive the user picking a different view.
+
+      Two traps. The attribute's value is typed as a plain string, so a
+      misspelled option compiles clean and silently does nothing. And the
+      Microsoft reference marks the attribute `Required: Yes`, which the tooling
+      contradicts — it is optional in fact, and absent means off.
+
+      Model-driven only; canvas apps ignore it.
     -->
     <data-set name="records" display-name-key="Records_DataSet_Name" />
 
