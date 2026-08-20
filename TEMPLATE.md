@@ -54,6 +54,46 @@ so both work at runtime — but `@fluentui/react-components` requires
 Reach for `standard` more often than instinct suggests: one input and a button
 does not earn a React tree.
 
+## Field or dataset
+
+The template scaffolds a control bound to one column. For one that binds a view:
+
+```bash
+node scripts/setup.mjs --type dataset …
+```
+
+That swaps in a `<data-set>` manifest and a dataset entry point, sets
+`pcfhub.json`'s `control.type` to `dataset`, replaces `docs/api.md` with one
+carrying `kind=dataset` instead of `kind=bound`, and drops a starter fixture in
+`demo/` for the hub's demo harness to render.
+
+It composes with `--framework`, and **all four combinations are supported** — a
+plain DOM table is a perfectly reasonable dataset control. The two flags are not
+two ways of asking the same question, and the combination people get wrong is
+the React one: a React *dataset* control is `type: "dataset"` with
+`framework: "react_virtual"`, because the hub's parser resolves
+dataset → virtual → field in that order. `npm run check` enforces it.
+
+### One decision the flag cannot make for you
+
+The scaffolded manifest declares **no `property-set` roles**, and whether that
+is right depends on the control:
+
+- **Declare roles** when the control assigns meaning to specific columns — a
+  chip has a label and a colour, a map pin has a latitude and a longitude. Each
+  role is a named slot in the manifest, so the arity is fixed at whatever you
+  write.
+- **Declare none, and read `dataset.columns`,** when the control renders
+  whatever it is given. A table is the clearest case: there is no way to declare
+  "however many columns the view has", and the metadata a layout needs —
+  `order`, `visualSizeFactor`, `isPrimary`, `disableSorting` — exists on real
+  view columns and nowhere else.
+
+If you add roles, add `::props-table{kind=dataset_column}` back to
+`docs/api.md`; with none it renders an empty table, which reads as "this control
+has no dataset columns" rather than as a section nobody wrote. The manifest's
+own comments say this too, at the point where you would change it.
+
 ## Running it non-interactively
 
 Every value must be answerable without a prompt under `--yes`, and `TAGLINE`,

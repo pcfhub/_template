@@ -31,6 +31,12 @@
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\.github\**" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\.gitignore" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\bin\**" />
+    <!--
+      `demo` only exists for a dataset control, and the entry is inert without
+      it — but a fixture packed into the solution is dead weight shipped to every
+      customer, and the omission is silent.
+    -->
+    <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\demo\**" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\docs\**" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\media\**" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\node_modules\**" />

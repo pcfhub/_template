@@ -233,6 +233,29 @@ if (fidelity === 'limited' && !(manifest.demo?.limitations?.length > 0)) {
     );
 }
 
+// The fixture is the entire dataset the demo runs against, and it is committed
+// source rather than build output — so unlike demo.bundle below, there is no
+// "clean checkout has not built yet" case to exempt. A typo costs the whole
+// demo: the hub notes it in an ingestion run nobody is watching and the control
+// renders no rows.
+const datasetFixture = manifest.demo?.datasetFixture;
+
+if (datasetFixture && !exists(join(root, datasetFixture))) {
+    problems.push(
+        `pcfhub.json names demo.datasetFixture as "${datasetFixture}", which does not exist.`,
+    );
+}
+
+// Deliberately not checked: that a dataset control *has* a fixture. A dataset
+// control with fidelity "none" is a legitimate state, and a rule forcing one
+// would be wrong more often than right.
+if (datasetFixture && type === 'field') {
+    problems.push(
+        'pcfhub.json declares demo.datasetFixture, but control.type is "field". ' +
+        'The hub reads it only for a dataset control, so it would be ignored.',
+    );
+}
+
 // The demo bundle is written by the build, so it is only checked when one has
 // already run — otherwise a clean checkout would fail for having built nothing.
 const demoPaths = [

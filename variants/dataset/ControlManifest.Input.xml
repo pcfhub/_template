@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<manifest>
+  <!--
+    The version here is what the Power Platform upgrades on, and the release
+    workflow refuses to publish a tag that disagrees with it. Bump this in the
+    same commit as the tag.
+  -->
+  <control namespace="__NAMESPACE__"
+           constructor="__CONTROL__"
+           version="0.1.0"
+           display-name-key="__CONTROL___Name"
+           description-key="__CONTROL___Desc"
+           control-type="standard">
+
+    <external-service-usage enabled="false" />
+
+    <!--
+      A dataset control binds a collection rather than a column.
+
+      This one declares **no `property-set` roles**, which is a decision worth
+      making deliberately rather than inheriting:
+
+        Declare roles when the control assigns meaning to specific columns — a
+        chip has a label and a colour, a map pin has a latitude and a longitude.
+        Each role is a named slot in this file, so the arity is fixed at whatever
+        you write here.
+
+        Declare none, and read `dataset.columns`, when the control renders
+        whatever it is given. A table is the clearest case: there is no way to
+        declare "however many columns the view has", and the metadata a layout
+        needs — order, visualSizeFactor, isPrimary, isHidden, disableSorting —
+        exists on real view columns and nowhere else.
+
+      If you add roles, add `::props-table{kind=dataset_column}` to docs/api.md.
+      With none, leave it out: the directive renders an empty table, which reads
+      as "this control has no dataset columns" rather than as a missing section.
+
+        <data-set name="records" display-name-key="Records_DataSet_Name">
+          <property-set name="labelField" display-name-key="LabelField_Name"
+                        of-type="SingleLine.Text" usage="bound" required="true" />
+        </data-set>
+    -->
+    <data-set name="records" display-name-key="Records_DataSet_Name" />
+
+    <property name="pageSize"
+              display-name-key="PageSize_Name"
+              description-key="PageSize_Desc"
+              of-type="Whole.None"
+              usage="input"
+              required="false"
+              default-value="25" />
+
+    <!--
+      Notified *before* the record is opened, so the value is observable even on
+      a host where opening does nothing — which is the canvas case.
+    -->
+    <property name="openedRecordId"
+              display-name-key="OpenedRecordId_Name"
+              description-key="OpenedRecordId_Desc"
+              of-type="SingleLine.Text"
+              usage="output" />
+
+    <resources>
+      <code path="index.ts" order="1" />
+      <css path="css/__CONTROL__.css" order="1" />
+      <resx path="strings/__CONTROL__.1033.resx" version="1.0.0" />
+    </resources>
+
+    <!--
+      Uncomment only the features actually used. Each one becomes a permission
+      prompt for the maker installing the control.
+
+      Note that `openDatasetItem()` needs none of these — it is a method on the
+      dataset itself, not on context.navigation.
+
+    <feature-usage>
+      <uses-feature name="Utility" required="true" />
+      <uses-feature name="WebAPI" required="true" />
+    </feature-usage>
+    -->
+  </control>
+</manifest>

@@ -18,6 +18,13 @@
  * Add `--framework react` for a React (virtual) control instead of a standard
  * DOM one; see applyFramework() below for exactly what that changes.
  *
+ * Add `--type dataset` for a control that binds a view rather than a column;
+ * see applyType(). All four combinations are supported — a plain DOM table is a
+ * perfectly reasonable dataset control — and the two flags are not two ways of
+ * asking the same question. A React *dataset* control is `type: "dataset"` and
+ * `framework: "react_virtual"`, because the hub resolves dataset ahead of
+ * virtual.
+ *
  * Run it once, review the diff, commit. `scripts/check-template.mjs` fails the
  * build until it has been run, so a half-adopted template cannot reach a
  * release — which matters because two of the values below (the solution's
@@ -56,6 +63,19 @@ const framework = args.framework ?? 'standard';
 
 if (framework !== 'standard' && framework !== 'react') {
     fail(`--framework must be "standard" or "react", not "${framework}".`);
+}
+
+/*
+ * What the control binds: one column, or a collection.
+ *
+ * A flag rather than an eleventh question, so `--yes` still requires exactly the
+ * same ten values and the interactive path is unchanged. All four combinations
+ * with --framework are supported.
+ */
+const type = args.type ?? 'field';
+
+if (type !== 'field' && type !== 'dataset') {
+    fail(`--type must be "field" or "dataset", not "${type}".`);
 }
 
 const rules = {
@@ -211,6 +231,16 @@ for (const path of walkPaths(root)) {
     }
 }
 
+/*
+ * Order matters here, and not incidentally.
+ *
+ * applyType() runs first because the dataset manifest it copies in ships
+ * `control-type="standard"` and a `<resx path=` line — exactly like the field
+ * manifest — so applyFramework()'s react patch then lands on it unchanged. The
+ * other order would need a second copy of that patch, and two copies of a patch
+ * are two patches that drift.
+ */
+applyType(answers.CONTROL);
 applyFramework(answers.CONTROL);
 
 /*
@@ -246,7 +276,7 @@ for (const line of renamed) {
 }
 
 console.log(`
-Adopted as a ${framework} control.
+Adopted as a ${framework} ${type} control.
 
 Next:
   1. Review the diff — the publisher prefix and the solution unique name are
@@ -258,10 +288,53 @@ Next:
      do not write simply do not appear.
   5. Replace media/logo.png — the one here is a placeholder, and nothing in CI
      checks what it looks like.
-  6. Add the repository to PCFHub with the slug "${answers.SLUG}", then tag v0.1.0.
+  6. Add the repository to PCFHub with the slug "${answers.SLUG}", then tag v0.1.0.${type === 'dataset' ? `
+  7. Replace demo/records.json with a fixture that looks like your view, then
+     set demo.datasetFixture and demo.fidelity in pcfhub.json.` : ''}
 `);
 
 // ------------------------------------------------------------------ helpers
+
+/**
+ * Turn the bound-column control into a dataset one.
+ *
+ * A dataset control binds a collection rather than a column, and almost nothing
+ * about the entry point survives that change — so unlike applyFramework(), this
+ * replaces the control's source outright rather than patching it.
+ *
+ * What it deliberately does *not* touch: `control-type`, which stays
+ * "standard", and the `<resx path=` line. Both are what applyFramework()'s
+ * react patch matches on, so running that afterwards needs no dataset-specific
+ * branch of its own.
+ *
+ * The variant it copies from ships no `property-set` roles. That is a decision
+ * the manifest's own comments explain, and one worth revisiting per control:
+ * roles are right when specific columns play specific parts, and wrong when the
+ * control renders whatever the view supplies.
+ */
+function applyType(control) {
+    if (type !== 'dataset') {
+        return;
+    }
+
+    const source = join(root, 'variants', 'dataset');
+    const target = join(root, control);
+
+    cpSync(join(source, 'ControlManifest.Input.xml'), join(target, 'ControlManifest.Input.xml'));
+    cpSync(join(source, 'index.ts'), join(target, 'index.ts'));
+    cpSync(join(source, 'css'), join(target, 'css'), { recursive: true });
+    cpSync(join(source, 'strings'), join(target, 'strings'), { recursive: true });
+
+    // api.md loses `kind=bound` and gains `kind=dataset` — a dataset control
+    // binds no column, so the shipped section would render an empty table.
+    cpSync(join(source, 'docs', 'api.md'), join(root, 'docs', 'api.md'));
+
+    // A starter fixture, so `demo.datasetFixture` has something to point at.
+    // Only dataset controls get one: the hub reads it for nothing else.
+    cpSync(join(source, 'demo'), join(root, 'demo'), { recursive: true });
+
+    edit('pcfhub.json', (text) => text.replace('"type": "field"', '"type": "dataset"'));
+}
 
 /**
  * Turn the standard DOM control into a React (virtual) one.
@@ -279,7 +352,12 @@ function applyFramework(control) {
         return;
     }
 
-    const source = join(root, 'variants', 'react');
+    // The dataset variant carries its own React sources: a dataset control's
+    // entry point shares no code with a bound-column one beyond the class
+    // shape.
+    const source = type === 'dataset'
+        ? join(root, 'variants', 'dataset', 'react')
+        : join(root, 'variants', 'react');
     const target = join(root, control);
 
     mkdirSync(join(target, 'components'), { recursive: true });
@@ -294,10 +372,20 @@ function applyFramework(control) {
     // control is recorded as "virtual" — "field" would be re-derived as
     // "virtual" at every release and quietly disagree with the repository.
     // `npm run check` enforces this now.
-    edit('pcfhub.json', (text) =>
-        text
-            .replace('"type": "field"', '"type": "virtual"')
-            .replace('"framework": "standard"', '"framework": "react_virtual"'));
+    //
+    // A virtual *dataset* control stays "dataset" for the same reason, which is
+    // why the type replace is skipped rather than merely failing to match:
+    // edit() compares whole files, so a chained replace whose first link is a
+    // no-op still passes. Written as a branch, this composition is a decision;
+    // written as a replace that happens to miss, it would be an accident that
+    // works.
+    edit('pcfhub.json', (text) => {
+        const typed = type === 'dataset'
+            ? text
+            : text.replace('"type": "field"', '"type": "virtual"');
+
+        return typed.replace('"framework": "standard"', '"framework": "react_virtual"');
+    });
 
     edit(join(control, 'ControlManifest.Input.xml'), (text) =>
         text

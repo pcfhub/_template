@@ -1,0 +1,154 @@
+/*
+  Every rule is scoped under .__CONTROL__.
+
+  A code component's CSS is loaded into the whole page, not into a shadow root,
+  so an unscoped `table { }` here restyles the host form.
+
+  The colours are Fluent design tokens, which FluentProvider emits as CSS custom
+  properties on its own wrapper — so the table picks up the host's theme without
+  importing a single Fluent component. The fallbacks after each comma are what
+  the control looks like if that ever stops being true.
+*/
+
+.__CONTROL__ {
+    font-family: var(--fontFamilyBase, 'Segoe UI', system-ui, sans-serif);
+    font-size: var(--fontSizeBase300, 14px);
+    color: var(--colorNeutralForeground1, #242424);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacingVerticalS, 8px);
+    width: 100%;
+}
+
+.__CONTROL__-message {
+    margin: 0;
+    padding: var(--spacingVerticalL, 16px);
+    color: var(--colorNeutralForeground3, #616161);
+}
+
+.__CONTROL__-error {
+    color: var(--colorPaletteRedForeground1, #b10e1c);
+}
+
+/* Wide views scroll inside the control rather than widening the form. */
+.__CONTROL__-scroll {
+    overflow-x: auto;
+    width: 100%;
+}
+
+/*
+  Dim rather than blank while a page loads. Replacing the rows with a spinner
+  makes every sort and page turn flash empty.
+*/
+.__CONTROL__-scroll.is-loading {
+    opacity: 0.6;
+}
+
+.__CONTROL__-table {
+    border-collapse: collapse;
+    width: 100%;
+    table-layout: fixed;
+}
+
+/* The title names the table for a screen reader without taking up space. */
+.__CONTROL__-caption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+}
+
+.__CONTROL__-table th,
+.__CONTROL__-table td {
+    text-align: start;
+    padding: var(--spacingVerticalS, 8px) var(--spacingHorizontalM, 12px);
+    border-bottom: 1px solid var(--colorNeutralStroke2, #e0e0e0);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.__CONTROL__-table th {
+    font-weight: var(--fontWeightSemibold, 600);
+    border-bottom: 1px solid var(--colorNeutralStroke1, #d1d1d1);
+}
+
+.__CONTROL__-table tbody tr:hover {
+    background-color: var(--colorNeutralBackground1Hover, #f5f5f5);
+}
+
+
+
+/*
+  The sort control and the open-record control are real buttons, so they are
+  keyboard-reachable. These rules strip the browser chrome without removing the
+  semantics.
+*/
+.__CONTROL__-sort,
+.__CONTROL__-open {
+    font: inherit;
+    color: inherit;
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.__CONTROL__-sort {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacingHorizontalXS, 4px);
+    font-weight: inherit;
+}
+
+.__CONTROL__-open {
+    color: var(--colorBrandForegroundLink, #0f6cbd);
+    text-align: start;
+}
+
+.__CONTROL__-open:hover {
+    text-decoration: underline;
+}
+
+.__CONTROL__-sort:focus-visible,
+.__CONTROL__-open:focus-visible,
+.__CONTROL__-pager button:focus-visible {
+    outline: 2px solid var(--colorStrokeFocus2, #000000);
+    outline-offset: 2px;
+}
+
+.__CONTROL__-arrow {
+    font-size: 0.7em;
+    color: var(--colorNeutralForeground3, #616161);
+}
+
+.__CONTROL__-pager {
+    display: flex;
+    align-items: center;
+    gap: var(--spacingHorizontalM, 12px);
+}
+
+.__CONTROL__-pager button {
+    font: inherit;
+    padding: var(--spacingVerticalXS, 4px) var(--spacingHorizontalM, 12px);
+    color: var(--colorNeutralForeground1, #242424);
+    background-color: var(--colorNeutralBackground1, #ffffff);
+    border: 1px solid var(--colorNeutralStroke1, #d1d1d1);
+    border-radius: var(--borderRadiusMedium, 4px);
+    cursor: pointer;
+}
+
+.__CONTROL__-pager button:disabled {
+    color: var(--colorNeutralForegroundDisabled, #bdbdbd);
+    border-color: var(--colorNeutralStrokeDisabled, #e0e0e0);
+    cursor: default;
+}
+
+.__CONTROL__-pagerStatus {
+    color: var(--colorNeutralForeground3, #616161);
+}
