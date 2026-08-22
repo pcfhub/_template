@@ -32,9 +32,20 @@
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\.gitignore" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\bin\**" />
     <!--
-      `demo` only exists for a dataset control, and the entry is inert without
-      it — but a fixture packed into the solution is dead weight shipped to every
-      customer, and the omission is silent.
+      Every entry in this list is tidiness, not protection — including this one.
+
+      It is easy to read a `demo`-free solution zip as this line doing its job.
+      It is not: the pack takes `out/controls/<Control>/**` plus the solution
+      XMLs and never looks at loose project files, so `demo/`, `docs/`, `media/`
+      and `scripts/` stay out of the zip whether or not they are named here.
+      Measured both ways on `pcf-compact-list` — 8 files in the zip with this
+      line, 8 without — and confirmed against `pcf-tag-list`, which has a
+      fixture, has never carried the line, and packs no fixture.
+
+      So do not cite this list as the reason something is not shipping, and do
+      not treat a repository missing an entry as a repository shipping dead
+      weight. What it actually does is keep the msbuild project's item list to
+      the files the project is about.
     -->
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\demo\**" />
     <ExcludeDirectories Include="$(MSBuildThisFileDirectory)\docs\**" />
