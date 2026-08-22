@@ -260,6 +260,14 @@ rmSync(join(root, 'variants'), { recursive: true, force: true });
  */
 rmSync(join(root, 'docs', 'migration.md'), { force: true });
 
+/*
+ * adopt.mjs copies this template into a repository that already exists. A
+ * repository scaffolded *from* the template has already had that done to it, so
+ * the script has no second act here — and it carries a literal __CONTROL__ in
+ * its own comments, which is exactly what check-template.mjs fails on.
+ */
+rmSync(join(root, 'scripts', 'adopt.mjs'), { force: true });
+
 const templateDoc = join(root, 'TEMPLATE.md');
 
 if (existsSync(templateDoc)) {

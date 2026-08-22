@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "adopt": "node scripts/adopt.mjs",
     "check": "node scripts/check-template.mjs",
     "build": "pcf-scripts build",
     "clean": "pcf-scripts clean",

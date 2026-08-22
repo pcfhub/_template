@@ -21,9 +21,10 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'out', 'bin', 'obj', 'generated']);
 
-// The setup script names every token it replaces, so it always "contains
-// placeholders" — it is the thing that removes them.
-const SKIP_PATHS = new Set(['scripts/setup.mjs', 'scripts/check-template.mjs']);
+// The adoption scripts name every token they replace, so they always "contain
+// placeholders" — they are the things that remove them. setup.mjs deletes
+// adopt.mjs on adoption, but a repo may still be mid-flight when this runs.
+const SKIP_PATHS = new Set(['scripts/setup.mjs', 'scripts/adopt.mjs', 'scripts/check-template.mjs']);
 
 const SKIP_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|mp4|webm|zip|ico|woff2?)$/i;
 
