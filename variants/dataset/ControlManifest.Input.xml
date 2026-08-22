@@ -35,6 +35,15 @@
       With none, leave it out: the directive renders an empty table, which reads
       as "this control has no dataset columns" rather than as a missing section.
 
+      And if you add roles, **change demo/records.json so each column's `alias`
+      differs from its `name`.** A role is found on the column by `alias` and
+      read off the record by `name`, and getting that backwards renders nothing
+      at all against a real view. The fixture here sets both to the same string,
+      which is correct with no roles and is exactly what let that bug reach
+      production in pcf-tag-list: the demo looked right because either order
+      worked against it. Realistic values — `"name": "cr123_tagname"` with
+      `"alias": "labelField"` — make the mistake fail where you can see it.
+
         <data-set name="records" display-name-key="Records_DataSet_Name">
           <property-set name="labelField" display-name-key="LabelField_Name"
                         of-type="SingleLine.Text" usage="bound" required="true" />

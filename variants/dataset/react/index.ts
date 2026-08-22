@@ -15,6 +15,13 @@ const MAX_PAGE_SIZE = 250;
 /**
  * A virtual (React) dataset control.
  *
+ * **What `--type dataset` scaffolds is a table**, with sortable headers, a pager
+ * and an open-record button. That is the right default and its comments are the
+ * traps a dataset control hits — but a dataset control that is *not* a table
+ * replaces most of this file rather than adjusting it. A board, a calendar or a
+ * chart keeps the paging and mutator discipline below and little else. Knowing
+ * that now is cheaper than discovering it after the manifest is written.
+ *
  * Everything that talks to the platform lives in this file. The component never
  * sees `context` or the dataset — every call reaches it as a callback prop.
  * That is not tidiness: it keeps the whole platform surface in one file that
@@ -26,6 +33,14 @@ const MAX_PAGE_SIZE = 250;
  * A dataset has mutators — `setPageSize`, `refresh`, `loadNextPage` — and
  * calling any of them unguarded from `updateView` is an infinite loop, not a
  * slow render.
+ *
+ * The second is why the pager reads none of `hasPreviousPage`, `firstPageNumber`
+ * or the raw length of `sortedRecordIds`. Observed on a real model-driven form:
+ * `loadNextPage(true)` ignores its argument and returns the whole page range,
+ * `hasPreviousPage` stays false so Previous never unlocks, and `firstPageNumber`
+ * disagrees with the ids badly enough to print a range past its own total. The
+ * page number is this control's own counter, and `currentPage()` cuts the
+ * accumulated array back down. Both are commented where they are.
  */
 export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOutputs> {
     private notifyOutputChanged!: () => void;
@@ -64,8 +79,8 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
             columns: (dataset.columns ?? [])
                 .filter((column) => !column.isHidden)
                 .sort((a, b) => a.order - b.order),
-            pageIds: dataset.sortedRecordIds ?? [],
-            page: this.currentPage(dataset),
+            pageIds: this.currentPage(dataset.sortedRecordIds ?? []),
+            page: this.page,
             pageSize: this.appliedPageSize,
             visible: context.mode.isVisible,
             disabled: context.mode.isControlDisabled,
@@ -113,15 +128,39 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
     }
 
     /**
-     * With `loadNextPage(true)` the loaded range is a single page, so
-     * `firstPageNumber` should be the current page — but that is an inference
-     * from the naming rather than something the types promise, so the local
-     * counter is the fallback rather than the other way round.
+     * The records belonging to the page the pager says it is on.
+     *
+     * **This is the one place a dataset control should slice
+     * `sortedRecordIds`, and the usual rule is never to do it.** On a platform
+     * that honours `loadOnlyNewPage`, that array already *is* the current page,
+     * and slicing hides records the platform paged for. A single-page demo
+     * fixture tempts you into it and the temptation is wrong.
+     *
+     * Except that the flag is not honoured. Observed on a real model-driven
+     * form: `loadNextPage(true)` from page 1 of a 6-record view at page size 3
+     * returned all six ids, and page 2 rendered under page 1. The argument is
+     * documented, typed, passed and ignored.
+     *
+     * So the slice is a repair for one specific platform behaviour, written to
+     * disappear the moment that behaviour changes: when the array is no longer
+     * than a page it already is the page, and nothing is cut. Slicing by page
+     * offset rather than taking the tail is what makes it right going backwards
+     * as well as forwards.
+     *
+     * A control that *wants* the accumulation — a "load more" list, where the
+     * point is that earlier records stay on screen — should not call this.
      */
-    private currentPage(dataset: DataSet): number {
-        const first = dataset.paging.firstPageNumber;
+    private currentPage(ids: string[]): string[] {
+        if (ids.length <= this.appliedPageSize) {
+            return ids;
+        }
 
-        return typeof first === 'number' && first >= 1 ? first : this.page;
+        const start = (this.page - 1) * this.appliedPageSize;
+        const slice = ids.slice(start, start + this.appliedPageSize);
+
+        // Never empty the table: showing the wrong page is recoverable by
+        // clicking, showing nothing looks like data loss.
+        return slice.length > 0 ? slice : ids.slice(-this.appliedPageSize);
     }
 
     /**
@@ -146,27 +185,60 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
     }
 
     /**
-     * `loadNextPage()` with no argument is infinite scroll, not paging: the
-     * type definition says it returns results for the whole page range, so
-     * `sortedRecordIds` accumulates pages 1..N and the table grows instead of
-     * turning. `true` limits it to the newly loaded page.
+     * `hasNextPage` has behaved, and it is the only available answer to "is
+     * there more" — a local counter cannot supply that one.
      */
     private nextPage(dataset: DataSet): void {
         if (!dataset.paging.hasNextPage) {
             return;
         }
 
-        this.page += 1;
-        dataset.paging.loadNextPage(true);
+        this.goToPage(dataset, this.page + 1);
     }
 
+    /*
+     * `hasPreviousPage` answers a different question than it appears to.
+     *
+     * Observed on a real model-driven form: after paging forward it stays
+     * false, so Previous never unlocks and there is no way back. The platform
+     * treats the load as the *range* pages 1..N, and a range beginning at page
+     * 1 truthfully has nothing before it.
+     *
+     * The control's own counter is what answers "is there a page before this
+     * one", so that is what gates this — and the button, in the component.
+     */
     private previousPage(dataset: DataSet): void {
-        if (!dataset.paging.hasPreviousPage) {
+        if (this.page <= 1) {
             return;
         }
 
-        this.page = Math.max(1, this.page - 1);
-        dataset.paging.loadPreviousPage(true);
+        this.goToPage(dataset, this.page - 1);
+    }
+
+    /**
+     * Turn to an absolute page.
+     *
+     * `loadExactPage` says what a pager means, and it is the documented
+     * fallback for a host that ignores `loadOnlyNewPage` — which real ones do.
+     * It is typed as required and feature-detected anyway: a required member is
+     * a claim about the type definitions, not about the host, and this method
+     * exists because one of those claims did not hold.
+     */
+    private goToPage(dataset: DataSet, target: number): void {
+        const back = target < this.page;
+
+        this.page = Math.max(1, target);
+
+        if (typeof dataset.paging.loadExactPage === 'function') {
+            dataset.paging.loadExactPage(this.page);
+            return;
+        }
+
+        if (back) {
+            dataset.paging.loadPreviousPage(true);
+        } else {
+            dataset.paging.loadNextPage(true);
+        }
     }
 
     /**

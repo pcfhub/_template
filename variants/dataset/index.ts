@@ -14,6 +14,13 @@ const MAX_PAGE_SIZE = 250;
 /**
  * A standard (DOM) dataset control.
  *
+ * **What `--type dataset` scaffolds is a table**, with sortable headers, a pager
+ * and an open-record button. That is the right default and its comments are the
+ * traps a dataset control hits — but a dataset control that is *not* a table
+ * replaces most of this file rather than adjusting it. A board, a calendar or a
+ * chart keeps the paging and mutator discipline below and little else. Knowing
+ * that now is cheaper than discovering it after the manifest is written.
+ *
  * A dataset control binds a collection — a view, a subgrid, a canvas table —
  * rather than a single column, and the difference is not just the shape of the
  * data. **A dataset has mutators**, and that changes what `updateView` means.

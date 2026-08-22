@@ -42,6 +42,12 @@ function columnWidths(columns: Column[]): string[] | null {
  * `totalResultCount` is -1 when the platform did not count the rows, which is
  * common on large views. Printing "of -1" is the tell that nobody checked, so
  * name the page instead of the range.
+ *
+ * Both ends are clamped to the total. `props.page` is the control's own counter
+ * and `pageIds.length` is what survived the slice, and combining two numbers
+ * that came from different places is how this printed **"4–9 of 6"** on a real
+ * form. The clamp is cheap; a range past its own total is not recoverable by
+ * the reader.
  */
 function pagerLabel(props: IProps): string {
     const total = props.dataset.paging.totalResultCount;
@@ -54,8 +60,8 @@ function pagerLabel(props: IProps): string {
 
     return props
         .getString('__CONTROL___RangeStatus')
-        .replace('{0}', String(start))
-        .replace('{1}', String(start + props.pageIds.length - 1))
+        .replace('{0}', String(Math.min(start, total)))
+        .replace('{1}', String(Math.min(start + props.pageIds.length - 1, total)))
         .replace('{2}', String(total));
 }
 
@@ -213,7 +219,10 @@ export function __CONTROL__Control(props: IProps): React.ReactElement | null {
             <div className="__CONTROL__-pager">
                 <button
                     type="button"
-                    disabled={props.disabled || !dataset.paging.hasPreviousPage}
+                    // Not `hasPreviousPage`: it stays false after paging
+                    // forward on a real form, so Previous never unlocks. The
+                    // control's own page counter is the honest answer.
+                    disabled={props.disabled || props.page <= 1}
                     onClick={props.onPreviousPage}
                 >
                     {getString('__CONTROL___Previous')}
