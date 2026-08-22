@@ -32,6 +32,14 @@ const MAX_PAGE_SIZE = 250;
  * anyway, and wrong for the buttons in the chrome — clicking Next destroys the
  * Next button mid-interaction. `restoreFocus` below is how that is paid for,
  * and any control you add with a persistent action needs the same.
+ *
+ * The third is why the pager reads none of `hasPreviousPage`, `firstPageNumber`
+ * or the raw length of `sortedRecordIds`. Observed on a real model-driven form:
+ * `loadNextPage(true)` ignores its argument and returns the whole page range,
+ * `hasPreviousPage` stays false so Previous never unlocks, and `firstPageNumber`
+ * disagrees with the ids badly enough to print a range past its own total. The
+ * page number is this control's own counter, and `currentPage()` cuts the
+ * accumulated array back down. Both are commented where they are.
  */
 export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, IOutputs> {
     private container!: HTMLDivElement;
@@ -152,12 +160,14 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
         // `loading` is true on the first updateView, before any records arrive,
         // so rendering the empty state here flashes "No records" on every load.
-        const ids = dataset.sortedRecordIds ?? [];
+        const all = dataset.sortedRecordIds ?? [];
 
-        if (ids.length === 0) {
+        if (all.length === 0) {
             this.message(dataset.loading ? getString('__CONTROL___Loading') : getString('__CONTROL___Empty'));
             return;
         }
+
+        const ids = this.currentPage(all);
 
         this.container.appendChild(this.table(dataset, columns, ids, getString));
         this.container.appendChild(this.pager(dataset, ids.length, getString));
@@ -178,6 +188,42 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
             (button?.disabled ? other : button)?.focus();
         }
+    }
+
+    /**
+     * The records belonging to the page the pager says it is on.
+     *
+     * **This is the one place a dataset control should slice
+     * `sortedRecordIds`, and the usual rule is never to do it.** On a platform
+     * that honours `loadOnlyNewPage`, that array already *is* the current page,
+     * and slicing hides records the platform paged for. A single-page demo
+     * fixture tempts you into it and the temptation is wrong.
+     *
+     * Except that the flag is not honoured. Observed on a real model-driven
+     * form: `loadNextPage(true)` from page 1 of a 6-record view at page size 3
+     * returned all six ids, and page 2 rendered under page 1. The argument is
+     * documented, typed, passed and ignored.
+     *
+     * So the slice is a repair for one specific platform behaviour, written to
+     * disappear the moment that behaviour changes: when the array is no longer
+     * than a page it already is the page, and nothing is cut. Slicing by page
+     * offset rather than taking the tail is what makes it right going backwards
+     * as well as forwards.
+     *
+     * A control that *wants* the accumulation — a "load more" list, where the
+     * point is that earlier records stay on screen — should not call this.
+     */
+    private currentPage(ids: string[]): string[] {
+        if (ids.length <= this.appliedPageSize) {
+            return ids;
+        }
+
+        const start = (this.page - 1) * this.appliedPageSize;
+        const slice = ids.slice(start, start + this.appliedPageSize);
+
+        // Never empty the table: showing the wrong page is recoverable by
+        // clicking, showing nothing looks like data loss.
+        return slice.length > 0 ? slice : ids.slice(-this.appliedPageSize);
     }
 
     private message(text: string): void {
@@ -280,19 +326,29 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         const wrap = document.createElement('div');
         wrap.className = '__CONTROL__-pager';
 
+        /*
+         * `hasPreviousPage` answers a different question than it appears to.
+         *
+         * Observed on a real model-driven form: after paging forward it stays
+         * false, so Previous never unlocks and there is no way back. The
+         * platform treats the load as the *range* pages 1..N, and a range
+         * beginning at page 1 truthfully has nothing before it.
+         *
+         * The control's own counter is what answers "is there a page before
+         * this one", so that is what drives the button.
+         */
         const previous = document.createElement('button');
         previous.type = 'button';
         previous.className = '__CONTROL__-previous';
         previous.textContent = getString('__CONTROL___Previous');
-        previous.disabled = !dataset.paging.hasPreviousPage;
+        previous.disabled = this.page <= 1;
         previous.addEventListener('click', () => {
-            if (!dataset.paging.hasPreviousPage) {
+            if (this.page <= 1) {
                 return;
             }
 
-            this.page = Math.max(1, this.page - 1);
             this.restoreFocus = 'previous';
-            dataset.paging.loadPreviousPage(true);
+            this.goToPage(dataset, this.page - 1);
         });
 
         const status = document.createElement('span');
@@ -300,6 +356,8 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         status.setAttribute('aria-live', 'polite');
         status.textContent = this.pagerLabel(dataset, rowsOnPage, getString);
 
+        // `hasNextPage` has behaved, and it is the only available answer to
+        // "is there more" — a local counter cannot supply that one.
         const next = document.createElement('button');
         next.type = 'button';
         next.className = '__CONTROL__-next';
@@ -310,14 +368,8 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
                 return;
             }
 
-            this.page += 1;
             this.restoreFocus = 'next';
-
-            // `loadNextPage()` with no argument is infinite scroll, not paging:
-            // the type definition says it returns results for the whole page
-            // range, so `sortedRecordIds` accumulates pages 1..N and the table
-            // grows instead of turning. `true` limits it to the new page.
-            dataset.paging.loadNextPage(true);
+            this.goToPage(dataset, this.page + 1);
         });
 
         wrap.append(previous, status, next);
@@ -326,24 +378,54 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
     }
 
     /**
+     * Turn to an absolute page.
+     *
+     * `loadExactPage` says what a pager means, and it is the documented
+     * fallback for a host that ignores `loadOnlyNewPage` — which real ones do.
+     * It is typed as required and feature-detected anyway: a required member is
+     * a claim about the type definitions, not about the host, and this method
+     * exists because one of those claims did not hold.
+     */
+    private goToPage(dataset: DataSet, target: number): void {
+        const back = target < this.page;
+
+        this.page = Math.max(1, target);
+
+        if (typeof dataset.paging.loadExactPage === 'function') {
+            dataset.paging.loadExactPage(this.page);
+            return;
+        }
+
+        if (back) {
+            dataset.paging.loadPreviousPage(true);
+        } else {
+            dataset.paging.loadNextPage(true);
+        }
+    }
+
+    /**
      * `totalResultCount` is -1 when the platform did not count the rows, which
      * is common on large views. Printing "of -1" is the tell that nobody
      * checked, so name the page instead of the range.
+     *
+     * The page number is this control's own counter. `firstPageNumber` was
+     * preferred here once and produced **"4–9 of 6"** on a real form: it
+     * reported 2 while `sortedRecordIds` held both pages, so a start taken from
+     * the platform met a row count taken from an accumulated array. Two sources
+     * in one sentence is what let the range run past its own total.
      */
     private pagerLabel(dataset: DataSet, rowsOnPage: number, getString: (id: string) => string): string {
         const total = dataset.paging.totalResultCount;
-        const first = dataset.paging.firstPageNumber;
-        const page = typeof first === 'number' && first >= 1 ? first : this.page;
 
         if (total < 0) {
-            return getString('__CONTROL___PageStatus').replace('{0}', String(page));
+            return getString('__CONTROL___PageStatus').replace('{0}', String(this.page));
         }
 
-        const start = (page - 1) * this.appliedPageSize + 1;
+        const start = (this.page - 1) * this.appliedPageSize + 1;
 
         return getString('__CONTROL___RangeStatus')
-            .replace('{0}', String(start))
-            .replace('{1}', String(start + rowsOnPage - 1))
+            .replace('{0}', String(Math.min(start, total)))
+            .replace('{1}', String(Math.min(start + rowsOnPage - 1, total)))
             .replace('{2}', String(total));
     }
 
