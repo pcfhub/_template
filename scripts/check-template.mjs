@@ -32,6 +32,15 @@ const PLACEHOLDER = /__[A-Z][A-Z0-9_]*__/g;
 
 const problems = [];
 
+/*
+ * Findings that print but do not fail. Everything in `problems` is something
+ * the hub or the build will get wrong; a warning is something a human should
+ * look at, reached by a heuristic that can be wrong. Keeping the two apart is
+ * the point — a check that fails on a guess gets disabled, and takes the
+ * reliable checks with it.
+ */
+const warnings = [];
+
 // ------------------------------------------------------------- placeholders
 
 for (const path of walk(root)) {
@@ -160,6 +169,64 @@ if (manifestPath && exists(join(root, manifestPath))) {
     }
 }
 
+// ------------------------------------------------------- declared features
+//
+// Every <uses-feature> becomes an install-time permission prompt for the
+// customer, so a control that declares a feature it never calls is asking for
+// consent it does not need. That costs nothing to detect and is invisible
+// otherwise: nothing fails, the prompt just appears.
+//
+// Note this is *not* the stock `pac pcf init` manifest, which ships the
+// feature list inside an <!-- UNCOMMENT TO ENABLE --> block. Those are not
+// declared and cost nothing. This fires only on a feature-usage block someone
+// actually enabled and then stopped using.
+//
+// A warning rather than a problem, because this is a regex over source and a
+// feature can be reached in ways it cannot see — destructured off `context`,
+// or from a helper outside the control directory. The test is deliberately
+// weak: the accessor name appearing *anywhere* in the control sources,
+// comments included, is enough to stay quiet. Over-matching costs a missed
+// warning; under-matching would fail a build that is fine.
+
+const ACCESSORS = { WebAPI: 'webAPI', Utility: 'utils' };
+
+if (manifestPath && exists(join(root, manifestPath))) {
+    // Comments stripped first. A commented-out <uses-feature> is not declared,
+    // and this template ships its examples inside a comment — scanning the raw
+    // file would warn about every freshly scaffolded control, which is the
+    // fastest way to teach people to ignore the warning.
+    const xml = readFileSync(join(root, manifestPath), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const declared = [...xml.matchAll(/<uses-feature\s+name="([^"]+)"/g)].map((match) => match[1]);
+
+    if (declared.length > 0) {
+        const controlDir = manifestPath.split(/[\\/]/)[0];
+        let sources = '';
+
+        for (const path of walk(join(root, controlDir))) {
+            if (/\.tsx?$/.test(path)) {
+                sources += readFileSync(path, 'utf8');
+            }
+        }
+
+        // Every Device.* feature is reached through the one accessor, so they
+        // stand or fall together. A feature this map does not know is skipped
+        // rather than guessed at.
+        const unused = declared.filter((feature) => {
+            const accessor = feature.startsWith('Device.') ? 'device' : ACCESSORS[feature];
+
+            return accessor !== undefined && !new RegExp(`\\b${accessor}\\b`).test(sources);
+        });
+
+        if (unused.length > 0) {
+            warnings.push(
+                `${manifestPath} declares ${unused.length} <uses-feature> that nothing appears to use: ` +
+                `${unused.join(', ')}. Each one is an install-time permission prompt for the customer. ` +
+                'Delete the ones the control does not call.',
+            );
+        }
+    }
+}
+
 // The hub reads docs from the default branch and reports any file it does not
 // recognise, so a misnamed page is published nowhere and mentioned only in an
 // ingestion run nobody is watching.
@@ -284,9 +351,13 @@ if (problems.length > 0) {
     process.exit(1);
 }
 
+for (const warning of warnings) {
+    console.warn(`\n  warning: ${warning}`);
+}
+
 console.log(
-    'Template adopted, pcfhub.json readable, control shape agrees with the manifest, ' +
-        'docs named correctly, media present.',
+    `${warnings.length > 0 ? '\n' : ''}Template adopted, pcfhub.json readable, control shape agrees ` +
+        'with the manifest, docs named correctly, media present.',
 );
 
 // ------------------------------------------------------------------ helpers

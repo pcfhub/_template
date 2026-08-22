@@ -309,7 +309,14 @@ if (existsSync(pkgPath)) {
 // Findings rather than actions: things a human has to decide, gathered while
 // the target was being read so that nobody has to go looking for them.
 
-const features = [...manifestXml.matchAll(/<uses-feature\s+name="([^"]+)"/g)].map((m) => m[1]);
+/*
+ * Comments stripped first. Both this template and `pac pcf init` ship the
+ * feature list inside an <!-- UNCOMMENT TO ENABLE --> block, so a scan of the
+ * raw XML reports every stock manifest as declaring eight features it never
+ * calls — a false positive that looks exactly like the real finding.
+ */
+const declaredXml = manifestXml.replace(/<!--[\s\S]*?-->/g, '');
+const features = [...declaredXml.matchAll(/<uses-feature\s+name="([^"]+)"/g)].map((m) => m[1]);
 
 if (features.length > 0) {
     const used = grepControl(target, controlDir, /context\.(device|webAPI|utils)\b/);
