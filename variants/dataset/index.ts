@@ -25,6 +25,13 @@ const MAX_PAGE_SIZE = 250;
  * `updateView`. Every mutator call below is either guarded or in an event
  * handler, and that is the single most important thing to preserve when you
  * edit this file.
+ *
+ * The second thing to preserve is smaller and easier to lose: this control
+ * rebuilds its whole DOM on every render, so **anything the user was focused on
+ * ceases to exist**. That is fine for the records, which change wholesale
+ * anyway, and wrong for the buttons in the chrome — clicking Next destroys the
+ * Next button mid-interaction. `restoreFocus` below is how that is paid for,
+ * and any control you add with a persistent action needs the same.
  */
 export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, IOutputs> {
     private container!: HTMLDivElement;
@@ -42,6 +49,16 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
     private appliedPageSize = 0;
 
     private page = 1;
+
+    /**
+     * Which chrome button to put focus back on after the next render.
+     *
+     * Set in a click handler, consumed once at the end of `render()`. Paging
+     * with the keyboard is otherwise a one-shot: the button is destroyed by the
+     * render its own click caused, focus falls back to `<body>`, and turning a
+     * second page means tabbing in from the top of the form again.
+     */
+    private restoreFocus: 'previous' | 'next' | null = null;
 
     public init(
         _context: ComponentFramework.Context<IInputs>,
@@ -76,7 +93,18 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         this.container.innerHTML = '';
     }
 
-    /** Ask for a new page size, but only when it actually changed. See the note above. */
+    /**
+     * Ask for a new page size, but only when it actually changed. See the note
+     * above.
+     *
+     * If you add a **second** guarded mutator to `updateView` — a paging mode, a
+     * filter, anything that ends in `refresh()` — make it skip its own first
+     * run. On the very first `updateView` every "applied" field still holds its
+     * initial value, so every guard fires at once and each one refreshes: one
+     * load, several round trips. Guarding on `applied === ''` (or a `-1`
+     * sentinel) rather than on a real default is what distinguishes "nobody has
+     * asked yet" from "the answer changed".
+     */
     private applyPageSize(context: ComponentFramework.Context<IInputs>, dataset: DataSet): void {
         const raw = context.parameters.pageSize.raw ?? 25;
         const wanted = Math.min(Math.max(Math.trunc(raw), 1), MAX_PAGE_SIZE);
@@ -133,6 +161,23 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
         this.container.appendChild(this.table(dataset, columns, ids, getString));
         this.container.appendChild(this.pager(dataset, ids.length, getString));
+
+        // The button that caused this render no longer exists. Put focus on its
+        // replacement, or fall back to the other one when this page turn was
+        // the last: a disabled button cannot take focus, and silently doing
+        // nothing here would strand the keyboard at <body>.
+        if (this.restoreFocus) {
+            const wanted = this.restoreFocus;
+            this.restoreFocus = null;
+
+            const button =
+                this.container.querySelector<HTMLButtonElement>(`.__CONTROL__-${wanted}`);
+            const other = this.container.querySelector<HTMLButtonElement>(
+                `.__CONTROL__-${wanted === 'next' ? 'previous' : 'next'}`,
+            );
+
+            (button?.disabled ? other : button)?.focus();
+        }
     }
 
     private message(text: string): void {
@@ -237,6 +282,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
         const previous = document.createElement('button');
         previous.type = 'button';
+        previous.className = '__CONTROL__-previous';
         previous.textContent = getString('__CONTROL___Previous');
         previous.disabled = !dataset.paging.hasPreviousPage;
         previous.addEventListener('click', () => {
@@ -245,6 +291,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
             }
 
             this.page = Math.max(1, this.page - 1);
+            this.restoreFocus = 'previous';
             dataset.paging.loadPreviousPage(true);
         });
 
@@ -255,6 +302,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
         const next = document.createElement('button');
         next.type = 'button';
+        next.className = '__CONTROL__-next';
         next.textContent = getString('__CONTROL___Next');
         next.disabled = !dataset.paging.hasNextPage;
         next.addEventListener('click', () => {
@@ -263,6 +311,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
             }
 
             this.page += 1;
+            this.restoreFocus = 'next';
 
             // `loadNextPage()` with no argument is infinite scroll, not paging:
             // the type definition says it returns results for the whole page

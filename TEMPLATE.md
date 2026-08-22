@@ -74,6 +74,20 @@ the React one: a React *dataset* control is `type: "dataset"` with
 `framework: "react_virtual"`, because the hub's parser resolves
 dataset → virtual → field in that order. `npm run check` enforces it.
 
+All four now have a repository behind them rather than an assurance:
+`pcf-star-rating` (field, standard), `pcf-choices-picker` (field, react),
+`pcf-data-table` (dataset, react) and `pcf-compact-list` (dataset, standard) —
+which was the last to be built and needed no correction to the variant it came
+from.
+
+**Note what the dataset variant scaffolds, though: a table.** Sortable column
+headers, a pager, an open-record button on the primary column. That is the right
+default — it is the shape most dataset controls want, and the comments in it are
+the traps that shape hits. But if you are building something that is not a table,
+expect to replace most of `index.ts` rather than adjust it. `pcf-compact-list`
+kept the lifecycle skeleton and the paging guard and threw the rest away, which
+is the intended way to use it.
+
 ### One decision the flag cannot make for you
 
 The scaffolded manifest declares **no `property-set` roles**, and whether that
