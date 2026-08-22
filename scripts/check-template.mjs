@@ -68,10 +68,26 @@ for (const path of walk(root)) {
 }
 
 if (problems.length > 0) {
-    console.error('\nThis repository is still the template. Run:\n\n  npm run setup\n');
+    /*
+     * Two different failures wear the same shape.
+     *
+     * A repository that has not been through setup carries placeholders
+     * everywhere. A repository that has carries them only where a human still
+     * has to write something — the README's three hand-written sections. Both
+     * are placeholders; telling the second one to run `npm run setup` sends
+     * somebody to re-run a script that will not help.
+     */
+    const onlyProse = problems.every((problem) => problem.startsWith('README.md'));
+
+    console.error(onlyProse
+        ? '\nThe README still has sections to write. Replace each placeholder with\n'
+            + 'prose, and delete the comment explaining what belongs there:\n'
+        : '\nThis repository is still the template. Run:\n\n  npm run setup\n');
+
     for (const problem of problems) {
         console.error(`  ${problem}`);
     }
+
     console.error('');
     process.exit(1);
 }

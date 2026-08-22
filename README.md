@@ -16,9 +16,21 @@ recompiles it.
 
   The three sections below are the ones worth writing by hand. Everything after
   them is the same in every repository and needs no edits.
+
+  **Each carries a placeholder, and `npm run check` fails while one remains.**
+  That is deliberate: an unwritten README is the first thing a visitor to the
+  repository sees, and the version of this file that shipped before had worked
+  examples sitting in it that read as real content. One of them — a bound
+  `value` property — was wrong for every control that is not a field control,
+  and reached a published repository.
+
+  Delete these comments once the sections are written. They are instructions to
+  you, and they are noise on a public page.
 -->
 
 ## What it does
+
+__WHAT_IT_DOES__
 
 <!--
   A few paragraphs, not a feature list. Answer what the built-in control does
@@ -31,21 +43,31 @@ recompiles it.
 
 ## Properties
 
+__PROPERTIES__
+
 <!--
   The whole configuration surface, including the defaults. `docs/api.md`
   generates its tables from the manifest; this one is hand-written, so keep it
-  short enough to stay true.
+  short enough to stay true. Read them out of the manifest rather than from
+  memory, and check them against `generated/ManifestTypes.d.ts`.
+
+  A field control's table looks like this — one row per property, and for a
+  dataset control a second table for the `property-set` roles above it, giving
+  both the display name a maker sees and the manifest name the code looks up by:
+
+      | Property | Type | Usage | Default | What it controls |
+      | --- | --- | --- | --- | --- |
+      | `value` | SingleLine.Text | bound, **required** | — | The column this control reads and writes |
 
   Follow it with the notes that do not fit a table: which languages the .resx
-  ship, whether the control bundles a framework or uses the platform's, and any
-  property whose accepted values need spelling out.
+  ship, whether the control bundles a framework or uses the platform's, which
+  `uses-feature` permissions a maker is asked for at install, and any property
+  whose accepted values need spelling out.
 -->
 
-| Property | Type | Usage | Default | What it controls |
-| --- | --- | --- | --- | --- |
-| `value` | SingleLine.Text | bound, **required** | — | The column this control reads and writes |
-
 ## On the hub
+
+__ON_THE_HUB__
 
 <!--
   What `demo.fidelity` is, and *why* it is that and not the next one up. A
@@ -54,7 +76,8 @@ recompiles it.
   device or navigation — which is also one fewer permission prompt for the maker
   installing it.
 
-  Mention what the presets cover. Delete this section if fidelity is `none`.
+  Mention what the presets cover. Delete this section if fidelity is `none` —
+  and delete the placeholder with it, or the check will go on failing.
 -->
 
 ## Install
