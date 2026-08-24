@@ -150,8 +150,13 @@ if (framework !== undefined && !FRAMEWORKS.includes(framework)) {
     );
 }
 
+// Hoisted, because the demo-host checks further down need the manifest too —
+// a grid host has a hard requirement on <platform-library name="React" />.
+let manifestXml = null;
+
 if (manifestPath && exists(join(root, manifestPath))) {
     const xml = readFileSync(join(root, manifestPath), 'utf8');
+    manifestXml = xml;
     const declared = /control-type\s*=\s*"([^"]*)"/.exec(xml)?.[1] ?? '';
 
     // The hub's ControlManifestParser resolves dataset -> virtual -> field, in
@@ -330,13 +335,80 @@ if (datasetFixture && !exists(join(root, datasetFixture))) {
     );
 }
 
+// ---------------------------------------------------------------- demo host
+//
+// Which surface the harness stands up around the control: `form` (the default,
+// and every demo before the key existed) or `grid`, for a grid customizer,
+// where the harness renders a grid over the fixture and the control's overrides
+// draw and edit its cells.
+//
+// Declared, never inferred, and the hub says why: the only sniffable signal is
+// "has a bound SingleLine.Text property", which is true of a great many
+// ordinary field controls. Every rule below mirrors the hub's own
+// ManifestValidator — keep them in step, because a local check that disagrees
+// with the ingester is worse than no local check.
+
+const HOSTS = ['form', 'grid'];
+const declaredHost = manifest.demo?.host;
+const host = declaredHost ?? 'form';
+
+if (declaredHost !== undefined && !HOSTS.includes(declaredHost)) {
+    problems.push(
+        `pcfhub.json has demo.host "${declaredHost}". Expected one of: ${HOSTS.join(', ')}. ` +
+        'The hub errors on a malformed value rather than falling back, since the two ' +
+        'surfaces are not interchangeable.',
+    );
+}
+
 // Deliberately not checked: that a dataset control *has* a fixture. A dataset
 // control with fidelity "none" is a legitimate state, and a rule forcing one
 // would be wrong more often than right.
-if (datasetFixture && type === 'field') {
+//
+// Two shapes read a fixture, not one. A dataset control receives it as its
+// bound dataset property; a grid customizer has no dataset property at all —
+// there the fixture is the *grid's* rows, and the control only decides how
+// their cells look. Miss the second and this check fails a correct repository.
+if (datasetFixture && type !== 'dataset' && host !== 'grid') {
     problems.push(
-        'pcfhub.json declares demo.datasetFixture, but control.type is "field". ' +
-        'The hub reads it only for a dataset control, so it would be ignored.',
+        `pcfhub.json declares demo.datasetFixture, but control.type is "${type}" and demo.host ` +
+        'is not "grid". The hub reads it only for a dataset control or a grid host, so it ' +
+        'would be ignored.',
+    );
+}
+
+// The inverse, and the one that produces a demo which looks fine and is empty.
+// A grid with no rows is a legitimate authored state — an unconfigured view
+// looks the same in the platform — so the hub warns rather than failing, and so
+// does this.
+if (host === 'grid' && fidelity && fidelity !== 'none' && !datasetFixture) {
+    warnings.push(
+        'pcfhub.json sets demo.host to "grid" but declares no demo.datasetFixture. That is ' +
+        'how a grid host gets its rows — without one the grid renders empty and the cell ' +
+        'renderers never run.',
+    );
+}
+
+// The grid is a stand-in for the Power Apps grid, so `full` is a claim it
+// cannot support whatever the control does.
+if (host === 'grid' && fidelity === 'full') {
+    problems.push(
+        'pcfhub.json sets demo.fidelity to "full" on a "grid" demo host. The harness\'s grid ' +
+        'is a stand-in for the Power Apps grid — "mocked" is the ceiling, with what is not ' +
+        'exercised named in demo.limitations.',
+    );
+}
+
+// The harness refuses to boot a grid host whose control does not declare React
+// as a platform library, and it is right to: cell renderers dispatch their
+// hooks through the React instance their own bundle imported, so the harness
+// mounts them with that same instance. A control bundling its own React fails
+// with `Invalid hook call` thrown from inside somebody else's minified bundle,
+// which names nothing. Catching it here costs one regex.
+if (host === 'grid' && manifestXml !== null && !/<platform-library\s+name="React"/.test(manifestXml)) {
+    problems.push(
+        `pcfhub.json sets demo.host to "grid", but ${manifestPath} declares no ` +
+        '<platform-library name="React" />. The hub\'s harness refuses to boot a grid host ' +
+        'without it.',
     );
 }
 

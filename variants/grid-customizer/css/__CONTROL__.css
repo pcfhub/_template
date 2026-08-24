@@ -1,0 +1,98 @@
+/*
+ * Every rule is scoped under a `__CONTROL__-` class, and that is not a naming
+ * preference: these cells are mounted *inside somebody else's grid*, which owns
+ * the row, the cell box, the selection state and the focus ring. A bare element
+ * selector here would restyle the host — and unlike a field control, where the
+ * blast radius is one form, a customizer is assigned to every view of a table.
+ *
+ * Colours are literal rather than Fluent theme tokens. A cell renderer is
+ * mounted per cell with no provider above it, so there is no theme context to
+ * read from — see the manifest's platform-library comment.
+ *
+ * They are literal, but they are not fixed. The custom properties below are
+ * what the rules read, and the media queries at the foot of the file redefine
+ * them for dark and for forced colours. That the tokens are unavailable is an
+ * argument about Fluent's provider; it says nothing about media queries, which
+ * need nothing above them at all. Declaring the properties on `:root` is safe
+ * in a way a *rule* on `:root` would not be: a custom property paints nothing
+ * until something reads it, every name here is prefixed, and this is the only
+ * element every cell of every grid reliably inherits from.
+ */
+
+:root {
+    /* Muted text: Fluent's neutralSecondary. The obvious pick is
+       neutralTertiary (#a19f9d), which is 2.6:1 on white — fine for a border,
+       and a WCAG failure for the em dash below, which is visible text. */
+    --__CONTROL__-muted: #605e5c;
+}
+
+.__CONTROL__-cell {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0;
+    margin: 0;
+    font-weight: 400;
+    /* The cell already sets the row's line box; matching it keeps a customized
+       cell the same height as an untouched one beside it. */
+    line-height: inherit;
+}
+
+.__CONTROL__-empty {
+    color: var(--__CONTROL__-muted);
+}
+
+/*
+ * Apply this when the grid says a column is right-aligned, which it does for
+ * numeric columns via `props.isRightAligned`. `flex-end` rather than
+ * `text-align`, because the cell is a flex container — and flex-end follows the
+ * inherited `direction`, so an RTL grid gets this right without the renderer
+ * reading `isRTLMode`.
+ */
+.__CONTROL__-right {
+    display: flex;
+    width: 100%;
+    justify-content: flex-end;
+}
+
+.__CONTROL__-editor {
+    width: 100%;
+}
+
+/*
+ * The editors sit inside a cell that is already the row's height, and Fluent's
+ * own field margins would push them past it. This height is the fallback:
+ * `rowHeight` is optional in the customizer contract, and when the grid does
+ * supply it the editor overrides this inline.
+ */
+.__CONTROL__-editor .ms-TextField-fieldGroup {
+    height: 28px;
+}
+
+/*
+ * Dark.
+ *
+ * Without this block a model-driven app in dark mode draws this control's
+ * light-theme colours inside a near-black row — legible in themselves, and a
+ * bright rectangle punched through the middle of a dark grid. Check values
+ * against Fluent's dark neutral background (#292827) rather than against black,
+ * since that is the surface these cells sit on.
+ */
+@media (prefers-color-scheme: dark) {
+    :root {
+        --__CONTROL__-muted: #a19f9d;
+    }
+}
+
+/*
+ * Windows high contrast.
+ *
+ * Forced colours replace every colour in this file with a system one, so
+ * anything that was carrying meaning through hue or through a background stops
+ * carrying it. Whatever you add above, carry the meaning as shape here instead:
+ * a border, an underline and a glyph survive forced colours; a tint does not.
+ */
+@media (forced-colors: active) {
+    /* Nothing in the starter above depends on colour. Add rules here as soon as
+       something does. */
+}

@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <!--
+    Display names and descriptions for everything declared in
+    ControlManifest.Input.xml. PCFHub reads the manifest, so these strings are
+    what appear in the component's API reference on the hub as well as in the
+    maker's properties pane.
+
+    Copy this file to add a language — __CONTROL__.3082.resx for Spanish, and so
+    on — then list it under <resources> in the manifest.
+  -->
+  <xsd:schema id="root" xmlns="" xmlns:xsd="http://www.w3.org/2001/XMLSchema" xmlns:msdata="urn:schemas-microsoft-com:xml-msdata">
+    <xsd:import namespace="http://www.w3.org/XML/1998/namespace" />
+    <xsd:element name="root" msdata:IsDataSet="true">
+      <xsd:complexType>
+        <xsd:choice maxOccurs="unbounded">
+          <xsd:element name="metadata">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" />
+              </xsd:sequence>
+              <xsd:attribute name="name" use="required" type="xsd:string" />
+              <xsd:attribute name="type" type="xsd:string" />
+              <xsd:attribute name="mimetype" type="xsd:string" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="assembly">
+            <xsd:complexType>
+              <xsd:attribute name="alias" type="xsd:string" />
+              <xsd:attribute name="name" type="xsd:string" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="data">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+                <xsd:element name="comment" type="xsd:string" minOccurs="0" msdata:Ordinal="2" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" msdata:Ordinal="1" />
+              <xsd:attribute name="type" type="xsd:string" msdata:Ordinal="3" />
+              <xsd:attribute name="mimetype" type="xsd:string" msdata:Ordinal="4" />
+              <xsd:attribute ref="xml:space" />
+            </xsd:complexType>
+          </xsd:element>
+          <xsd:element name="resheader">
+            <xsd:complexType>
+              <xsd:sequence>
+                <xsd:element name="value" type="xsd:string" minOccurs="0" msdata:Ordinal="1" />
+              </xsd:sequence>
+              <xsd:attribute name="name" type="xsd:string" use="required" />
+            </xsd:complexType>
+          </xsd:element>
+        </xsd:choice>
+      </xsd:complexType>
+    </xsd:element>
+  </xsd:schema>
+  <resheader name="resmimetype">
+    <value>text/microsoft-resx</value>
+  </resheader>
+  <resheader name="version">
+    <value>2.0</value>
+  </resheader>
+  <resheader name="reader">
+    <value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+  <resheader name="writer">
+    <value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value>
+  </resheader>
+
+  <data name="__CONTROL___Name" xml:space="preserve">
+    <value>__TITLE__</value>
+  </data>
+  <data name="__CONTROL___Desc" xml:space="preserve">
+    <value>__TAGLINE__</value>
+  </data>
+
+  <data name="EventName_Name" xml:space="preserve">
+    <value>Event name</value>
+  </data>
+  <data name="EventName_Desc" xml:space="preserve">
+    <value>Set by the Power Apps grid, not by a maker. The grid generates an event name, passes it here, and listens on it for this control's cell renderers and editors.</value>
+  </data>
+
+  <!--
+    Runtime strings, read with context.resources.getString(). Anything the user
+    can read belongs here rather than as a literal in index.ts or as an input
+    property a maker hand-translates per instance.
+
+    A grid customizer has fewer of these than a field control, and the ones it
+    does have are harder to reach: `context.resources` is available to the
+    control, but the cell renderers and editors are plain functions the grid
+    calls without a context. Anything they need to say has to be closed over or
+    passed in at the point the customizer payload is built — see index.ts.
+
+    Add a language by copying this file — __CONTROL__.3082.resx for Spanish,
+    1036 French, 1031 German, 1041 Japanese — with the SAME key set, then
+    listing each one under <resources> in the manifest. A key missing from one
+    language falls back to the key name in that language only, which nobody
+    notices until a customer does.
+  -->
+</root>

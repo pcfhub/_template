@@ -54,6 +54,18 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', 'out', 'bin', 'obj', 'generat
 const REACT_VERSION = '16.14.0';
 const FLUENT_VERSION = '9.46.2';
 
+/**
+ * Grid customizers are Fluent 8, and that is not a version left behind.
+ *
+ * A cell renderer is mounted per cell by the grid, with nothing of the
+ * customizer's above it — so there is nowhere to put a `FluentProvider`, which
+ * Fluent 9 requires before any component is themed. Fluent 8 styles without a
+ * provider, which is why Microsoft's grid customizer template is on it and why
+ * this variant follows.
+ */
+const FLUENT8_PACKAGE = '@fluentui/react';
+const FLUENT8_VERSION = '8.121.1';
+
 /** Binary-ish or generated files whose contents must not be rewritten. */
 const SKIP_FILES = new Set(['package-lock.json']);
 
@@ -66,16 +78,32 @@ if (framework !== 'standard' && framework !== 'react') {
 }
 
 /*
- * What the control binds: one column, or a collection.
+ * What the control binds: one column, a collection, or — in the third case —
+ * nothing at all.
  *
  * A flag rather than an eleventh question, so `--yes` still requires exactly the
- * same ten values and the interactive path is unchanged. All four combinations
- * with --framework are supported.
+ * same ten values and the interactive path is unchanged.
+ *
+ * `field` and `dataset` compose freely with --framework; all four combinations
+ * are supported. `grid-customizer` does not, and the reason is worth stating
+ * because it looks like an omission: a customizer's overrides *return React
+ * elements* — that is the platform's interface, not a choice — and they are
+ * rendered by the host's own React instance, which is what `control-type
+ * ="virtual"` plus the platform-library declarations arrange. A standard DOM
+ * customizer is not a thing the contract can express.
  */
 const type = args.type ?? 'field';
+const TYPES = ['field', 'dataset', 'grid-customizer'];
 
-if (type !== 'field' && type !== 'dataset') {
-    fail(`--type must be "field" or "dataset", not "${type}".`);
+if (!TYPES.includes(type)) {
+    fail(`--type must be one of: ${TYPES.join(', ')} — not "${type}".`);
+}
+
+if (type === 'grid-customizer' && args.framework === 'standard') {
+    fail(
+        'A grid customizer is always a React (virtual) control: its cell renderers and ' +
+        'editors return React elements by contract. Drop --framework standard.',
+    );
 }
 
 const rules = {
@@ -284,7 +312,7 @@ for (const line of renamed) {
 }
 
 console.log(`
-Adopted as a ${framework} ${type} control.
+Adopted as a ${type === 'grid-customizer' ? 'react_virtual grid-customizer' : `${framework} ${type}`} control.
 
 Next:
   1. Review the diff — the publisher prefix and the solution unique name are
@@ -298,7 +326,21 @@ Next:
      checks what it looks like.
   6. Add the repository to PCFHub with the slug "${answers.SLUG}", then tag v0.1.0.${type === 'dataset' ? `
   7. Replace demo/records.json with a fixture that looks like your view, then
-     set demo.datasetFixture and demo.fidelity in pcfhub.json.` : ''}
+     set demo.datasetFixture and demo.fidelity in pcfhub.json.` : ''}${type === 'grid-customizer' ? `
+  7. Write your overrides in ${answers.CONTROL}/customizers/. Both files ship one
+     worked example and the rules the grid actually enforces; the examples are
+     meant to be replaced, the rules are not.
+  8. Add demo/<rows>.json and point demo.datasetFixture at it, then raise
+     demo.fidelity from "none" to "mocked". demo.host is already "grid": the
+     harness renders a grid over that fixture and calls your overrides per cell,
+     so without a fixture the grid draws empty and none of them ever run.
+     "mocked" is the ceiling — the harness's grid is a stand-in, and what it
+     does not exercise (the GridCustomizer interface, PAGridAPI, server-side
+     sort/filter/paging, validation state) belongs in demo.limitations.
+  9. THE STEP EVERYONE MISSES: importing the solution does nothing on its own.
+     Assign the control at Settings > Customizations > the table > Controls >
+     Power Apps grid control > Customizer control = {prefix}_${answers.NAMESPACE}.${answers.CONTROL}
+     Until then it is installed, inert, and logs nothing to say so.` : ''}
 `);
 
 // ------------------------------------------------------------------ helpers
@@ -321,6 +363,11 @@ Next:
  * control renders whatever the view supplies.
  */
 function applyType(control) {
+    if (type === 'grid-customizer') {
+        applyGridCustomizer(control);
+        return;
+    }
+
     if (type !== 'dataset') {
         return;
     }
@@ -355,8 +402,79 @@ function applyType(control) {
  * Everything here was learned by doing the conversion by hand for
  * pcf-choices-picker. Each edit below is one that build actually required.
  */
+/**
+ * Turn the bound-column control into a grid customizer.
+ *
+ * A customizer binds nothing and renders nothing. It is named on a table's
+ * Power Apps grid control and hands that grid a table of cell renderers and
+ * editors, which the grid then calls per cell — so unlike applyType()'s dataset
+ * branch, which swaps the entry point, this replaces the whole control
+ * directory and does its own manifest work rather than leaning on
+ * applyFramework()'s patch.
+ *
+ * It does its own manifest work because there is nothing left for that patch to
+ * do: the variant's manifest already ships `control-type="virtual"` and both
+ * `<platform-library>` lines, at Fluent 8 rather than Fluent 9. Running the
+ * react patch over it would fail on a `control-type="standard"` that is not
+ * there — which edit() turns into a hard error, correctly.
+ *
+ * What it deliberately does NOT copy is a `demo/` fixture. A customizer has no
+ * dataset of its own to seed, so `demo.fidelity` is written as `none`: the
+ * author decides what the hub can honestly show, and for this shape that
+ * decision needs a real answer about the harness rather than a default that
+ * looks like one.
+ */
+function applyGridCustomizer(control) {
+    const source = join(root, 'variants', 'grid-customizer');
+    const target = join(root, control);
+
+    cpSync(join(source, 'ControlManifest.Input.xml'), join(target, 'ControlManifest.Input.xml'));
+    cpSync(join(source, 'index.ts'), join(target, 'index.ts'));
+
+    // The customizer contract, vendored. There is nothing to install: it is a
+    // file inside a samples repository authors are told to clone, and
+    // @types/powerapps-component-framework does not carry it. The provenance
+    // header on the file is the whole mitigation — re-take it and diff when the
+    // grid starts handing over a shape it does not describe.
+    cpSync(join(source, 'types.ts'), join(target, 'types.ts'));
+
+    cpSync(join(source, 'customizers'), join(target, 'customizers'), { recursive: true });
+    cpSync(join(source, 'css'), join(target, 'css'), { recursive: true });
+    cpSync(join(source, 'strings'), join(target, 'strings'), { recursive: true });
+
+    // api.md keeps only `kind=bound`. A customizer has no inputs and no
+    // outputs, and a props-table with nothing in it reads as an unwritten
+    // section rather than an empty one.
+    cpSync(join(source, 'docs', 'api.md'), join(root, 'docs', 'api.md'));
+
+    // Not a canvas control, and not arguably one: the customizer property
+    // exists only on the Power Apps grid control, which canvas does not have.
+    rmSync(join(root, 'docs', 'canvas.md'), { force: true });
+
+    edit('pcfhub.json', (text) =>
+        text
+            // "virtual", not a fourth value: the hub's ControlManifestParser
+            // resolves dataset -> virtual -> field from the manifest at every
+            // release, and a customizer's manifest says control-type="virtual".
+            // Anything else here would be re-derived and quietly disagree.
+            .replace('"type": "field"', '"type": "virtual"')
+            .replace('"framework": "standard"', '"framework": "react_virtual"')
+            // The demo surface the hub's harness stands up. Without "grid" the
+            // harness hosts this the way it hosts a form control — hands it a
+            // container, the control returns its empty fragment, and the
+            // visitor gets a demo that loads perfectly and shows nothing.
+            //
+            // Written alongside fidelity "none" on purpose: the host says what
+            // this control *is*, and fidelity is still the author's call once
+            // they have a fixture. See docs/demo-harness-grid-customizers.md in
+            // the hub repository.
+            .replace('"fidelity": "none",', '"fidelity": "none",\n    "host": "grid",'));
+
+    applyReactTooling(FLUENT8_PACKAGE, FLUENT8_VERSION);
+}
+
 function applyFramework(control) {
-    if (framework !== 'react') {
+    if (framework !== 'react' || type === 'grid-customizer') {
         return;
     }
 
@@ -403,13 +521,27 @@ function applyFramework(control) {
                 `<platform-library name="React" version="${REACT_VERSION}" />\n      <platform-library name="Fluent" version="${FLUENT_VERSION}" />\n      <resx path=`,
             ));
 
+    applyReactTooling('@fluentui/react-components', FLUENT_VERSION);
+}
+
+/**
+ * The dependency and lint changes every React control needs, whichever Fluent
+ * it is on.
+ *
+ * Shared by applyFramework() and the grid-customizer branch of applyType(),
+ * which differ only in the Fluent package and version — a customizer is on
+ * Fluent 8 for the provider reason given at FLUENT8_VERSION. Two copies of this
+ * would be two copies that drift, and the drift would show up as a build error
+ * in one scaffolded shape and not the other.
+ */
+function applyReactTooling(fluentPackage, fluentVersion) {
     edit('package.json', (text) => {
         const pkg = JSON.parse(text);
 
         pkg.devDependencies = Object.fromEntries(
             Object.entries({
                 ...pkg.devDependencies,
-                '@fluentui/react-components': FLUENT_VERSION,
+                [fluentPackage]: fluentVersion,
                 '@types/react': '^16.14.62',
                 '@types/react-dom': '^16.9.24',
                 'eslint-plugin-react-hooks': '^4.6.0',
