@@ -10,13 +10,16 @@
  * read from — see the manifest's platform-library comment.
  *
  * They are literal, but they are not fixed. The custom properties below are
- * what the rules read, and the media queries at the foot of the file redefine
- * them for dark and for forced colours. That the tokens are unavailable is an
- * argument about Fluent's provider; it says nothing about media queries, which
- * need nothing above them at all. Declaring the properties on `:root` is safe
- * in a way a *rule* on `:root` would not be: a custom property paints nothing
- * until something reads it, every name here is prefixed, and this is the only
- * element every cell of every grid reliably inherits from.
+ * what the rules read, and the blocks at the foot of the file redefine them for
+ * dark and for forced colours. Declaring the properties on `:root` is safe in a
+ * way a *rule* on `:root` would not be: a custom property paints nothing until
+ * something reads it, every name here is prefixed, and this is the only element
+ * every cell of every grid reliably inherits from.
+ *
+ * The dark palette is selected by the *host's* theme, published onto `:root` by
+ * `publishTheme` in index.ts — not by `@media (prefers-color-scheme: dark)`,
+ * which asks the operating system a question only the app can answer. See the
+ * comment on that method.
  */
 
 :root {
@@ -70,16 +73,30 @@
 }
 
 /*
- * Dark.
+ * Dark, chosen by the host rather than by the operating system.
  *
- * Without this block a model-driven app in dark mode draws this control's
- * light-theme colours inside a near-black row — legible in themselves, and a
- * bright rectangle punched through the middle of a dark grid. Check values
- * against Fluent's dark neutral background (#292827) rather than against black,
- * since that is the surface these cells sit on.
+ * Without a dark palette a model-driven app in dark mode draws this control's
+ * light-theme colours inside a near-black row — a bright rectangle punched
+ * through the middle of a dark grid, and unreadable wherever the colour was
+ * text rather than a background. Check values against Fluent's dark neutral
+ * background (#292827) rather than against black, since that is the surface
+ * these cells sit on.
+ *
+ * The two blocks below carry the same palette twice and have to stay in step.
+ * That duplication is the standard shape for a three-state theme and it is
+ * deliberate: the attribute wins wherever the host published one, and the media
+ * query covers only the hosts that published nothing — `fluentDesignLanguage`
+ * is typed as Fluent v9 data and a customizer declares Fluent 8, so it may
+ * never arrive. Where it does not, the media query is the same guess every
+ * customizer made before `publishTheme` existed: worth keeping as a fallback,
+ * not worth trusting as the answer.
  */
+:root[data-__SLUG__-theme='dark'] {
+    --__CONTROL__-muted: #a19f9d;
+}
+
 @media (prefers-color-scheme: dark) {
-    :root {
+    :root:not([data-__SLUG__-theme]) {
         --__CONTROL__-muted: #a19f9d;
     }
 }
