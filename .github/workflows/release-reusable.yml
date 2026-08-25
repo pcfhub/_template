@@ -175,15 +175,41 @@ jobs:
             throw "bundle.js is $($bundle.Length) bytes, over the $limit byte Dataverse web resource limit."
           }
 
+          # A ceiling with no runway is a ceiling you hit without warning, and
+          # the thing you hit it with is a release customers cannot import.
+          # Code-Editor-PCF's first run through this workflow came in at 93.6% of
+          # the limit — one dependency bump from failing, on a repository whose
+          # previous workflow checked the size not at all.
+          #
+          # 90% because a bundle rarely grows in small steps: it grows when a
+          # library arrives. One release of notice is about what that buys.
+          $used = [math]::Round(($bundle.Length / $limit) * 100, 1)
+          if ($used -ge 90) {
+            Write-Host "::warning::bundle.js is at $used% of the ${limit}-byte Dataverse web resource limit ($($bundle.Length) bytes). Trim it before it stops importing — check for a dependency that could be externalised or lazy-loaded."
+          }
+
           Copy-Item $bundle.FullName artifacts/bundle.js
 
           Get-ChildItem artifacts | ForEach-Object { Write-Host "attaching $($_.Name) ($($_.Length) bytes)" }
 
+      # `generate_release_notes` only when this is a *new* tag.
+      #
+      # Re-dispatching an existing tag re-runs the build against a release that
+      # already has notes, and asking GitHub to generate them again appends a
+      # second copy rather than replacing the first — verified the hard way on
+      # Code-Editor-PCF v1.1.0, which came back with "What's Changed" and its
+      # contributor list printed twice. That matters beyond looking untidy: the
+      # hub imports release notes into a component's changelog, so a duplicate
+      # here is a duplicate on the published page.
+      #
+      # `inputs.tag` is set only by workflow_dispatch, so its emptiness is
+      # exactly the "first time this tag has been released" signal.
       - name: Publish the release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          generate_release_notes: true
+          generate_release_notes: ${{ inputs.tag == '' }}
+          append_body: false
           files: artifacts/*
 
       # Nothing notifies PCFHub from here, on purpose. Publishing the release
