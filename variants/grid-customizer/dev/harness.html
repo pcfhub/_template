@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <title>__TITLE__ — dev harness</title>
+
+        <!--
+            A local stand-in for the Power Apps grid, for developing a customizer
+            that no other harness can reach.
+
+            Why this exists: PCFHub's demo harness renders cell renderers and
+            editors but does not exercise the `GridCustomizer` interface
+            (`GetHeaderRenderer`, `GetLoadingRowRenderer`,
+            `GetNoRowsOverlayConfiguration`), and it carries no attribute
+            metadata — so a customizer that depends on either has nothing to
+            develop against. `npm start` is no help either: it hosts the control
+            the way a form would, and a customizer correctly renders nothing
+            there.
+
+            How to use it:
+
+                npm run build
+                then open this file directly in a browser
+
+            No bundler, no dev server, and no new dependencies. It loads the
+            bundle `npm run build` already produced, plus React and Fluent from
+            `node_modules` — the same libraries the platform would supply,
+            because the manifest declares them as `<platform-library>` and the
+            bundle therefore does not contain them.
+
+            It opens over `file://` on purpose, which is why the fixture is a
+            script rather than a `fetch` of `demo/*.json`: `fetch` is blocked
+            there, `<script src>` is not.
+
+            **This is a stand-in, not the grid.** It calls the overrides the way
+            the grid does and nothing more. Virtualization, server-side sort and
+            filter, real validation state, selection, keyboard navigation and
+            the grid's own cell rendering are all absent. Anything that works
+            here still has to be confirmed on a real model-driven grid before it
+            is true — see SPEC.md.
+        -->
+
+        <link rel="stylesheet" href="../css/__CONTROL__.css" />
+        <style>
+            body {
+                margin: 0;
+                padding: 24px;
+                font-family: 'Segoe UI', system-ui, sans-serif;
+                font-size: 14px;
+                background: #faf9f8;
+                color: #323130;
+            }
+
+            h1 {
+                font-size: 18px;
+                margin: 0 0 4px;
+            }
+
+            .harness-note {
+                margin: 0 0 24px;
+                color: #605e5c;
+            }
+
+            .harness-controls {
+                display: flex;
+                gap: 16px;
+                align-items: center;
+                margin-bottom: 24px;
+                padding: 12px 16px;
+                background: #fff;
+                border: 1px solid #edebe9;
+                border-radius: 4px;
+            }
+
+            h2 {
+                font-size: 14px;
+                text-transform: uppercase;
+                letter-spacing: 0.04em;
+                color: #605e5c;
+                margin: 32px 0 8px;
+            }
+
+            .harness-grid {
+                background: #fff;
+                border: 1px solid #edebe9;
+                border-radius: 4px;
+                overflow: hidden;
+            }
+
+            .harness-headrow,
+            .harness-row {
+                display: grid;
+                border-bottom: 1px solid #f3f2f1;
+            }
+
+            .harness-headrow {
+                font-weight: 600;
+                background: #faf9f8;
+            }
+
+            .harness-row:nth-child(even) {
+                background: #fbfbfa;
+            }
+
+            .harness-cell {
+                padding: 0 12px;
+                height: 42px;
+                display: flex;
+                align-items: center;
+                overflow: hidden;
+                border-right: 1px solid #f3f2f1;
+            }
+
+            /* The box the grid would mount a loading row or an overlay into. */
+            .harness-slot {
+                height: 42px;
+            }
+
+            .harness-overlay {
+                height: 220px;
+            }
+        </style>
+    </head>
+
+    <body>
+        <h1>__TITLE__ — dev harness</h1>
+        <p class="harness-note">
+            A stand-in for the Power Apps grid. Run <code>npm run build</code>
+            first; reload after every build.
+        </p>
+
+        <div class="harness-controls">
+            <label>
+                <input type="checkbox" id="harness-dark" />
+                Dark theme
+            </label>
+            <label>
+                <input type="checkbox" id="harness-bounds" checked />
+                Columns declare a range
+            </label>
+            <span id="harness-status"></span>
+        </div>
+
+        <div id="harness-root"></div>
+
+        <!--
+            React and Fluent before the bundle, and under the global names the
+            platform uses. `<platform-library>` compiles them out of the bundle
+            into externals — `Reactv16` and `FluentUIReactv81211` — so without
+            these aliases the bundle throws on its first import with a name that
+            appears nowhere in this repository.
+
+            The development builds rather than the minified ones: this is a
+            debugging surface, and React's development build is where the
+            warnings live.
+        -->
+        <script src="../node_modules/react/umd/react.development.js"></script>
+        <script src="../node_modules/react-dom/umd/react-dom.development.js"></script>
+        <script src="../node_modules/@fluentui/react/dist/fluentui-react.umd.js"></script>
+        <script>
+            window.Reactv16 = window.React;
+            window.FluentUIReactv81211 = window.FluentUIReact;
+        </script>
+
+        <script src="harness.js"></script>
+        <script src="../out/controls/__CONTROL__/bundle.js"></script>
+        <script>
+            window.__harnessStart();
+        </script>
+    </body>
+</html>

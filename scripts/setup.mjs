@@ -418,11 +418,15 @@ function applyType(control) {
  * react patch over it would fail on a `control-type="standard"` that is not
  * there — which edit() turns into a hard error, correctly.
  *
- * What it deliberately does NOT copy is a `demo/` fixture. A customizer has no
- * dataset of its own to seed, so `demo.fidelity` is written as `none`: the
- * author decides what the hub can honestly show, and for this shape that
- * decision needs a real answer about the harness rather than a default that
- * looks like one.
+ * It copies a `demo/` fixture and points `demo.datasetFixture` at it, but still
+ * writes `demo.fidelity` as `none`. Those two are not in tension: the fixture is
+ * the grid's *rows*, which every customizer needs and every customizer was
+ * previously left to invent, while fidelity is a claim about what the hub can
+ * honestly show — and only the author knows whether their overrides do anything
+ * visible without a real platform behind them. A cell customizer usually raises
+ * it to `mocked` on the day it ships; one that reads attribute metadata, or
+ * implements the `GridCustomizer` members, may never be able to, because the
+ * harness supplies neither. Raising it is a one-line edit either way.
  */
 function applyGridCustomizer(control) {
     const source = join(root, 'variants', 'grid-customizer');
@@ -441,6 +445,24 @@ function applyGridCustomizer(control) {
     cpSync(join(source, 'customizers'), join(target, 'customizers'), { recursive: true });
     cpSync(join(source, 'css'), join(target, 'css'), { recursive: true });
     cpSync(join(source, 'strings'), join(target, 'strings'), { recursive: true });
+
+    // A local stand-in for the grid, at the repository root rather than inside
+    // the control directory — it is not shipped in the bundle and `pcf-scripts`
+    // has no reason to look at it.
+    //
+    // It exists because nothing else can develop this shape. PCFHub's harness
+    // renders cells but never calls the `GridCustomizer` members, and carries
+    // no attribute metadata; `npm start` hosts the control the way a form would,
+    // where a customizer correctly renders nothing. Without this, the only way
+    // to see a customizer work is to pack a solution and import it.
+    cpSync(join(source, 'dev'), join(root, 'dev'), { recursive: true });
+
+    // The grid's rows for PCFHub's demo harness. One fixture covering every
+    // column type a customizer can key an override on, with a row of nulls and
+    // a row of zeroes in it — the two that catch an override treating falsy as
+    // empty. Every customizer needs this and every customizer used to write its
+    // own; `demo.fidelity` stays the author's call.
+    cpSync(join(source, 'demo'), join(root, 'demo'), { recursive: true });
 
     // api.md keeps only `kind=bound`. A customizer has no inputs and no
     // outputs, and a props-table with nothing in it reads as an unwritten
@@ -468,7 +490,48 @@ function applyGridCustomizer(control) {
             // this control *is*, and fidelity is still the author's call once
             // they have a fixture. See docs/demo-harness-grid-customizers.md in
             // the hub repository.
-            .replace('"fidelity": "none",', '"fidelity": "none",\n    "host": "grid",'));
+            .replace(
+                '"fidelity": "none",',
+                '"fidelity": "none",\n    "host": "grid",\n    "datasetFixture": "demo/columns.json",',
+            ));
+
+    // `dev/smoke.js` drives the built bundle from Node and asserts what the
+    // overrides decide per cell. Added here rather than in the shared
+    // package.json because that file is also the field and dataset variants',
+    // and a `smoke` script pointing at a file those repositories do not have is
+    // worse than no script at all.
+    edit('package.json', (text) => {
+        const pkg = JSON.parse(text);
+        const { lint, ...rest } = pkg.scripts;
+
+        // Before `lint`, so the two verification steps read in the order CI
+        // runs them and neither ends up appended after the release scripts.
+        pkg.scripts = { ...rest, smoke: 'node dev/smoke.js', lint };
+
+        return `${JSON.stringify(pkg, null, 2)}\n`;
+    });
+
+    // The CI step, after the pack rather than after `npm run build`.
+    //
+    // msbuild overwrites out/controls with the production bundle, so running it
+    // there drives the code that actually ships — the same argument the
+    // workflow already makes about whether the control compiles, applied to
+    // what it does. Minification does not disturb the assertions: terser leaves
+    // string literals and React lifecycle names alone with property mangling
+    // off.
+    edit('.github/workflows/build.yml', (text) =>
+        text.replace(
+            '      # A control is served as a single web resource',
+            [
+                '      # After the pack, deliberately: msbuild has just overwritten out/controls',
+                '      # with the production bundle, so this drives the code that actually ships',
+                '      # rather than the development build `npm run build` left there.',
+                '      - name: Smoke-test the shipping bundle',
+                '        run: npm run smoke',
+                '',
+                '      # A control is served as a single web resource',
+            ].join('\n'),
+        ));
 
     applyReactTooling(FLUENT8_PACKAGE, FLUENT8_VERSION);
 }

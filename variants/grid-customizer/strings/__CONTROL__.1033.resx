@@ -83,6 +83,23 @@
   </data>
 
   <!--
+    Used by customizers/GridCustomizerOverrides.tsx, which is scaffolded but not
+    wired up by default. Delete these three if you never fire `gridCustomizer`;
+    leave them if you do, because those members are called with no context and
+    cannot read this file themselves — the strings are looked up when the
+    payload is built and closed over.
+  -->
+  <data name="Loading_Label" xml:space="preserve">
+    <value>Loading rows</value>
+  </data>
+  <data name="NoRows_Title" xml:space="preserve">
+    <value>This view is empty</value>
+  </data>
+  <data name="NoRows_Body" xml:space="preserve">
+    <value>There is nothing to show with the current view and filters.</value>
+  </data>
+
+  <!--
     Runtime strings, read with context.resources.getString(). Anything the user
     can read belongs here rather than as a literal in index.ts or as an input
     property a maker hand-translates per instance.

@@ -27,6 +27,11 @@
        neutralTertiary (#a19f9d), which is 2.6:1 on white — fine for a border,
        and a WCAG failure for the em dash below, which is visible text. */
     --__CONTROL__-muted: #605e5c;
+
+    /* Fluent neutralLighter. A background rather than text, so it is free to
+       sit below the 4.5:1 that visible text needs. Used only by the chrome
+       section further down. */
+    --__CONTROL__-skeleton: #f3f2f1;
 }
 
 .__CONTROL__-cell {
@@ -72,6 +77,84 @@
     height: 28px;
 }
 
+/* ------------------------------------------------ the grid's own chrome ---
+ *
+ * These match `customizers/GridCustomizerOverrides.tsx`, which is scaffolded
+ * but not wired up by default. Delete this section along with that file if you
+ * only override cells.
+ *
+ * The loading row is sized by its container rather than by a height of its own,
+ * because `GetLoadingRowRenderer` is called with no parameters — no row height,
+ * no column widths — so there is nothing to compute one from. That turns out to
+ * be the more robust answer anyway.
+ */
+
+.__CONTROL__-loading {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    width: 100%;
+    height: 100%;
+    padding: 0 12px;
+    box-sizing: border-box;
+}
+
+.__CONTROL__-skeleton {
+    height: 10px;
+    flex: 0 0 28%;
+    border-radius: 2px;
+    background-color: var(--__CONTROL__-skeleton);
+}
+
+/*
+ * `-noRows` rather than `-empty`, because `-empty` is already the starter's
+ * class for an empty *cell* further up this file. Two rules of the same name
+ * for a cell-sized dash and a grid-sized overlay is a collision that only shows
+ * up once both are on screen.
+ */
+.__CONTROL__-noRows {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    width: 100%;
+    height: 100%;
+    padding: 24px;
+    box-sizing: border-box;
+    text-align: center;
+}
+
+.__CONTROL__-noRowsTitle {
+    margin: 0;
+    font-weight: 600;
+}
+
+.__CONTROL__-noRowsBody {
+    margin: 0;
+    color: var(--__CONTROL__-muted);
+}
+
+/*
+ * Visible to a screen reader, not on screen.
+ *
+ * The skeleton bars are `aria-hidden`, so without this a user waiting on a slow
+ * view is told nothing at all. `display: none` and `visibility: hidden` would
+ * hide it from assistive technology too, which is why this is the clip-rect
+ * shape rather than either of them.
+ */
+.__CONTROL__-srOnly {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
 /*
  * Dark, chosen by the host rather than by the operating system.
  *
@@ -93,11 +176,13 @@
  */
 :root[data-__SLUG__-theme='dark'] {
     --__CONTROL__-muted: #a19f9d;
+    --__CONTROL__-skeleton: #3b3a39;
 }
 
 @media (prefers-color-scheme: dark) {
     :root:not([data-__SLUG__-theme]) {
         --__CONTROL__-muted: #a19f9d;
+        --__CONTROL__-skeleton: #3b3a39;
     }
 }
 

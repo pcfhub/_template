@@ -108,6 +108,117 @@ If you add roles, add `::props-table{kind=dataset_column}` back to
 has no dataset columns" rather than as a section nobody wrote. The manifest's
 own comments say this too, at the point where you would change it.
 
+## Grid customizers
+
+```bash
+node scripts/setup.mjs --type grid-customizer …
+```
+
+The third shape, and the one that breaks the assumptions above: a control that
+binds nothing, renders nothing, and whose entire output is other controls'
+cells. It does not compose with `--framework` — the cells it returns are React
+elements by contract, on **Fluent 8** rather than the Fluent 9 the other React
+variants use, because a cell is mounted by the grid with nothing of the
+customizer's above it and there is nowhere to put a `FluentProvider`.
+
+Three things it scaffolds that the other shapes do not:
+
+- **`customizers/`** — the two override maps, keyed by column data type, wired
+  into the payload `index.ts` fires. This is what most customizers want.
+- **`customizers/GridCustomizerOverrides.tsx`** — the *other* half of the
+  contract: the loading row, the empty-state overlay, the column headers.
+  Scaffolded but **not wired up**; `index.ts` carries the four lines that switch
+  it on. Read its header before you do, because those members behave unlike the
+  override maps in a way that does not show up until it is too late: they return
+  `ReactElement` with no `undefined` in the type, so **they cannot decline**.
+  Implementing one replaces the grid's version for every column of every view of
+  the table.
+- **`dev/`** — a local stand-in for the grid; see below.
+
+### Developing one
+
+`npm start` is no help here. It hosts the control the way a form would, and a
+customizer correctly renders nothing on a form — so the harness that works for
+every other shape shows a blank page for this one, accurately.
+
+PCFHub's demo harness gets closer but stops short: it renders cell renderers and
+editors over `demo.datasetFixture`, and it does **not** call the
+`GridCustomizer` members or carry any attribute metadata. So a customizer that
+implements the chrome, or that reads `MinValue`/`MaxValue`, has nothing there to
+develop against either.
+
+Hence `dev/`:
+
+```bash
+npm run build
+# then open dev/harness.html in a browser
+```
+
+No bundler, no dev server, no new dependencies. It loads the bundle the build
+already produced, plus React and Fluent from `node_modules` — the libraries the
+platform would otherwise supply, which the manifest's `<platform-library>`
+entries keep out of the bundle. It calls every override the way the grid does,
+renders the `GridCustomizer` members, and has two switches: one for the host's
+dark theme, one for whether columns declare a metadata range.
+
+Two details in it are worth knowing before you edit it. It opens over `file://`,
+so the fixture is a script rather than a `fetch` of `demo/` — `fetch` is blocked
+there and `<script src>` is not. And the platform calls
+`registerControl('Namespace.Control', ctor)` with **two** arguments, the
+namespace and constructor already joined; reading the constructor from a third
+parameter gets `undefined` and fails later as "registered is not a constructor".
+
+**It is a stand-in, not the grid.** Virtualization, server-side sort and filter,
+real validation state, selection and keyboard navigation are all absent, and
+`validationError`, `secured` and `isRequired` are states it cannot produce —
+which means the branches handling them are exactly the ones it cannot check.
+Anything that works here still has to be confirmed on a real model-driven grid.
+
+### Asserting what the harness can only show you
+
+```bash
+npm run smoke
+```
+
+`dev/smoke.js` loads the same built bundle from Node, fires the payload, calls
+the overrides and asserts what comes back. It exists because the harness renders
+a grid, and a customizer's real behaviour is a set of per-cell *decisions* —
+which cells it declines, what geometry it computes, which class it puts on an
+element. Those are invisible in a rendered grid unless you happen to be looking
+at the right cell, and they are what regresses.
+
+It ships with a worked example against the scaffolded `Text` override — replace
+the block below the divider, keep the plumbing above it. If you delete the
+scaffolded override, the example detects that and stops rather than failing.
+
+Two things about how it is wired:
+
+- **Fluent is stubbed, not loaded.** Every component resolves to its own name as
+  an element type, so the props your override passed survive for inspection
+  without dragging a browser-shaped library into Node. The assertions are about
+  your decisions, not about how Fluent renders them.
+- **CI runs it after the msbuild pack**, not after `npm run build` — the pack
+  overwrites `out/controls` with the production bundle, so there it drives what
+  actually ships. Minification does not disturb it: terser leaves string
+  literals and React lifecycle names alone with property mangling off.
+
+Locally it tests whichever bundle is on disk, so a `npm run build` after a pack
+puts the development one back.
+
+### The demo fixture
+
+`demo/columns.json` ships with one row per interesting case across every column
+type a customizer can key an override on, including a row of nulls and a row of
+zeroes — the two that catch an override treating falsy as empty.
+`demo.datasetFixture` already points at it.
+
+`demo.fidelity` still starts at `none`, and raising it is your call rather than
+the template's. A cell customizer can usually go to `mocked` the day it ships. A
+customizer that depends on attribute metadata or implements the chrome members
+may have to stay at `none` — not because the demo is unfinished, but because the
+harness would show a grid with none of the control's work in it, which is worse
+than showing nothing at all.
+
 ## Running it non-interactively
 
 Every value must be answerable without a prompt under `--yes`, and `TAGLINE`,

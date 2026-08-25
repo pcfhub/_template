@@ -1,0 +1,229 @@
+{
+    "targetEntityType": "account",
+    "title": "Every column type",
+    "columns": [
+        {
+            "name": "name",
+            "displayName": "Account name",
+            "dataType": "SingleLine.Text",
+            "alias": "name",
+            "order": 0,
+            "visualSizeFactor": 220,
+            "isPrimary": true
+        },
+        {
+            "name": "emailaddress1",
+            "displayName": "Email",
+            "dataType": "SingleLine.Email",
+            "alias": "emailaddress1",
+            "order": 1,
+            "visualSizeFactor": 180
+        },
+        {
+            "name": "telephone1",
+            "displayName": "Phone",
+            "dataType": "SingleLine.Phone",
+            "alias": "telephone1",
+            "order": 2,
+            "visualSizeFactor": 140
+        },
+        {
+            "name": "websiteurl",
+            "displayName": "Website",
+            "dataType": "SingleLine.URL",
+            "alias": "websiteurl",
+            "order": 3,
+            "visualSizeFactor": 160
+        },
+        {
+            "name": "description",
+            "displayName": "Description",
+            "dataType": "Multiple",
+            "alias": "description",
+            "order": 4,
+            "visualSizeFactor": 220
+        },
+        {
+            "name": "primarycontactid",
+            "displayName": "Primary contact",
+            "dataType": "Lookup.Simple",
+            "alias": "primarycontactid",
+            "order": 5,
+            "visualSizeFactor": 160
+        },
+        {
+            "name": "industrycode",
+            "displayName": "Industry",
+            "dataType": "OptionSet",
+            "alias": "industrycode",
+            "order": 6,
+            "visualSizeFactor": 150
+        },
+        {
+            "name": "preferredcontactmethod",
+            "displayName": "Contact methods",
+            "dataType": "MultiSelectPicklist",
+            "alias": "preferredcontactmethod",
+            "order": 7,
+            "visualSizeFactor": 180
+        },
+        {
+            "name": "donotemail",
+            "displayName": "Do not email",
+            "dataType": "TwoOptions",
+            "alias": "donotemail",
+            "order": 8,
+            "visualSizeFactor": 110
+        },
+        {
+            "name": "numberofemployees",
+            "displayName": "Employees",
+            "dataType": "Whole.None",
+            "alias": "numberofemployees",
+            "order": 9,
+            "visualSizeFactor": 110
+        },
+        {
+            "name": "creditlimit",
+            "displayName": "Credit limit",
+            "dataType": "Currency",
+            "alias": "creditlimit",
+            "order": 10,
+            "visualSizeFactor": 130
+        },
+        {
+            "name": "satisfaction",
+            "displayName": "Satisfaction",
+            "dataType": "Decimal",
+            "alias": "satisfaction",
+            "order": 11,
+            "visualSizeFactor": 120
+        },
+        {
+            "name": "variance",
+            "displayName": "Variance",
+            "dataType": "FP",
+            "alias": "variance",
+            "order": 12,
+            "visualSizeFactor": 110
+        },
+        {
+            "name": "createdon",
+            "displayName": "Created on",
+            "dataType": "DateAndTime.DateOnly",
+            "alias": "createdon",
+            "order": 13,
+            "visualSizeFactor": 120
+        },
+        {
+            "name": "modifiedon",
+            "displayName": "Modified on",
+            "dataType": "DateAndTime.DateAndTime",
+            "alias": "modifiedon",
+            "order": 14,
+            "visualSizeFactor": 150
+        }
+    ],
+    "records": [
+        {
+            "id": "7c2b1a30-0001-4d5e-8a01-1b2c3d4e5f01",
+            "values": {
+                "name": "Fabrikam Residential Holdings International",
+                "emailaddress1": "accounts@fabrikam.example",
+                "telephone1": "+44 20 7946 0011",
+                "websiteurl": "https://fabrikam.example",
+                "description": "A deliberately long description, so that any override which truncates, clamps or tooltips a value has something to do here rather than only on a customer's data.",
+                "primarycontactid": "Dana Whitfield",
+                "industrycode": "Real estate",
+                "preferredcontactmethod": "Email, Phone",
+                "donotemail": false,
+                "numberofemployees": 4200,
+                "creditlimit": 250000,
+                "satisfaction": 88.5,
+                "variance": 12.5,
+                "createdon": "2024-03-11",
+                "modifiedon": "2026-07-02T09:14:00Z"
+            }
+        },
+        {
+            "id": "7c2b1a30-0002-4d5e-8a01-1b2c3d4e5f02",
+            "values": {
+                "name": "Contoso Ltd",
+                "emailaddress1": "hello@contoso.example",
+                "telephone1": "+1 425 555 0134",
+                "websiteurl": "https://contoso.example",
+                "description": "Short.",
+                "primarycontactid": "Ravi Anand",
+                "industrycode": "Retail",
+                "preferredcontactmethod": "Phone",
+                "donotemail": true,
+                "numberofemployees": 1800,
+                "creditlimit": 5000,
+                "satisfaction": 100,
+                "variance": -38,
+                "createdon": "2025-01-08",
+                "modifiedon": "2026-08-19T16:40:00Z"
+            }
+        },
+        {
+            "id": "7c2b1a30-0003-4d5e-8a01-1b2c3d4e5f03",
+            "values": {
+                "name": "Adventure Works",
+                "emailaddress1": "info@adventure-works.example",
+                "telephone1": "+61 2 5550 0199",
+                "websiteurl": "https://adventure-works.example",
+                "description": "A mid-length description that fits most columns without wrapping.",
+                "primarycontactid": "Marta Nowak",
+                "industrycode": "Manufacturing",
+                "preferredcontactmethod": "Email, Phone, Post",
+                "donotemail": false,
+                "numberofemployees": 95,
+                "creditlimit": 410000,
+                "satisfaction": 61,
+                "variance": -4.25,
+                "createdon": "2023-11-02",
+                "modifiedon": "2026-08-01T11:05:00Z"
+            }
+        },
+        {
+            "id": "7c2b1a30-0004-4d5e-8a01-1b2c3d4e5f04",
+            "values": {
+                "name": "Litware Inc",
+                "emailaddress1": "",
+                "telephone1": "",
+                "websiteurl": "",
+                "description": "",
+                "primarycontactid": null,
+                "industrycode": null,
+                "preferredcontactmethod": null,
+                "donotemail": null,
+                "numberofemployees": null,
+                "creditlimit": null,
+                "satisfaction": null,
+                "variance": null,
+                "createdon": null,
+                "modifiedon": null
+            }
+        },
+        {
+            "id": "7c2b1a30-0005-4d5e-8a01-1b2c3d4e5f05",
+            "values": {
+                "name": "Woodgrove Bank",
+                "emailaddress1": "service@woodgrove.example",
+                "telephone1": "+49 30 5550 0123",
+                "websiteurl": "https://woodgrove.example",
+                "description": "Zeroes rather than blanks, which is a different case and the one that catches an override treating falsy as empty.",
+                "primarycontactid": "Jae-won Park",
+                "industrycode": "Financial services",
+                "preferredcontactmethod": "Email",
+                "donotemail": false,
+                "numberofemployees": 0,
+                "creditlimit": 0,
+                "satisfaction": 0,
+                "variance": 0,
+                "createdon": "2022-06-30",
+                "modifiedon": "2026-05-22T08:00:00Z"
+            }
+        }
+    ]
+}

@@ -165,6 +165,25 @@ export class __CONTROL__
             return;
         }
 
+        // The payload has three channels and this fires two of them. The third,
+        // `gridCustomizer`, describes the grid *around* the cells — the loading
+        // row, the empty-state overlay, the column headers — and is scaffolded,
+        // unwired, in `customizers/GridCustomizerOverrides.tsx`. To use it:
+        //
+        //     import { createGridCustomizer } from './customizers/GridCustomizerOverrides';
+        //
+        //     const customizer: PAOneGridCustomizer = {
+        //         cellRendererOverrides,
+        //         cellEditorOverrides,
+        //         gridCustomizer: createGridCustomizer(context.resources),
+        //     };
+        //
+        // A factory rather than a constant because those members are called with
+        // no context and no parameters, so anything they display has to be
+        // closed over here, where a context still exists. Read that file's
+        // header before wiring it: its members cannot decline the way a cell
+        // override can, so implementing one replaces the grid's version for
+        // every column of every view of the table.
         const customizer: PAOneGridCustomizer = {
             cellRendererOverrides,
             cellEditorOverrides,
