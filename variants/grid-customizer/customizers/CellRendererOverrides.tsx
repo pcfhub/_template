@@ -17,6 +17,16 @@ import { CellRendererOverrides, CellRendererProps } from '../types';
  *   1. **Return null or undefined to decline.** That is not a failure path — it
  *      is how a customizer says "this column is fine as it is", and the grid
  *      then draws the cell itself. A good customizer declines most cells.
+ *
+ *      But **never decline because an answer has not arrived yet.** Declining
+ *      is permanent for that cell: it becomes the grid's own, this control
+ *      never hears about it again, and a customizer has no way to ask for a
+ *      repaint — `PAOneGridCustomizer` carries no `PAGridAPI`, and re-firing
+ *      the event does not redraw anything. A renderer that declines while
+ *      waiting on a fetch produces a decoration that appears only on cells the
+ *      user has clicked, and looks perfectly correct everywhere else. Keep the
+ *      cell instead, render `props.formattedValue` alone, and have the element
+ *      subscribe for the answer.
  *   2. **These functions must be pure.** The grid calls them repeatedly, in an
  *      order it does not promise, and expects the same element back for the
  *      same inputs. No state, no side effects, no writing to the record.
@@ -29,6 +39,11 @@ import { CellRendererOverrides, CellRendererProps } from '../types';
  *   4. **Stay cheap.** These run per cell, on a surface that re-renders as it
  *      scrolls. Anything you would not do in a scroll handler does not belong
  *      here — including measuring text.
+ *
+ * A fifth rule the documentation does not state, learned the hard way: an
+ * element replaces the cell's **interactions** as well as its pixels, and the
+ * one that goes is editing. Spread `cellHandlers(props)` onto whatever you
+ * return — see its comment below.
  *
  * Replace the example below with the types you actually want to change. Every
  * `ColumnDataType` in `../types.ts` is a valid key.
@@ -56,12 +71,53 @@ export const cellRendererOverrides: CellRendererOverrides = {
         }
 
         return (
-            <Label className="__CONTROL__-cell __CONTROL__-empty" aria-label="No value">
+            <Label
+                className="__CONTROL__-cell __CONTROL__-empty"
+                aria-label="No value"
+                {...cellHandlers(props)}
+            >
                 &mdash;
             </Label>
         );
     },
 };
+
+/**
+ * Everything the cell you replaced was doing besides drawing.
+ *
+ * **Spread this onto every element an override returns.** Returning an element
+ * replaces the grid's own cell *and its interactions*, and the one that goes is
+ * editing. Row selection survives, because the grid owns the row — so the cell
+ * still highlights, takes a focus ring and looks entirely alive while refusing
+ * to open an editor. A user clicks a value they can see is editable and nothing
+ * happens, on every customized column, with nothing logged. It is invisible in
+ * `dev/harness.html`, in a screenshot and in review.
+ *
+ * This is what those three fields on `CellRendererProps` are for.
+ * `onCellClicked` is documented as "callback indicating the grid cell has been
+ * clicked" — once you have drawn your own element, nothing else can raise it.
+ * `startEditing` opens the editor directly, and `columnEditable` says whether
+ * there is one to open. Both gestures are wired because which one the grid
+ * turns into an edit is its own business and can differ between a grid with
+ * *Enable editing* set and one without; `startEditing` on a cell already
+ * editing is a no-op, so the overlap costs nothing.
+ *
+ * Do not add `tabIndex` or key handlers here. The grid owns cell focus and
+ * keyboard navigation at the row level, so Enter and F2 never reached this
+ * element, and a tabbable node inside the cell adds a second stop to a
+ * roving-tabindex surface a customizer does not own.
+ */
+function cellHandlers(props: CellRendererProps): {
+    onClick?: (event: React.MouseEvent<HTMLElement>) => void;
+    onDoubleClick?: () => void;
+} {
+    return {
+        onClick: props.onCellClicked,
+        onDoubleClick: props.columnEditable
+            ? () => props.startEditing?.()
+            : undefined,
+    };
+}
 
 /**
  * Whether this cell is in a state the grid draws better than an override can.

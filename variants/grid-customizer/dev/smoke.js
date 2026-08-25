@@ -30,6 +30,15 @@
  * branches handling those the ones it cannot check. Keep the answers to those
  * in SPEC.md under "Not verified".
  *
+ * **And a stub must never be more capable than the thing it stands in for.**
+ * That is not a style note here; it is how this file once passed a customizer
+ * that did nothing at all on a real grid, twice, because its metadata stub
+ * answered for columns the real API answers nothing for. When you stub a
+ * platform call, stub its refusals first — the argument it requires, the fields
+ * it omits, the empty collection it hands back. If you cannot say what the real
+ * call withholds, the stub is a guess and the assertions resting on it prove
+ * nothing.
+ *
  * ---
  *
  * **The assertions below the divider are a worked example. Replace them.**
@@ -116,12 +125,71 @@ const context = {
     resources: { getString: (key) => `resx:${key}` },
     fluentDesignLanguage: { isDarkTheme: false },
 
-    // Present so a control that reads metadata has something to read. Add
-    // entries keyed by column name as your overrides start needing them.
+    /*
+     * Answers nothing, on purpose, and this stub is load-bearing.
+     *
+     * `getEntityMetadata` is the obvious call for a control that needs a
+     * column's range and it cannot supply one — twice over, silently. With no
+     * `attributes` argument it resolves to an entity whose `Attributes`
+     * collection is empty. Name the columns and the attribute metadata still
+     * carries no `MinValue`/`MaxValue`: the client-API surface is
+     * `AttributeType`, `DisplayName`, `EntityLogicalName`, `LogicalName` and
+     * option-set extras, nothing numeric.
+     *
+     * A stub answering anyway would be *more capable than the platform*, which
+     * does not merely miss a bug — it manufactures a green suite for a control
+     * with no working path at all. That has happened here before. Ranges come
+     * from the `fetch` stub below.
+     */
     utils: {
         getEntityMetadata: () => Promise.resolve({ Attributes: { get: () => undefined } }),
     },
+
+    // Confirmed on a real grid: this carries the table's logical name on a
+    // customizer, and is the only route to it — a customizer binds no dataset,
+    // so there is no `getTargetEntityType()`.
     mode: { contextInfo: { entityTypeName: 'account' } },
+    page: { getClientUrl: () => 'https://contoso.crm.dynamics.com' },
+};
+
+/*
+ * The Dataverse metadata endpoint.
+ *
+ * A numeric range lives only on the *typed* metadata entities, so it is read
+ * through `fetch` against
+ * `EntityDefinitions(LogicalName=…)/Attributes/Microsoft.Dynamics.CRM.
+ * {Integer,Decimal,Double,Money}AttributeMetadata?$select=LogicalName,MinValue,
+ * MaxValue` — one request per column type, because the cast is per request.
+ *
+ * Keyed by cast so it answers only for the one it was actually given: a stub
+ * that returned the same rows for every URL would pass a control that built the
+ * wrong request. Delete this and `METADATA` if your customizer reads no
+ * metadata; add rows as your overrides start needing them.
+ */
+const METADATA = {
+    MoneyAttributeMetadata: [
+        { LogicalName: 'creditlimit', MinValue: 0, MaxValue: 250000 },
+    ],
+    IntegerAttributeMetadata: [
+        { LogicalName: 'satisfaction', MinValue: 0, MaxValue: 100 },
+    ],
+    DecimalAttributeMetadata: [
+        { LogicalName: 'variance', MinValue: -50, MaxValue: 50 },
+    ],
+};
+
+/** Every metadata URL this run requested, for assertions about the request. */
+const metadataCalls = [];
+
+global.fetch = (url) => {
+    metadataCalls.push(String(url));
+
+    const cast = /Microsoft\.Dynamics\.CRM\.(\w+)/.exec(String(url));
+
+    return Promise.resolve({
+        ok: true,
+        json: () => Promise.resolve({ value: (cast && METADATA[cast[1]]) || [] }),
+    });
 };
 
 vm.runInThisContext(fs.readFileSync(BUNDLE, 'utf8'), { filename: 'bundle.js' });

@@ -49,11 +49,17 @@
      *
      * `employees` is deliberately left out — an unbounded column beside bounded
      * ones, which is what a real table looks like.
+     *
+     * `cast` is which typed metadata entity the column's range lives on, since
+     * that decides which request answers for it. The four are
+     * `IntegerAttributeMetadata`, `DecimalAttributeMetadata`,
+     * `DoubleAttributeMetadata` and `MoneyAttributeMetadata`, for the
+     * `Integer`, `Decimal`, `FloatingPoint` and `Currency` column types.
      */
     var BOUNDS = {
-        creditlimit: { MinValue: 0, MaxValue: 250000 },
-        satisfaction: { MinValue: 0, MaxValue: 100 },
-        variance: { MinValue: -50, MaxValue: 50 },
+        creditlimit: { cast: 'Money', MinValue: 0, MaxValue: 250000 },
+        satisfaction: { cast: 'Integer', MinValue: 0, MaxValue: 100 },
+        variance: { cast: 'Decimal', MinValue: -50, MaxValue: 50 },
     };
 
     var STRINGS = {
@@ -83,6 +89,59 @@
         registered = ctor;
     };
 
+    /*
+     * The Dataverse metadata endpoint, stood in for.
+     *
+     * A column's numeric range lives only on the *typed* metadata entities, so
+     * a control that needs one reads
+     * `EntityDefinitions(LogicalName=…)/Attributes/Microsoft.Dynamics.CRM.
+     * DecimalAttributeMetadata?$select=LogicalName,MinValue,MaxValue` and its
+     * three siblings. There is no client-API call that carries the same answer;
+     * see the `getEntityMetadata` note in `buildContext`.
+     *
+     * Intercepted rather than reached, because this page runs from `file://`
+     * where a real request cannot resolve — and because the "Columns declare a
+     * range" switch has to be able to answer *nothing*, which is the case that
+     * ships to most columns on most tables.
+     *
+     * Anything that is not a metadata URL falls through to the real `fetch`.
+     */
+    var boundsDeclared = true;
+
+    var realFetch = window.fetch && window.fetch.bind(window);
+
+    window.fetch = function (input) {
+        var url = String(input);
+        var cast = /Microsoft\.Dynamics\.CRM\.(\w+)AttributeMetadata/.exec(url);
+
+        if (!cast) {
+            return realFetch
+                ? realFetch.apply(null, arguments)
+                : Promise.reject(new Error('no fetch'));
+        }
+
+        var value = [];
+
+        if (boundsDeclared) {
+            Object.keys(BOUNDS).forEach(function (column) {
+                if (BOUNDS[column].cast === cast[1]) {
+                    value.push({
+                        LogicalName: column,
+                        MinValue: BOUNDS[column].MinValue,
+                        MaxValue: BOUNDS[column].MaxValue,
+                    });
+                }
+            });
+        }
+
+        return Promise.resolve({
+            ok: true,
+            json: function () {
+                return Promise.resolve({ value: value });
+            },
+        });
+    };
+
     function buildContext(options) {
         return {
             parameters: {
@@ -108,34 +167,53 @@
                 },
             },
 
+            /*
+             * `getEntityMetadata` is stubbed to answer *nothing*, on purpose.
+             *
+             * It is the obvious call for a control that needs a column's range,
+             * and it cannot supply one. With no `attributes` argument it
+             * resolves to an entity whose `Attributes` collection is empty;
+             * name the columns and the attribute metadata still carries no
+             * `MinValue`/`MaxValue` — the client-API surface is
+             * `AttributeType`, `DisplayName`, `EntityLogicalName`,
+             * `LogicalName` and option-set extras, and nothing numeric. Both
+             * failures are silent, and both look exactly like a table where
+             * nobody declared a range.
+             *
+             * A stub that answered anyway would let a control that cannot work
+             * on a real grid look correct here. That happened: see *Reading
+             * attribute metadata from a customizer* in the skill's
+             * `control-patterns.md`. Ranges come from `fetch` below.
+             *
+             * `.get()` rather than a plain object, because that is the shape
+             * the platform returns: the public surface is prototype getters and
+             * a `Map`-like collection, and code that walks it with
+             * `Object.keys` sees private fields instead.
+             */
             utils: {
                 getEntityMetadata: function () {
                     return Promise.resolve({
-                        // `.get()` rather than a plain object, because that is
-                        // the shape the platform returns: the public surface is
-                        // prototype getters and a `Map`-like `Attributes`
-                        // collection, and code that walks it with `Object.keys`
-                        // sees private fields instead. A fixture that used a
-                        // plain object would let that mistake pass here and
-                        // fail on a real grid.
                         Attributes: {
-                            get: function (columnName) {
-                                if (!options.bounds) {
-                                    return undefined;
-                                }
-
-                                return BOUNDS[columnName];
+                            get: function () {
+                                return undefined;
                             },
                         },
                     });
                 },
             },
 
-            // Both candidates a customizer has for learning its own table.
-            // Neither is declared in @types/powerapps-component-framework, so
-            // both are guesses until confirmed on a real grid — see SPEC.md.
+            // Confirmed on a real grid: `mode.contextInfo.entityTypeName`
+            // carries the table's logical name on a customizer. `page` is the
+            // older fallback. Neither is declared in
+            // @types/powerapps-component-framework, so both are casts — a
+            // typings gap, not an absent API.
             mode: { contextInfo: { entityTypeName: 'account' } },
-            page: { entityTypeName: 'account' },
+            page: {
+                entityTypeName: 'account',
+                getClientUrl: function () {
+                    return '';
+                },
+            },
 
             fluentDesignLanguage: { isDarkTheme: options.dark },
 
@@ -315,6 +393,11 @@
         };
 
         payload = null;
+
+        // Read by the `fetch` stub above, which the control reaches through
+        // rather than being handed — so the switch has to live somewhere both
+        // can see.
+        boundsDeclared = options.bounds;
 
         if (instance && instance.destroy) {
             instance.destroy();
