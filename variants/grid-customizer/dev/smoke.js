@@ -148,10 +148,14 @@ check('control fired a payload', payload !== null);
 const renderers = (payload && payload.cellRendererOverrides) || {};
 const editors = (payload && payload.cellEditorOverrides) || {};
 
+// `gridCustomizer` is deliberately not accepted here as a surface on its own.
+// The shipping grid ignores that key (verified 2026-08-25 — see the header of
+// `customizers/GridCustomizerOverrides.tsx`), so a control whose only output is
+// the chrome members passes every local check and does nothing in a real grid.
+// Requiring a cell override is what stops this file from certifying that.
 check(
-    'the payload carries at least one override',
-    Object.keys(renderers).length + Object.keys(editors).length > 0 ||
-        Boolean(payload && payload.gridCustomizer),
+    'the payload carries at least one cell override',
+    Object.keys(renderers).length + Object.keys(editors).length > 0,
     `renderers: ${Object.keys(renderers).join(', ') || 'none'}; editors: ${Object.keys(editors).join(', ') || 'none'}`,
 );
 

@@ -226,8 +226,18 @@
     }
 
     /*
-     * The `gridCustomizer` half of the payload — the members PCFHub's harness
-     * does not call, which is most of the reason this file exists.
+     * The `gridCustomizer` half of the payload.
+     *
+     * **This panel renders members the real grid never calls.** Verified
+     * against a live environment on 2026-08-25: the shipping Power Apps grid
+     * reads `cellRendererOverrides` out of the payload and ignores
+     * `gridCustomizer`. What this function draws is proof your component is
+     * correct, and no evidence at all that a user will ever see it. See the
+     * header of `customizers/GridCustomizerOverrides.tsx`.
+     *
+     * Kept because the interface is declared in the types Microsoft vendors,
+     * and if the platform ever honours it this is where you would develop
+     * against it.
      */
     function renderChrome() {
         var React = window.React;

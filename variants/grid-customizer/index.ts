@@ -165,25 +165,24 @@ export class __CONTROL__
             return;
         }
 
-        // The payload has three channels and this fires two of them. The third,
-        // `gridCustomizer`, describes the grid *around* the cells — the loading
-        // row, the empty-state overlay, the column headers — and is scaffolded,
-        // unwired, in `customizers/GridCustomizerOverrides.tsx`. To use it:
+        // The payload has three channels and this fires the two the grid
+        // actually reads.
         //
-        //     import { createGridCustomizer } from './customizers/GridCustomizerOverrides';
+        // The third, `gridCustomizer`, describes the grid *around* the cells —
+        // the loading row, the empty-state overlay, the column headers — and is
+        // scaffolded, unwired, in `customizers/GridCustomizerOverrides.tsx`.
         //
-        //     const customizer: PAOneGridCustomizer = {
-        //         cellRendererOverrides,
-        //         cellEditorOverrides,
-        //         gridCustomizer: createGridCustomizer(context.resources),
-        //     };
+        // DO NOT WIRE IT. Verified against a live environment on 2026-08-25:
+        // the shipping grid ignores that key. A payload carrying it was fired
+        // seven times per control instance, on a form subgrid and a table main
+        // grid, across empty and populated views, and no member was ever called
+        // — while `cellRendererOverrides` in the same payload ran per column per
+        // row. `pcf-grid-chrome` was built on those members and withdrawn.
         //
-        // A factory rather than a constant because those members are called with
-        // no context and no parameters, so anything they display has to be
-        // closed over here, where a context still exists. Read that file's
-        // header before wiring it: its members cannot decline the way a cell
-        // override can, so implementing one replaces the grid's version for
-        // every column of every view of the table.
+        // `dev/harness.js` renders them anyway, because it was written from the
+        // vendored types, so a control wired this way looks correct locally and
+        // does nothing in a real grid. Read that file's header before believing
+        // the harness.
         const customizer: PAOneGridCustomizer = {
             cellRendererOverrides,
             cellEditorOverrides,

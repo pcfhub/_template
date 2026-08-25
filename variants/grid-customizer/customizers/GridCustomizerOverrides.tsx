@@ -4,6 +4,28 @@ import { GridCustomizer, NoRowsOverlayConfig } from '../types';
 /**
  * The *other* half of the customizer contract: the grid around the cells.
  *
+ * **The shipping Power Apps grid does not call any of it. Verified against a
+ * live environment on 2026-08-25 — do not wire this file up.**
+ *
+ * A customizer whose payload carried `gridCustomizer` was fired seven times per
+ * instance, on a form subgrid and a table main grid, across empty and populated
+ * views. `GetLoadingRowRenderer` and `GetNoRowsOverlayConfiguration` were never
+ * called once. The same payload's `cellRendererOverrides` ran per column per
+ * row, in the same grid, on the same fire — so the grid reads that key and
+ * ignores this one. `pcf-grid-chrome` was built on these members and withdrawn;
+ * its `SPEC.md` has the reproduction.
+ *
+ * There is no workaround: an empty grid has no cells, so `cellRendererOverrides`
+ * cannot reach an empty state or a loading skeleton. Put your control's surface
+ * in the cell overrides, and delete this file.
+ *
+ * `dev/harness.js` *does* render these members, because it was written from the
+ * vendored types. It will show you a working empty state that no user will ever
+ * see. Do not read that as evidence.
+ *
+ * The rest of this comment describes the interface as the types declare it, and
+ * is kept for whenever the platform starts honouring it.
+ *
  * **Not wired up by default.** `index.ts` fires `cellRendererOverrides` and
  * `cellEditorOverrides`, which is what most customizers want. To use this file
  * instead — or as well — see the comment beside the payload in `index.ts`.

@@ -127,8 +127,13 @@ Three things it scaffolds that the other shapes do not:
   into the payload `index.ts` fires. This is what most customizers want.
 - **`customizers/GridCustomizerOverrides.tsx`** — the *other* half of the
   contract: the loading row, the empty-state overlay, the column headers.
-  Scaffolded but **not wired up**; `index.ts` carries the four lines that switch
-  it on. Read its header before you do, because those members behave unlike the
+  Scaffolded, **not wired up, and it should stay that way.** Verified against a
+  live environment on 2026-08-25: the shipping Power Apps grid reads
+  `cellRendererOverrides` out of the payload and ignores `gridCustomizer`
+  entirely, so a control built on these members does nothing. `pcf-grid-chrome`
+  was built on them and withdrawn. Delete the file rather than wiring it; the
+  header explains what the interface claims, and the rest of this bullet
+  describes those claims. Those members behave unlike the
   override maps in a way that does not show up until it is too late: they return
   `ReactElement` with no `undefined` in the type, so **they cannot decline**.
   Implementing one replaces the grid's version for every column of every view of

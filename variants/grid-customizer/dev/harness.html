@@ -13,7 +13,17 @@
             (`GetHeaderRenderer`, `GetLoadingRowRenderer`,
             `GetNoRowsOverlayConfiguration`), and it carries no attribute
             metadata — so a customizer that depends on either has nothing to
-            develop against. `npm start` is no help either: it hosts the control
+            develop against.
+
+            A warning about that first half: the shipping Power Apps grid does
+            not call the `GridCustomizer` members either. Verified against a
+            live environment on 2026-08-25 — it reads `cellRendererOverrides`
+            and ignores `gridCustomizer`. This page renders them because the
+            vendored types declare them, so the chrome panel below will show a
+            working empty state that no user will ever see. Treat it as a
+            component preview, not as evidence the platform will ask for it.
+
+            `npm start` is no help either: it hosts the control
             the way a form would, and a customizer correctly renders nothing
             there.
 
