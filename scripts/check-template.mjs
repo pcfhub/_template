@@ -30,6 +30,17 @@ const SKIP_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|mp4|webm|zip|ico|woff2?)$/i;
 
 const PLACEHOLDER = /__[A-Z][A-Z0-9_]*__/g;
 
+/*
+ * Overridable so this can be run against a local hub while developing the
+ * validator itself — `PCFHUB_URL=http://localhost:8000 npm run check`.
+ */
+const HUB = (process.env.PCFHUB_URL ?? 'https://pcfhub.dev').replace(/\/+$/, '');
+
+// Short. This runs in front of a Windows solution pack that takes minutes, and
+// a hub that is slow to answer should cost seconds and a warning, not a stalled
+// build.
+const HUB_TIMEOUT_MS = 10_000;
+
 const problems = [];
 
 /*
@@ -102,18 +113,42 @@ try {
     fail(`pcfhub.json is not readable as JSON: ${error.message}`);
 }
 
-const required = ['schemaVersion', 'slug', 'name', 'control'];
+// ------------------------------------------------ the hub's own rules
+//
+// Asked, not reimplemented. This file's opening comment has always said
+// PCFHub's ManifestValidator is the one definition of the pcfhub.json contract
+// and that a second copy here would drift — and then, over several phases, a
+// second copy grew here anyway: required keys, the control-type and framework
+// enums, the demo-host rules. All of it accurate when written, all of it
+// one hub change away from disagreeing with the thing that actually decides.
+//
+// P6 gave the hub an endpoint for exactly this, so those checks are gone and
+// this asks instead. What stays below is only what the hub genuinely cannot
+// see: files on disk, and pcfhub.json's claims measured against the
+// ControlManifest.Input.xml sitting next to it.
+const hub = await askTheHub(manifest);
 
-for (const key of required) {
-    if (manifest[key] === undefined) {
-        problems.push(`pcfhub.json is missing "${key}".`);
+if (hub.reachable) {
+    for (const issue of hub.errors) {
+        problems.push(`pcfhub.json ${issue.pointer || '/'} — ${issue.message}`);
     }
-}
 
-for (const key of ['namespace', 'constructor', 'type']) {
-    if (manifest.control?.[key] === undefined) {
-        problems.push(`pcfhub.json is missing "control.${key}".`);
+    for (const issue of hub.warnings) {
+        warnings.push(`pcfhub.json ${issue.pointer || '/'} — ${issue.message}`);
     }
+} else {
+    /*
+     * A warning, not a failure. The hub being unreachable is not evidence that
+     * this repository is wrong, and failing a release build because someone
+     * else's site is down would teach people to pass --no-verify. The manifest
+     * is validated again at ingestion regardless, so the worst case is finding
+     * out a few minutes later instead of now.
+     */
+    warnings.push(
+        `Could not reach ${HUB} to validate pcfhub.json (${hub.reason}). `
+        + 'The structural checks below still ran; the schema itself was not verified. '
+        + 'Set PCFHUB_URL to point at a different hub.',
+    );
 }
 
 // The path is declared rather than discovered, so a typo in it costs the whole
@@ -140,15 +175,8 @@ const FRAMEWORKS = ['standard', 'react', 'react_virtual'];
 const type = manifest.control?.type;
 const framework = manifest.control?.framework;
 
-if (type !== undefined && !TYPES.includes(type)) {
-    problems.push(`pcfhub.json has control.type "${type}". Expected one of: ${TYPES.join(', ')}.`);
-}
-
-if (framework !== undefined && !FRAMEWORKS.includes(framework)) {
-    problems.push(
-        `pcfhub.json has control.framework "${framework}". Expected one of: ${FRAMEWORKS.join(', ')}.`,
-    );
-}
+// Membership in these two lists is the hub's to enforce; they are kept here
+// only because the manifest cross-check below needs to know the vocabulary.
 
 // Hoisted, because the demo-host checks further down need the manifest too —
 // a grid host has a hard requirement on <platform-library name="React" />.
@@ -290,6 +318,15 @@ if (exists(join(root, docsPath))) {
 const media = [
     ...(manifest.media?.logo ? [['media.logo', manifest.media.logo]] : []),
     ...(manifest.media?.screenshots ?? []).map((path, index) => [`media.screenshots[${index}]`, path]),
+    /*
+     * The video trio too. `captions` arrived with P6, and a captions track that
+     * points at nothing is the worst of the three to lose silently: the video
+     * still plays, so nothing looks broken, and the only people who notice are
+     * the ones who cannot hear it.
+     */
+    ...(manifest.media?.video ? [['media.video', manifest.media.video]] : []),
+    ...(manifest.media?.poster ? [['media.poster', manifest.media.poster]] : []),
+    ...(manifest.media?.captions ? [['media.captions', manifest.media.captions]] : []),
 ];
 
 for (const [key, path] of media) {
@@ -306,21 +343,10 @@ for (const [key, path] of media) {
 // point — an unexplained "limited" tells a visitor the demo is broken without
 // telling them how.
 
-const FIDELITIES = ['full', 'mocked', 'limited', 'none'];
+// Both of those are the hub's rules and it reports them by JSON Pointer, so
+// they are not repeated here. What is left is reading the value, because the
+// local file checks below still need to know it.
 const fidelity = manifest.demo?.fidelity;
-
-if (fidelity !== undefined && !FIDELITIES.includes(fidelity)) {
-    problems.push(
-        `pcfhub.json has demo.fidelity "${fidelity}". Expected one of: ${FIDELITIES.join(', ')}.`,
-    );
-}
-
-if (fidelity === 'limited' && !(manifest.demo?.limitations?.length > 0)) {
-    problems.push(
-        'pcfhub.json sets demo.fidelity to "limited" but lists no demo.limitations. ' +
-        'Name each interaction that does not work in the demo, and why.',
-    );
-}
 
 // The fixture is the entire dataset the demo runs against, and it is committed
 // source rather than build output — so unlike demo.bundle below, there is no
@@ -348,17 +374,9 @@ if (datasetFixture && !exists(join(root, datasetFixture))) {
 // ManifestValidator — keep them in step, because a local check that disagrees
 // with the ingester is worse than no local check.
 
-const HOSTS = ['form', 'grid'];
-const declaredHost = manifest.demo?.host;
-const host = declaredHost ?? 'form';
-
-if (declaredHost !== undefined && !HOSTS.includes(declaredHost)) {
-    problems.push(
-        `pcfhub.json has demo.host "${declaredHost}". Expected one of: ${HOSTS.join(', ')}. ` +
-        'The hub errors on a malformed value rather than falling back, since the two ' +
-        'surfaces are not interchangeable.',
-    );
-}
+// Read, not validated — the hub owns whether the value is legal. Kept because
+// nothing below needs it any more except to stay readable if a rule returns.
+const host = manifest.demo?.host ?? 'form';
 
 // Deliberately not checked: that a dataset control *has* a fixture. A dataset
 // control with fidelity "none" is a legitimate state, and a rule forcing one
@@ -368,35 +386,14 @@ if (declaredHost !== undefined && !HOSTS.includes(declaredHost)) {
 // bound dataset property; a grid customizer has no dataset property at all —
 // there the fixture is the *grid's* rows, and the control only decides how
 // their cells look. Miss the second and this check fails a correct repository.
-if (datasetFixture && type !== 'dataset' && host !== 'grid') {
-    problems.push(
-        `pcfhub.json declares demo.datasetFixture, but control.type is "${type}" and demo.host ` +
-        'is not "grid". The hub reads it only for a dataset control or a grid host, so it ' +
-        'would be ignored.',
-    );
-}
 
 // The inverse, and the one that produces a demo which looks fine and is empty.
 // A grid with no rows is a legitimate authored state — an unconfigured view
 // looks the same in the platform — so the hub warns rather than failing, and so
 // does this.
-if (host === 'grid' && fidelity && fidelity !== 'none' && !datasetFixture) {
-    warnings.push(
-        'pcfhub.json sets demo.host to "grid" but declares no demo.datasetFixture. That is ' +
-        'how a grid host gets its rows — without one the grid renders empty and the cell ' +
-        'renderers never run.',
-    );
-}
 
 // The grid is a stand-in for the Power Apps grid, so `full` is a claim it
 // cannot support whatever the control does.
-if (host === 'grid' && fidelity === 'full') {
-    problems.push(
-        'pcfhub.json sets demo.fidelity to "full" on a "grid" demo host. The harness\'s grid ' +
-        'is a stand-in for the Power Apps grid — "mocked" is the ceiling, with what is not ' +
-        'exercised named in demo.limitations.',
-    );
-}
 
 // The harness refuses to boot a grid host whose control does not declare React
 // as a platform library, and it is right to: cell renderers dispatch their
@@ -479,4 +476,63 @@ function exists(path) {
 function fail(message) {
     console.error(`\n  ${message}\n`);
     process.exit(1);
+}
+
+/**
+ * Ask PCFHub what it makes of this manifest.
+ *
+ * The hub validates with the same class ingestion uses, so the answer here is
+ * the answer at import time rather than an approximation of it — which is the
+ * whole reason this replaced a local copy of those rules.
+ *
+ * Never throws. Every failure — offline, DNS, a 500, a timeout, a body that is
+ * not the shape expected — comes back as `reachable: false` with a reason, and
+ * the caller turns that into a warning. A check script that can fail a release
+ * build because a website was briefly down is a check script people disable.
+ */
+async function askTheHub(manifest) {
+    const url = `${HUB}/api/v1/manifest/validate`;
+
+    let response;
+
+    try {
+        response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(manifest),
+            signal: AbortSignal.timeout(HUB_TIMEOUT_MS),
+        });
+    } catch (error) {
+        return { reachable: false, reason: error.name === 'TimeoutError' ? `no answer in ${HUB_TIMEOUT_MS / 1000}s` : error.message };
+    }
+
+    /*
+     * The endpoint answers 200 for an invalid manifest — `valid: false` is the
+     * verdict, not the status. So a non-200 means something went wrong with the
+     * *request*, not with the manifest, and must not be reported as if the
+     * author had made a mistake.
+     */
+    if (!response.ok) {
+        return { reachable: false, reason: `HTTP ${response.status}` };
+    }
+
+    let body;
+
+    try {
+        body = await response.json();
+    } catch (error) {
+        return { reachable: false, reason: `unreadable response: ${error.message}` };
+    }
+
+    const data = body?.data;
+
+    if (typeof data?.valid !== 'boolean') {
+        return { reachable: false, reason: 'unexpected response shape' };
+    }
+
+    return {
+        reachable: true,
+        errors: Array.isArray(data.errors) ? data.errors : [],
+        warnings: Array.isArray(data.warnings) ? data.warnings : [],
+    };
 }

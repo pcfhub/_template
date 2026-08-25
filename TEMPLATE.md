@@ -242,11 +242,30 @@ Note `SLUG` derives from `CONTROL` as `color-picker`, not `pcf-color-picker`.
 
 `npm run check` — which CI runs first, before the slow Windows build — fails
 while any placeholder remains, so a half-adopted template cannot reach a
-release. It also reads `pcfhub.json` structurally: that `control.type` and
-`control.framework` are real values and agree with what the manifest actually
-declares, that `demo.fidelity` is one of the four, and that a `limited` demo
-lists its `demo.limitations`. It still does **not** check images referenced
-from the docs — a broken one there ships silently.
+release.
+
+It then **asks the hub** to validate `pcfhub.json`, rather than checking the
+schema itself. There is no JSON Schema file to keep in step and no local copy of
+the rules: `POST /api/v1/manifest/validate` runs the same validator ingestion
+runs, so what passes here is what imports there. Errors and warnings come back
+with a JSON Pointer at each one. A practical consequence worth knowing: rules
+added to the hub reach your CI without you updating anything — the captions
+warning that arrived with schema version 1's `media.captions` field started
+appearing in repositories whose check script had not been touched in months.
+
+If the hub cannot be reached the check **warns and carries on**. Failing a
+release because someone else's website is briefly down is how a check gets
+disabled, and the manifest is validated again at ingestion regardless. Point it
+elsewhere with `PCFHUB_URL` when developing against a local hub.
+
+What stays local is everything the hub cannot see from a manifest alone: that
+`control.manifestPath` exists, that `control.type` and `control.framework` agree
+with what `ControlManifest.Input.xml` actually declares, that a grid host
+declares `<platform-library name="React">`, that declared `<uses-feature>`
+entries are used, that docs filenames are sections the hub recognises, and that
+every file named under `media` and `demo` is really there. It still does **not**
+check images referenced from inside the docs — a broken one there ships
+silently.
 
 The placeholder guard exists because two of the answers are permanent:
 
