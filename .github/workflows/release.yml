@@ -31,7 +31,7 @@ jobs:
     #
     # `release-reusable.yml` is versioned by tagging *this* repository, and this
     # workflow triggers on `v*` — so cutting `v1` would kick off a Windows
-    # solution pack against a checkout still full of `__CONTROL__` placeholders,
+    # solution pack against a checkout whose placeholders have not been replaced,
     # which fails slowly and means nothing. An adopted repository does not carry
     # this condition's subject, so it never matches and the job runs normally.
     #
