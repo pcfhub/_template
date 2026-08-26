@@ -296,6 +296,18 @@ rmSync(join(root, 'docs', 'migration.md'), { force: true });
  */
 rmSync(join(root, 'scripts', 'adopt.mjs'), { force: true });
 
+/*
+ * `release-reusable.yml` is the shared pipeline, and it lives *here*. Every
+ * component repository calls it by `uses:` at the `@v1` tag rather than owning
+ * a copy, so an adopted repository carrying one would hold a second definition
+ * of the release — unreferenced by its own release.yml, and drifting from this
+ * one the moment either is fixed.
+ *
+ * Which is exactly the state eleven repositories were in before P6 migrated
+ * them. Deleting it here is what stops the next adoption quietly recreating it.
+ */
+rmSync(join(root, '.github', 'workflows', 'release-reusable.yml'), { force: true });
+
 const templateDoc = join(root, 'TEMPLATE.md');
 
 if (existsSync(templateDoc)) {
