@@ -69,16 +69,30 @@ jobs:
       contents: write
 
     steps:
-      - uses: actions/checkout@v4
+      # These four are pinned to the majors whose action *runtime* is Node 24.
+      # GitHub is retiring Node 20 on the runners, and until this bump every
+      # release in every component repository carried the same deprecation
+      # annotation — one warning, emitted once per repo, fixable only here.
+      #
+      # `node-version` below is a different thing entirely and is not what that
+      # deprecation is about: it selects the Node that runs npm and tsc for the
+      # control's own build, not the Node the action itself executes on.
+      #
+      # One behaviour change came with `setup-node@v5` and is inert here:
+      # it caches automatically when package.json carries a `packageManager`
+      # field. The template's does not, and `cache: npm` below is explicit
+      # anyway — but a repository that adds `packageManager` later gets caching
+      # it did not ask for, which is worth knowing before it looks like a bug.
+      - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.tag || github.ref }}
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node-version }}
           cache: npm
 
-      - uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@v3
 
       # The version in the control manifest is what the platform upgrades on. A
       # tag that disagrees with it produces a release the hub records under one
@@ -205,7 +219,7 @@ jobs:
       # `inputs.tag` is set only by workflow_dispatch, so its emptiness is
       # exactly the "first time this tag has been released" signal.
       - name: Publish the release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
           generate_release_notes: ${{ inputs.tag == '' }}
