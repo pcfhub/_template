@@ -10,6 +10,20 @@ jobs:
   # Cheap and first. Everything below takes minutes on a Windows runner, and a
   # repository still carrying template placeholders fails all of it for one
   # reason that is easier to read here.
+  #
+  # **Which of the two checks runs depends on which repository this is, and that
+  # is the whole point.** `check-template.mjs` exists to fail while placeholders
+  # remain, so on the template itself it exits 1 by design — meaning this job
+  # could never pass here, the Windows build behind `needs: template` never ran,
+  # and the repository every component was cloned from effectively had no CI.
+  # Two bugs lived in it undetected until somebody adopted it by hand and read
+  # what came out: a comment that explained placeholders *using* a placeholder,
+  # and an inherited copy of the shared release pipeline that quietly recreated
+  # the drift it had just been built to remove.
+  #
+  # So the template verifies its *output* instead. verify-adoption.mjs adopts it
+  # into a scratch directory and asserts what comes out — the state nothing else
+  # constructs, and the only state in which either bug is visible.
   template:
     runs-on: ubuntu-latest
     steps:
@@ -17,7 +31,13 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
+      - name: Verify adoption produces a correct repository
+        if: github.repository == 'pcfhub/_template'
+        run: node scripts/verify-adoption.mjs
+
       - name: Check the template was adopted
+        if: github.repository != 'pcfhub/_template'
         run: node scripts/check-template.mjs
 
   build:
@@ -33,8 +53,31 @@ jobs:
 
       - uses: microsoft/setup-msbuild@v2
 
+      # The template cannot build itself: `__NAMESPACE__` and `__CONTROL__` are
+      # not valid identifiers, and the .pcfproj carries a placeholder GUID. So
+      # on the template it is adopted first, in place, and everything below
+      # compiles the result. An adopted repository skips this and builds itself.
+      #
+      # Worth the step, because otherwise nothing ever compiles the control
+      # source every new repository is seeded from — a syntax error in
+      # `__CONTROL__/index.ts` would be discovered by the first author to run
+      # `npm run build` after cloning, which is the worst possible reviewer.
+      - name: Adopt the template so there is something to build
+        if: github.repository == 'pcfhub/_template'
+        run: |
+          node scripts/setup.mjs --yes `
+            --control CiProbe --namespace PCFHub --slug pcf-ci-probe `
+            --title "CI Probe" --tagline "Built in CI and thrown away." `
+            --category utilities --owner pcfhub --repo pcf-ci-probe `
+            --publisher PCFHub --prefix pcfhub
+        shell: pwsh
+
+      # `npm ci` everywhere it can be: the lockfile is what was tested. The
+      # template deliberately ships none — that is why step 1 of the publish
+      # guide says to commit the one `npm install` writes — so it is the one
+      # repository that has to resolve fresh.
       - name: Install dependencies
-        run: npm ci
+        run: ${{ github.repository == 'pcfhub/_template' && 'npm install' || 'npm ci' }}
 
       - name: Lint
         run: npm run lint

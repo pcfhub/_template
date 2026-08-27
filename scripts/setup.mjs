@@ -297,6 +297,15 @@ rmSync(join(root, 'docs', 'migration.md'), { force: true });
 rmSync(join(root, 'scripts', 'adopt.mjs'), { force: true });
 
 /*
+ * `verify-adoption.mjs` tests *this script*, by adopting the template into a
+ * scratch directory and asserting what comes out. An adopted repository is the
+ * output, not the subject, so it has no use for it — and carrying it would ship
+ * a file that talks about placeholder tokens, which its own leftover-token
+ * check would then flag.
+ */
+rmSync(join(root, 'scripts', 'verify-adoption.mjs'), { force: true });
+
+/*
  * `release-reusable.yml` is the shared pipeline, and it lives *here*. Every
  * component repository calls it by `uses:` at the `@v1` tag rather than owning
  * a copy, so an adopted repository carrying one would hold a second definition
