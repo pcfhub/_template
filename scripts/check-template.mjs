@@ -305,6 +305,125 @@ if (exists(join(root, docsPath))) {
     problems.push(`No ${docsPath}/ directory, so this component would publish with no documentation.`);
 }
 
+// ------------------------------------------------------------ localisation
+//
+// Three failures, all of them silent, all of them found by a customer rather
+// than by a build:
+//
+//   1. A .resx on disk that the manifest does not list is never packed. The
+//      repository looks bilingual and the control runs in English.
+//   2. A key present in 1033 and missing from another language falls back to
+//      the *key name* — in that language only. Nobody who reads English ever
+//      sees "CopyField_Copied" where a sentence should be.
+//   3. A placeholder dropped in translation. `"Copy {0}"` translated as a bare
+//      verb loses the field name, and the string that loses it is usually an
+//      accessible name, which is exactly the one nobody looks at.
+//
+// All three are cheap to read off the files, and none of them is caught by
+// anything else in the pipeline.
+
+if (manifestPath && exists(join(root, manifestPath))) {
+    const controlDir = manifestPath.split(/[\\/]/)[0];
+    const stringsDir = join(root, controlDir, 'strings');
+    const xml = readFileSync(join(root, manifestPath), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+
+    const declared = [...xml.matchAll(/<resx\s+path="([^"]+)"/g)].map((match) => match[1]);
+    const onDisk = exists(stringsDir)
+        ? readdirSync(stringsDir).filter((name) => name.endsWith('.resx'))
+        : [];
+
+    for (const name of onDisk) {
+        if (!declared.some((path) => path.split(/[\\/]/).pop() === name)) {
+            problems.push(
+                `${controlDir}/strings/${name} exists but no <resx path=…> in the manifest lists it, ` +
+                    `so it is never packed and that locale silently falls back to English.`,
+            );
+        }
+    }
+
+    for (const path of declared) {
+        if (!exists(join(root, controlDir, path))) {
+            problems.push(`The manifest declares <resx path="${path}">, which does not exist.`);
+        }
+    }
+
+    /*
+     * 1033 is the baseline because it is what the platform falls back to for
+     * any locale not shipped. A repository that ships only 1033 has nothing to
+     * compare and skips the rest of this — shipping one language is a choice,
+     * not a mistake.
+     */
+    const keysOf = (name) => {
+        const text = readFileSync(join(stringsDir, name), 'utf8');
+
+        return new Map(
+            [...text.matchAll(/<data name="([^"]+)"[^>]*>\s*<value>([\s\S]*?)<\/value>/g)].map(
+                (match) => [match[1], match[2]],
+            ),
+        );
+    };
+
+    const baseName = onDisk.find((name) => name.endsWith('.1033.resx'));
+
+    if (baseName) {
+        const base = keysOf(baseName);
+
+        for (const name of onDisk) {
+            if (name === baseName) {
+                continue;
+            }
+
+            const other = keysOf(name);
+            const missing = [...base.keys()].filter((key) => !other.has(key));
+            const extra = [...other.keys()].filter((key) => !base.has(key));
+
+            if (missing.length > 0) {
+                problems.push(
+                    `${name} is missing ${missing.length} key(s) present in ${baseName}: ${missing.join(', ')}. ` +
+                        `Each one renders as the key name in that language.`,
+                );
+            }
+
+            /*
+             * A warning, not a failure. An extra key is dead weight rather than
+             * a visible bug — but it is nearly always the trace of a key that
+             * was renamed in 1033 and not in the translations, which *is* one.
+             */
+            if (extra.length > 0) {
+                warnings.push(
+                    `${name} has ${extra.length} key(s) not in ${baseName}: ${extra.join(', ')}. ` +
+                        `Usually a rename that only landed in one language.`,
+                );
+            }
+
+            for (const [key, value] of base) {
+                const translated = other.get(key);
+
+                if (translated === undefined) {
+                    continue;
+                }
+
+                /*
+                 * Compared as a set, not by position or count. German and
+                 * Japanese both move `{0}` to the other end of the sentence,
+                 * which is the entire reason these strings are templates —
+                 * flagging that would train people to write worse translations.
+                 */
+                const tokens = (text) => [...new Set(text.match(/\{\d+\}/g) ?? [])].sort();
+                const wanted = tokens(value);
+                const got = tokens(translated);
+
+                if (wanted.join() !== got.join()) {
+                    problems.push(
+                        `${name} key "${key}" has placeholders ${got.join(' ') || '(none)'} ` +
+                            `where ${baseName} has ${wanted.join(' ') || '(none)'}.`,
+                    );
+                }
+            }
+        }
+    }
+}
+
 // ------------------------------------------------------------------- media
 //
 // A missing image is one of the quietest failures the hub has: ingestion drops

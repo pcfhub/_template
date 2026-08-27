@@ -6,33 +6,243 @@
  * dropped onto. The platform does not sandbox this for you.
  */
 
+/*
+ * The palette, as Fluent's design tokens with literal fallbacks.
+ *
+ * A standard control cannot mount a `FluentProvider` — the provider is React
+ * and this is not — and the usual conclusion from that is that Fluent's styling
+ * is out of reach, so the control invents its own colours and ends up looking
+ * pasted onto the form. The conclusion is wrong. `FluentProvider` is what
+ * *emits* the theme as CSS custom properties, and a model-driven form already
+ * mounts one above every code component on the page. Nothing has to be mounted
+ * in order to read them.
+ *
+ * So the token wins where the host publishes it — the control then follows the
+ * app's theme *and its brand colour* with no code — and the literal carries the
+ * hosts that publish nothing, which includes canvas apps and PCFHub's demo
+ * harness. The fallbacks are Fluent's web light theme, taken from
+ * `@fluentui/tokens` rather than eyeballed: a value one step off on the neutral
+ * ramp is invisible alone and obvious beside the real thing.
+ */
 .__CONTROL__ {
+    --__CONTROL__-background: var(--colorNeutralBackground3, #f5f5f5);
+    --__CONTROL__-background-hover: var(--colorNeutralBackground3Hover, #ebebeb);
+    --__CONTROL__-background-disabled: var(--colorTransparentBackground, transparent);
+    --__CONTROL__-stroke: var(--colorTransparentStroke, transparent);
+    --__CONTROL__-stroke-disabled: var(--colorNeutralStrokeDisabled, #e0e0e0);
+    --__CONTROL__-stroke-focus: var(--colorCompoundBrandStroke, #0f6cbd);
+    --__CONTROL__-stroke-focus-pressed: var(--colorCompoundBrandStrokePressed, #0f548c);
+    --__CONTROL__-stroke-invalid: var(--colorPaletteRedBorder2, #d13438);
+    --__CONTROL__-foreground: var(--colorNeutralForeground1, #242424);
+    --__CONTROL__-foreground-secondary: var(--colorNeutralForeground2, #424242);
+    --__CONTROL__-foreground-placeholder: var(--colorNeutralForeground4, #707070);
+    --__CONTROL__-foreground-disabled: var(--colorNeutralForegroundDisabled, #bdbdbd);
+    --__CONTROL__-foreground-danger: var(--colorPaletteRedForeground1, #bc2f32);
+    --__CONTROL__-radius: var(--borderRadiusMedium, 4px);
+    --__CONTROL__-font-family: var(
+        --fontFamilyBase,
+        "Segoe UI",
+        "Segoe UI Web (West European)",
+        -apple-system,
+        BlinkMacSystemFont,
+        Roboto,
+        "Helvetica Neue",
+        sans-serif
+    );
+    --__CONTROL__-font-size: var(--fontSizeBase300, 14px);
+    --__CONTROL__-line-height: var(--lineHeightBase300, 20px);
+    --__CONTROL__-font-size-caption: var(--fontSizeBase200, 12px);
+    --__CONTROL__-line-height-caption: var(--lineHeightBase200, 16px);
+    --__CONTROL__-duration-fast: var(--durationUltraFast, 50ms);
+    --__CONTROL__-duration-normal: var(--durationNormal, 200ms);
+    --__CONTROL__-duration-faster: var(--durationFaster, 100ms);
+    --__CONTROL__-curve-accelerate: var(--curveAccelerateMid, cubic-bezier(1, 0, 1, 1));
+    --__CONTROL__-curve-decelerate: var(--curveDecelerateMid, cubic-bezier(0, 0, 0, 1));
+    --__CONTROL__-curve-ease: var(--curveEasyEase, cubic-bezier(0.33, 0, 0.67, 1));
+
     display: block;
     width: 100%;
     box-sizing: border-box;
+    font-family: var(--__CONTROL__-font-family);
+    color: var(--__CONTROL__-foreground);
+}
+
+/*
+ * The dark fallbacks, chosen from `fluentDesignLanguage.isDarkTheme` in
+ * `index.ts` rather than from `prefers-color-scheme`.
+ *
+ * The media query is the obvious hook and it answers the wrong question: a
+ * model-driven app carries its own theme and the operating system's setting
+ * says nothing about it, so an OS-dark machine on a light app would get #141414
+ * behind the form's white.
+ *
+ * Only the fallbacks change here. A host that emits the tokens is already
+ * handing over its own dark values through the `var()`, and this block never
+ * takes effect there.
+ */
+.__CONTROL__--dark {
+    --__CONTROL__-background: var(--colorNeutralBackground3, #141414);
+    --__CONTROL__-background-hover: var(--colorNeutralBackground3Hover, #292929);
+    --__CONTROL__-stroke-disabled: var(--colorNeutralStrokeDisabled, #424242);
+    --__CONTROL__-stroke-focus: var(--colorCompoundBrandStroke, #479ef5);
+    --__CONTROL__-stroke-focus-pressed: var(--colorCompoundBrandStrokePressed, #2886de);
+    --__CONTROL__-stroke-invalid: var(--colorPaletteRedBorder2, #e37d80);
+    --__CONTROL__-foreground: var(--colorNeutralForeground1, #ffffff);
+    --__CONTROL__-foreground-secondary: var(--colorNeutralForeground2, #d6d6d6);
+    --__CONTROL__-foreground-placeholder: var(--colorNeutralForeground4, #999999);
+    --__CONTROL__-foreground-disabled: var(--colorNeutralForegroundDisabled, #5c5c5c);
+    --__CONTROL__-foreground-danger: var(--colorPaletteRedForeground1, #e37d80);
+}
+
+/*
+ * The field surface: Fluent's `filled-darker` Input, which is the shape a
+ * model-driven form draws. The fill is `colorNeutralBackground3`, all four
+ * borders are transparent, and the box is 32px tall — `medium` in Fluent's
+ * three field heights, and the one a form uses.
+ *
+ * The borders are transparent rather than absent on purpose. They hold the
+ * height against the box model, and they are what the invalid and disabled
+ * states colour in; a field with no border to reveal has to grow one, which
+ * moves every field below it.
+ */
+.__CONTROL__ .__CONTROL__-field {
+    position: relative;
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: var(--spacingHorizontalXXS, 2px);
+    box-sizing: border-box;
+    min-height: 32px;
+    border: 1px solid var(--__CONTROL__-stroke);
+    border-radius: var(--__CONTROL__-radius);
+    background-color: var(--__CONTROL__-background);
+    transition: background-color var(--__CONTROL__-duration-faster) var(--__CONTROL__-curve-ease);
+}
+
+.__CONTROL__ .__CONTROL__-field:hover {
+    background-color: var(--__CONTROL__-background-hover);
+}
+
+/*
+ * Required, not belt-and-braces. `hidden` works by way of a UA rule
+ * `[hidden] { display: none }`, which any author `display` declaration beats on
+ * specificity — so the `display: flex` above would leave `field.hidden = true`
+ * rendering an empty grey bar where the field-level-security message should be
+ * the only thing on the form.
+ */
+.__CONTROL__ .__CONTROL__-field[hidden] {
+    display: none;
+}
+
+/*
+ * The animated focus underline — the most recognisable thing Fluent does, and
+ * the obvious implementation of it is wrong.
+ *
+ * A `border-bottom` that appears on focus is 2px of height the box did not have
+ * a moment ago, so every field below it nudges down as the user tabs through
+ * the form. Scaling an absolutely-positioned pseudo-element is composited and
+ * moves nothing.
+ *
+ * `clip-path` is what keeps a 4px box reading as a 2px line: the height has to
+ * clear the corner radius or the line stops short of the rounded ends, and the
+ * clip trims the rest. `left`/`right`/`bottom` at -1px put it over the border
+ * rather than inside it.
+ *
+ * The asymmetric duration is Fluent's: 50ms out, 200ms in, so arriving in a
+ * field is what the eye catches and leaving one is not.
+ *
+ * A curve in `transition-delay` is invalid and computes to `0s`, so those two
+ * declarations do nothing. They are here because Fluent's own source has them
+ * (`useInputStyles.styles.raw.js`) — worth knowing they are inert rather than
+ * "fixing" them into a timing function, which would animate differently from
+ * every other field on the page. Deleting them is equally correct.
+ */
+.__CONTROL__ .__CONTROL__-field::after {
+    content: "";
+    position: absolute;
+    right: -1px;
+    bottom: -1px;
+    left: -1px;
+    box-sizing: border-box;
+    height: max(2px, var(--__CONTROL__-radius));
+    border-bottom: 2px solid var(--__CONTROL__-stroke-focus);
+    border-bottom-right-radius: var(--__CONTROL__-radius);
+    border-bottom-left-radius: var(--__CONTROL__-radius);
+    clip-path: inset(calc(100% - 2px) 0 0 0);
+    transform: scaleX(0);
+    transition-property: transform;
+    transition-duration: var(--__CONTROL__-duration-fast);
+    transition-delay: var(--__CONTROL__-curve-accelerate);
+}
+
+/* `:focus-within` rather than `:focus`, so anything added inside the surface
+   later — a button, a picker toggle — lights the same field the input does. */
+.__CONTROL__ .__CONTROL__-field:focus-within::after {
+    transform: scaleX(1);
+    transition-duration: var(--__CONTROL__-duration-normal);
+    transition-delay: var(--__CONTROL__-curve-decelerate);
+}
+
+.__CONTROL__ .__CONTROL__-field:focus-within:active::after {
+    border-bottom-color: var(--__CONTROL__-stroke-focus-pressed);
+}
+
+/* The underline is the focus indicator for this box; suppressing the UA outline
+   here stops a second one being drawn around it. */
+.__CONTROL__ .__CONTROL__-field:focus-within {
+    outline: 2px solid transparent;
 }
 
 .__CONTROL__ .__CONTROL__-input {
-    width: 100%;
+    /* `min-width: 0` because a flex item's default `min-width: auto` refuses to
+       shrink below its intrinsic width — which pushes anything trailing off a
+       narrow form instead of narrowing the field, and canvas apps put controls
+       in genuinely narrow places. */
+    flex: 1 1 auto;
+    min-width: 0;
+    align-self: stretch;
     box-sizing: border-box;
-    padding: 6px 8px;
-    /* Inherit rather than declare: the host controls the form's type scale, and
-       a hard-coded family is what makes a control look pasted in. */
-    font: inherit;
-    color: inherit;
-    background: transparent;
-    border: 1px solid rgba(0, 0, 0, 0.25);
-    border-radius: 2px;
+    padding: 0 var(--spacingHorizontalM, 12px);
+    border-style: none;
+    outline-style: none;
+    /* The surface owns the fill; the input is a hole in it. Give the input a
+       fill of its own and the surface's hover shows as a lighter rectangle
+       inside the field. */
+    background-color: transparent;
+    color: var(--__CONTROL__-foreground);
+    font-family: inherit;
+    font-size: var(--__CONTROL__-font-size);
+    line-height: var(--__CONTROL__-line-height);
+    font-weight: var(--fontWeightRegular, 400);
+    text-overflow: ellipsis;
 }
 
-.__CONTROL__ .__CONTROL__-input:focus-visible {
-    outline: 2px solid Highlight;
-    outline-offset: 1px;
+/* `opacity: 1` because Firefox dims placeholders by default, which drags the
+   colour below 4.5:1 against the fill. */
+.__CONTROL__ .__CONTROL__-input::placeholder {
+    color: var(--__CONTROL__-foreground-placeholder);
+    opacity: 1;
 }
 
-.__CONTROL__ .__CONTROL__-input:disabled {
-    opacity: 0.6;
+/*
+ * Disabled is a different surface, not a dimmer one. `opacity` over the enabled
+ * styling is the reflex and it is wrong twice: it drags the *text* below
+ * contrast along with the chrome, and it looks nothing like Fluent, which
+ * removes the fill and reveals the border.
+ */
+.__CONTROL__--disabled .__CONTROL__-field,
+.__CONTROL__--disabled .__CONTROL__-field:hover {
+    background-color: var(--__CONTROL__-background-disabled);
+    border-color: var(--__CONTROL__-stroke-disabled);
+}
+
+.__CONTROL__--disabled .__CONTROL__-input {
+    color: var(--__CONTROL__-foreground-disabled);
     cursor: not-allowed;
+}
+
+.__CONTROL__--disabled .__CONTROL__-input::placeholder {
+    color: var(--__CONTROL__-foreground-disabled);
 }
 
 /* `mode.isVisible` is false. Canvas relies on this; model-driven hides the
@@ -41,18 +251,60 @@
     display: none;
 }
 
-/* The bound property reported `error`. The colour is a system keyword rather
-   than a hex value so it survives a themed environment and high contrast. */
-.__CONTROL__--invalid .__CONTROL__-input {
-    border-color: LinkText;
+/* The bound property reported `error`. Fluent colours all four borders and
+   drops the colour the moment the field is focused, on the reasoning that
+   somebody already fixing the error does not need telling again. */
+.__CONTROL__--invalid .__CONTROL__-field:not(:focus-within),
+.__CONTROL__--invalid .__CONTROL__-field:hover:not(:focus-within) {
+    border-color: var(--__CONTROL__-stroke-invalid);
 }
 
 .__CONTROL__ .__CONTROL__-message {
-    margin: 4px 0 0;
-    font-size: 12px;
-    color: LinkText;
+    margin: var(--spacingVerticalXXS, 2px) 0 0;
+    font-family: inherit;
+    font-size: var(--__CONTROL__-font-size-caption);
+    line-height: var(--__CONTROL__-line-height-caption);
+    color: var(--__CONTROL__-foreground-danger);
 }
 
 .__CONTROL__ .__CONTROL__-message[hidden] {
     display: none;
+}
+
+/*
+ * Forced colours collapse every tint to one of a handful of system keywords, so
+ * anything carrying meaning by colour has to carry it by shape too. The
+ * transparent borders become visible ones and the underline picks up the system
+ * highlight instead of the brand.
+ */
+@media (forced-colors: active) {
+    .__CONTROL__ .__CONTROL__-field {
+        border-color: ButtonBorder;
+    }
+
+    .__CONTROL__ .__CONTROL__-field::after {
+        border-bottom-color: Highlight;
+    }
+
+    .__CONTROL__--disabled .__CONTROL__-field {
+        border-color: GrayText;
+    }
+
+    .__CONTROL__--disabled .__CONTROL__-input {
+        color: GrayText;
+    }
+}
+
+/*
+ * Shortened, not removed. The animation is decoration; the focus it indicates
+ * is not, so the line still has to appear — it just stops travelling to get
+ * there. Fluent ships this pair on the Input itself.
+ */
+@media screen and (prefers-reduced-motion: reduce) {
+    .__CONTROL__ .__CONTROL__-field,
+    .__CONTROL__ .__CONTROL__-field::after,
+    .__CONTROL__ .__CONTROL__-field:focus-within::after {
+        transition-duration: 0.01ms;
+        transition-delay: 0.01ms;
+    }
 }

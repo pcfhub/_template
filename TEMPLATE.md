@@ -307,6 +307,72 @@ Docs come from the branch so a typo fix does not need a release. The API
 reference comes from the tag so an old version is not described by the newest
 control's property list.
 
+## The stylesheet
+
+`css/__CONTROL__.css` is not neutral scaffolding to be replaced — it is Fluent's
+`filled-darker` Input reproduced in plain CSS, and it is the reason a control
+built from here looks like the form it lands on rather than like a widget
+dropped onto one.
+
+The premise: a standard control cannot mount a `FluentProvider`, since the
+provider is React — but `FluentProvider` is what **emits** the theme as CSS
+custom properties, and a model-driven form already mounts one above every code
+component on the page. So the stylesheet *reads* the tokens, with Fluent's own
+light-theme values as fallbacks:
+
+```css
+--__CONTROL__-background: var(--colorNeutralBackground3, #f5f5f5);
+```
+
+The token wins where the host publishes it, so the control follows the app's
+theme and brand colour with no code at all. The fallback carries the hosts that
+publish nothing — canvas apps, and PCFHub's own demo harness. `--dark` swaps
+only the fallbacks, and it is driven by
+`context.fluentDesignLanguage?.isDarkTheme` rather than
+`prefers-color-scheme`, because a model-driven app carries its own theme and the
+user's OS setting says nothing about it.
+
+Three things in there are worth knowing before editing:
+
+- **The input sits inside `.__CONTROL__-field`, which owns the border, the
+  hover, the focus underline and the invalid state.** That is the shape the
+  platform's own fields have, and it is what lets a trailing button or icon be
+  added later without restyling anything.
+- **The focus underline is a scaled `::after`, not a `border-bottom`.** A border
+  that appears on focus adds 2px of height, so every field below it on the form
+  nudges down as the user tabs through.
+- **Disabled removes the fill and reveals the border.** It is a different
+  surface, not `opacity` over the enabled one — which would drag the text below
+  contrast along with the chrome.
+
+Extend it rather than starting over. New values come from `@fluentui/tokens`,
+which any control declaring Fluent already has transitively:
+
+```bash
+node --input-type=module -e "
+import {webLightTheme as L, webDarkTheme as D} from '@fluentui/tokens';
+console.log(L.colorNeutralBackground3, D.colorNeutralBackground3);
+"
+```
+
+Nothing in the build checks a selector that matches nothing or a token name
+spelled wrong — both render quietly and look fine on every host that publishes
+no tokens. Read `getComputedStyle` back off the built CSS before believing it.
+
+**`--type dataset` swaps in its own stylesheet**, built the same way: the same
+token-with-fallback palette and the same `--dark` block, over Fluent DataGrid's
+numbers rather than an Input's — 44px rows, semibold headers, a heavier border
+under the header than between rows, 32px pager buttons. Its `--dark` class only
+ever bites in the DOM variant; the React one mounts its own `FluentProvider`
+with the host's `tokenTheme`, so every token resolves and no fallback is
+reached, which is why only `index.ts` sets the class and the `react/` entry
+point does not.
+
+`--type grid-customizer` is the exception to all of it. A cell renderer is
+mounted by the host's grid with nowhere to put a `FluentProvider` and declares
+Fluent **8**, so the tokens are genuinely unavailable there — see *Grid
+customizers* for what replaces them.
+
 ## Things that surprise people
 
 - **`docs/` filenames are a closed set.** `overview.md`, `installation.md`,
@@ -373,10 +439,26 @@ coercing strings; that pollutes production code to suit a harness.
 
 ## Localisation
 
-The template ships one `.resx`, at `1033` (English). Everything a user or a
-maker can read belongs in it — the property display names and descriptions the
-manifest points at, and any string `index.ts` renders, read back with
-`context.resources.getString()`.
+The template ships **five** `.resx` files: `1033` English, `3082` Spanish,
+`1036` French, `1031` German and `1041` Japanese, for every variant. Everything
+a user or a maker can read belongs in them — the property display names and
+descriptions the manifest points at, and any string `index.ts` renders, read
+back with `context.resources.getString()`.
+
+Five rather than one because English-only is a decision nobody revisits: by the
+time a second language is wanted, the strings that were never put in the `.resx`
+have to be hunted out of the code first. Starting with five makes the `.resx`
+the obvious place to put a string on the first day.
+
+Two things to do before shipping:
+
+- **Translate `__TITLE__` and `__TAGLINE__`.** `npm run setup` fills those with
+  the English title and tagline you gave it, in every language, because the
+  template cannot know them. They are the only two values in the translated
+  files that are not already translated.
+- **Delete the languages you will not maintain**, and their `<resx>` lines. A
+  stale translation is worse than an honest fallback to English, because the
+  fallback is at least current.
 
 Prefer that over an input property a maker hand-types a translation into. An
 input property makes each maker know and type the translation themselves, once
@@ -397,6 +479,32 @@ Every file must carry the **same key set**. A key missing from one language
 falls back to the key name in that language only, which nobody notices until a
 customer does — so generate the files from one list rather than copying and
 editing by hand.
+
+`npm run check` enforces that, and three neighbouring mistakes: a `.resx` on
+disk that no `<resx>` line lists (never packed, so the locale falls back to
+English while the repository looks translated), a `<resx>` line pointing at a
+file that is not there, and a `{0}` dropped in translation.
+
+Placeholders are compared as a **set**, not by position, because moving them is
+correct: `"Copy {0}"` is `"{0} kopieren"` in German and `"{0} をコピー"` in
+Japanese, and the dataset variant's `"{0}–{1} of {2}"` is `"{2} 件中 {0}–{1} 件"`.
+That is also why these strings are single keys with placeholders rather than
+sentences built up in code — `label + ' ' + getString('Copy')` cannot be
+translated into either language, because the verb has to go last.
+
+**`1033` is listed last in `<resources>`, on purpose.** `pcf-start` picks the
+`.resx` by manifest order rather than by locale, reading whichever file is
+listed *last* and ignoring the LCID and the browser language entirely. The
+platform ignores the order completely — a real app resolves from the user's
+provisioned language — so `npm start` is the only thing that reads it, and the
+block is ordered for the only reader it has. With `1033` first, a freshly
+scaffolded control renders entirely in Japanese the first time anyone runs
+`npm start`, which reads as a broken build.
+
+**So add a new language *above* the `1033` line, never below it.** Appending a
+sixth file hands `npm start` to that language, and the symptom turns up in a
+session nobody connects to a manifest edit. The manifest repeats this in
+capitals right where somebody would append.
 
 ## Wiring the webhook
 
