@@ -53,16 +53,35 @@ jobs:
       # template itself*: it died at setup-node, before adoption, before
       # anything it was written to test.
       #
+      # So the cache is asked for only when there is something to key it on.
       # An adopted repository has committed package-lock.json by the time CI
-      # runs, so it caches normally. The template installs cold, which costs
+      # runs and caches normally; the template installs cold, which costs
       # seconds on a job that packs a solution with msbuild anyway.
       #
+      # Testing for the file rather than for the repository name, because a
+      # fork of the template has a different name and still no lock file — a
+      # `github.repository != 'pcfhub/_template'` check reintroduces the bug for
+      # exactly the people most likely to hit it.
+      - name: Decide whether npm can be cached
+        id: npm-cache
+        shell: bash
+        run: |
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            echo 'use=npm' >> "$GITHUB_OUTPUT"
+          else
+            echo 'use=' >> "$GITHUB_OUTPUT"
+          fi
+
       # An empty string is how setup-node is told not to cache; there is no
-      # `cache: false`.
+      # `cache: false`. And it has to arrive as an empty *output*, not from an
+      # inline `${{ cond && '' || 'npm' }}` — an empty string is falsy in an
+      # Actions expression, so that ternary returns 'npm' on both branches. It
+      # looks right, it reads right, and it is why the first attempt at this fix
+      # failed identically to no fix at all.
       - uses: actions/setup-node@v7
         with:
           node-version: 20
-          cache: ${{ github.repository == 'pcfhub/_template' && '' || 'npm' }}
+          cache: ${{ steps.npm-cache.outputs.use }}
 
       - uses: microsoft/setup-msbuild@v3
 
