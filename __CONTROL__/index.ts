@@ -15,6 +15,8 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
  */
 export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, IOutputs> {
     private container!: HTMLDivElement;
+    /** The filled surface the input sits in. See the stylesheet. */
+    private field!: HTMLDivElement;
     private input!: HTMLInputElement;
     private message!: HTMLParagraphElement;
     private notifyOutputChanged!: () => void;
@@ -39,8 +41,21 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         this.message = document.createElement('p');
         this.message.className = '__CONTROL__-message';
 
+        /*
+         * The input lives inside a surface rather than being the surface.
+         *
+         * The platform's own fields are a single filled box that owns the
+         * border, the hover and the focus underline — and anything trailing, a
+         * button or an icon, goes *inside* it rather than beside it. Starting
+         * with the wrapper costs one element now and saves restyling the whole
+         * control the first time it grows an affordance.
+         */
+        this.field = document.createElement('div');
+        this.field.className = '__CONTROL__-field';
+        this.field.append(this.input);
+
         this.container.classList.add('__CONTROL__');
-        this.container.append(this.input, this.message);
+        this.container.append(this.field, this.message);
 
         this.render(context);
     }
@@ -60,6 +75,9 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
     private render(context: ComponentFramework.Context<IInputs>): void {
         const parameter = context.parameters.value;
 
+        // Before the visibility guard, so the no-access message is themed too.
+        this.applyTheme(context);
+
         // Canvas relies on this; a model-driven form hides the section itself.
         // Honouring it costs one class and covers both hosts.
         this.container.classList.toggle('__CONTROL__--hidden', !context.mode.isVisible);
@@ -76,14 +94,16 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         const security = parameter.security;
 
         if (security !== undefined && !security.readable) {
-            this.input.hidden = true;
+            // The surface goes, not just the input inside it — otherwise the
+            // form is left with an empty filled box above the message.
+            this.field.hidden = true;
             this.message.hidden = false;
             this.message.textContent = context.resources.getString('__CONTROL___NoAccess');
 
             return;
         }
 
-        this.input.hidden = false;
+        this.field.hidden = false;
 
         const incoming = parameter.raw ?? '';
 
@@ -100,6 +120,11 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         // form's; `security.editable` is the column's.
         this.input.disabled =
             context.mode.isControlDisabled || (security !== undefined && !security.editable);
+
+        // The class is what the fill, the border and the underline key off.
+        // Fluent's disabled field is a different surface rather than a dimmer
+        // one, and `:disabled` on the input cannot reach the box around it.
+        this.container.classList.toggle('__CONTROL__--disabled', this.input.disabled);
 
         // `attributes` is optional because a canvas app has no column metadata
         // at all. That single `?` is the whole canvas/model-driven difference:
@@ -124,6 +149,31 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
         this.message.hidden = !parameter.error;
         this.message.textContent = parameter.error ? parameter.errorMessage : '';
+    }
+
+    /**
+     * Picks which set of colour fallbacks the stylesheet uses.
+     *
+     * Only the fallbacks. Where the host publishes Fluent's design tokens — a
+     * model-driven form does, via the `FluentProvider` it already mounts above
+     * every code component — the CSS reads them straight through `var()` and
+     * this changes nothing. That is what stops the control fighting a host that
+     * knows its own theme better than this code does.
+     *
+     * `@media (prefers-color-scheme: dark)` is the obvious hook and it is the
+     * wrong question: a model-driven app carries its own theme and the user's
+     * OS setting says nothing about it, so an OS-dark machine on a light app
+     * would render a dark control on a white form. Absent means absent — no
+     * class, light fallbacks, the same guess the host made by not saying.
+     */
+    private applyTheme(context: ComponentFramework.Context<IInputs>): void {
+        const isDarkTheme = context.fluentDesignLanguage?.isDarkTheme;
+
+        if (isDarkTheme === undefined) {
+            return;
+        }
+
+        this.container.classList.toggle('__CONTROL__--dark', isDarkTheme);
     }
 
     private onInput = (): void => {

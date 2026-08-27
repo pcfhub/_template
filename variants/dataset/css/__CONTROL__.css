@@ -3,31 +3,101 @@
 
   A code component's CSS is loaded into the whole page, not into a shadow root,
   so an unscoped `table { }` here restyles the host form.
-
-  The colours are Fluent design tokens, which FluentProvider emits as CSS custom
-  properties on its own wrapper — so the table picks up the host's theme without
-  importing a single Fluent component. The fallbacks after each comma are what
-  the control looks like if that ever stops being true.
 */
 
+/*
+  The palette, as Fluent's design tokens with literal fallbacks.
+
+  `FluentProvider` is what emits the tokens as CSS custom properties on its own
+  wrapper, and there are two ways this control ends up inside one. The React
+  variant mounts its own, with the host's `tokenTheme`. The DOM variant cannot —
+  the provider is React — but a model-driven form already mounts one above every
+  code component on the page, so the tokens are there to be read either way.
+  Nothing has to be mounted in order to read them.
+
+  So the token wins wherever the host publishes it, and the control follows the
+  app's theme and brand colour with no code at all. The fallbacks are what it
+  looks like where nothing does — a canvas app, or PCFHub's demo harness.
+
+  They are Fluent's web light theme, read from `@fluentui/tokens` rather than
+  eyeballed. Two of them were wrong before this: `colorPaletteRedForeground1` is
+  `#bc2f32` and not `#b10e1c`, and `colorBrandForegroundLink` is `#115ea3` and
+  not the `#0f6cbd` of `colorCompoundBrandForeground1`. Neither was visible
+  until a host stopped publishing tokens, which is exactly when a fallback is
+  the only thing anybody sees.
+
+  Declared once here rather than written at each use site, because the dark set
+  below has to redefine them and a palette scattered through the file is a
+  palette that cannot be.
+*/
 .__CONTROL__ {
-    font-family: var(--fontFamilyBase, 'Segoe UI', system-ui, sans-serif);
+    --__CONTROL__-foreground: var(--colorNeutralForeground1, #242424);
+    --__CONTROL__-foreground-secondary: var(--colorNeutralForeground3, #616161);
+    --__CONTROL__-foreground-disabled: var(--colorNeutralForegroundDisabled, #bdbdbd);
+    --__CONTROL__-foreground-danger: var(--colorPaletteRedForeground1, #bc2f32);
+    --__CONTROL__-link: var(--colorBrandForegroundLink, #115ea3);
+    --__CONTROL__-link-hover: var(--colorBrandForegroundLinkHover, #0f548c);
+    --__CONTROL__-background: var(--colorNeutralBackground1, #ffffff);
+    --__CONTROL__-background-hover: var(--colorNeutralBackground1Hover, #f5f5f5);
+    --__CONTROL__-background-pressed: var(--colorNeutralBackground1Pressed, #e0e0e0);
+    --__CONTROL__-row-hover: var(--colorSubtleBackgroundHover, #f5f5f5);
+    --__CONTROL__-stroke: var(--colorNeutralStroke1, #d1d1d1);
+    --__CONTROL__-stroke-hover: var(--colorNeutralStroke1Hover, #c7c7c7);
+    --__CONTROL__-stroke-subtle: var(--colorNeutralStroke2, #e0e0e0);
+    --__CONTROL__-stroke-disabled: var(--colorNeutralStrokeDisabled, #e0e0e0);
+    --__CONTROL__-focus-inner: var(--colorStrokeFocus1, #ffffff);
+    --__CONTROL__-focus-outer: var(--colorStrokeFocus2, #000000);
+    --__CONTROL__-radius: var(--borderRadiusMedium, 4px);
+    --__CONTROL__-duration: var(--durationFaster, 100ms);
+    --__CONTROL__-curve: var(--curveEasyEase, cubic-bezier(0.33, 0, 0.67, 1));
+
+    font-family: var(--fontFamilyBase, "Segoe UI", system-ui, sans-serif);
     font-size: var(--fontSizeBase300, 14px);
-    color: var(--colorNeutralForeground1, #242424);
+    color: var(--__CONTROL__-foreground);
     display: flex;
     flex-direction: column;
     gap: var(--spacingVerticalS, 8px);
     width: 100%;
 }
 
+/*
+  The dark fallbacks, applied from `fluentDesignLanguage.isDarkTheme` in
+  `index.ts` rather than from `prefers-color-scheme`. A model-driven app carries
+  its own theme and the operating system's setting says nothing about it, so the
+  media query would hand an OS-dark machine on a light app a dark table.
+
+  This block only ever bites in the DOM variant on a host that publishes no
+  tokens. The React variant is inside its own `FluentProvider`, so every `var()`
+  above already resolves and none of these fallbacks is reached — which is why
+  the React entry point does not set the class and does not need to.
+*/
+.__CONTROL__--dark {
+    --__CONTROL__-foreground: var(--colorNeutralForeground1, #ffffff);
+    --__CONTROL__-foreground-secondary: var(--colorNeutralForeground3, #adadad);
+    --__CONTROL__-foreground-disabled: var(--colorNeutralForegroundDisabled, #5c5c5c);
+    --__CONTROL__-foreground-danger: var(--colorPaletteRedForeground1, #e37d80);
+    --__CONTROL__-link: var(--colorBrandForegroundLink, #479ef5);
+    --__CONTROL__-link-hover: var(--colorBrandForegroundLinkHover, #62abf5);
+    --__CONTROL__-background: var(--colorNeutralBackground1, #292929);
+    --__CONTROL__-background-hover: var(--colorNeutralBackground1Hover, #3d3d3d);
+    --__CONTROL__-background-pressed: var(--colorNeutralBackground1Pressed, #1f1f1f);
+    --__CONTROL__-row-hover: var(--colorSubtleBackgroundHover, #383838);
+    --__CONTROL__-stroke: var(--colorNeutralStroke1, #666666);
+    --__CONTROL__-stroke-hover: var(--colorNeutralStroke1Hover, #757575);
+    --__CONTROL__-stroke-subtle: var(--colorNeutralStroke2, #525252);
+    --__CONTROL__-stroke-disabled: var(--colorNeutralStrokeDisabled, #424242);
+    --__CONTROL__-focus-inner: var(--colorStrokeFocus1, #000000);
+    --__CONTROL__-focus-outer: var(--colorStrokeFocus2, #ffffff);
+}
+
 .__CONTROL__-message {
     margin: 0;
     padding: var(--spacingVerticalL, 16px);
-    color: var(--colorNeutralForeground3, #616161);
+    color: var(--__CONTROL__-foreground-secondary);
 }
 
 .__CONTROL__-error {
-    color: var(--colorPaletteRedForeground1, #b10e1c);
+    color: var(--__CONTROL__-foreground-danger);
 }
 
 /* Wide views scroll inside the control rather than widening the form. */
@@ -39,6 +109,11 @@
 /*
   Dim rather than blank while a page loads. Replacing the rows with a spinner
   makes every sort and page turn flash empty.
+
+  This is the one place `opacity` is the right tool — it is transient and it is
+  saying "stale", not "unavailable". A *disabled* control dimmed this way would
+  be dragging its text below contrast permanently, which is why the pager's
+  disabled state below recolours instead.
 */
 .__CONTROL__-scroll.is-loading {
     opacity: 0.6;
@@ -64,22 +139,32 @@
 .__CONTROL__-table td {
     text-align: start;
     padding: var(--spacingVerticalS, 8px) var(--spacingHorizontalM, 12px);
-    border-bottom: 1px solid var(--colorNeutralStroke2, #e0e0e0);
+    border-bottom: 1px solid var(--__CONTROL__-stroke-subtle);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
 }
 
+/* Fluent's DataGrid gives rows 44px and the header the same, which is what
+   makes a grid read as a grid rather than as a table with padding. */
+.__CONTROL__-table th,
+.__CONTROL__-table td {
+    height: 44px;
+    box-sizing: border-box;
+}
+
 .__CONTROL__-table th {
     font-weight: var(--fontWeightSemibold, 600);
-    border-bottom: 1px solid var(--colorNeutralStroke1, #d1d1d1);
+    border-bottom: 1px solid var(--__CONTROL__-stroke);
+}
+
+.__CONTROL__-table tbody tr {
+    transition: background-color var(--__CONTROL__-duration) var(--__CONTROL__-curve);
 }
 
 .__CONTROL__-table tbody tr:hover {
-    background-color: var(--colorNeutralBackground1Hover, #f5f5f5);
+    background-color: var(--__CONTROL__-row-hover);
 }
-
-
 
 /*
   The sort control and the open-record control are real buttons, so they are
@@ -97,6 +182,7 @@
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
+    transition: color var(--__CONTROL__-duration) var(--__CONTROL__-curve);
 }
 
 .__CONTROL__-sort {
@@ -107,24 +193,36 @@
 }
 
 .__CONTROL__-open {
-    color: var(--colorBrandForegroundLink, #0f6cbd);
+    color: var(--__CONTROL__-link);
     text-align: start;
 }
 
 .__CONTROL__-open:hover {
+    color: var(--__CONTROL__-link-hover);
     text-decoration: underline;
 }
 
+/*
+  Fluent's focus indicator: a dark ring with a light one immediately inside it,
+  so the shape survives against a light row and a dark one. A single outline
+  disappears into whichever background happens to match it — which on a table
+  means it disappears on hover, since that is a different colour again.
+
+  `:focus-visible` rather than `:focus`, so clicking a sort header does not
+  leave a ring behind on a control the user is no longer navigating by keyboard.
+*/
 .__CONTROL__-sort:focus-visible,
 .__CONTROL__-open:focus-visible,
 .__CONTROL__-pager button:focus-visible {
-    outline: 2px solid var(--colorStrokeFocus2, #000000);
-    outline-offset: 2px;
+    outline: 2px solid var(--__CONTROL__-focus-outer);
+    outline-offset: 1px;
+    box-shadow: 0 0 0 4px var(--__CONTROL__-focus-inner);
+    border-radius: var(--__CONTROL__-radius);
 }
 
 .__CONTROL__-arrow {
     font-size: 0.7em;
-    color: var(--colorNeutralForeground3, #616161);
+    color: var(--__CONTROL__-foreground-secondary);
 }
 
 .__CONTROL__-pager {
@@ -133,22 +231,107 @@
     gap: var(--spacingHorizontalM, 12px);
 }
 
+/*
+  Fluent's secondary Button: 32px tall, semibold, a neutral fill that darkens on
+  hover and again on press. The height matters more than it looks — a pager
+  button that is 26px tall next to a form full of 32px controls is the same
+  mismatch as a field that is the wrong height, just further down the page.
+*/
 .__CONTROL__-pager button {
-    font: inherit;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-sizing: border-box;
+    min-height: 32px;
     padding: var(--spacingVerticalXS, 4px) var(--spacingHorizontalM, 12px);
-    color: var(--colorNeutralForeground1, #242424);
-    background-color: var(--colorNeutralBackground1, #ffffff);
-    border: 1px solid var(--colorNeutralStroke1, #d1d1d1);
-    border-radius: var(--borderRadiusMedium, 4px);
+    font: inherit;
+    font-weight: var(--fontWeightSemibold, 600);
+    color: var(--__CONTROL__-foreground);
+    background-color: var(--__CONTROL__-background);
+    border: 1px solid var(--__CONTROL__-stroke);
+    border-radius: var(--__CONTROL__-radius);
     cursor: pointer;
+    outline-style: none;
+    transition:
+        background-color var(--__CONTROL__-duration) var(--__CONTROL__-curve),
+        border-color var(--__CONTROL__-duration) var(--__CONTROL__-curve),
+        color var(--__CONTROL__-duration) var(--__CONTROL__-curve);
 }
 
-.__CONTROL__-pager button:disabled {
-    color: var(--colorNeutralForegroundDisabled, #bdbdbd);
-    border-color: var(--colorNeutralStrokeDisabled, #e0e0e0);
+.__CONTROL__-pager button:hover {
+    background-color: var(--__CONTROL__-background-hover);
+    border-color: var(--__CONTROL__-stroke-hover);
+}
+
+.__CONTROL__-pager button:active {
+    background-color: var(--__CONTROL__-background-pressed);
+}
+
+/*
+  Recoloured rather than dimmed. A pager sits at the end of a page and is
+  disabled for as long as the user is on the first or last one, which is not a
+  transient state — `opacity` there would take the label below contrast and
+  leave it there.
+*/
+.__CONTROL__-pager button:disabled,
+.__CONTROL__-pager button:disabled:hover {
+    color: var(--__CONTROL__-foreground-disabled);
+    background-color: var(--__CONTROL__-background);
+    border-color: var(--__CONTROL__-stroke-disabled);
     cursor: default;
 }
 
 .__CONTROL__-pagerStatus {
-    color: var(--colorNeutralForeground3, #616161);
+    color: var(--__CONTROL__-foreground-secondary);
+}
+
+/*
+  Forced colours collapse every tint to one of a handful of system keywords, so
+  anything carrying meaning by colour has to carry it by shape as well. The row
+  hover and the link colour both vanish there; the borders and the focus ring
+  are what is left to carry structure, so they are restated against system
+  keywords rather than left to be overridden into invisibility.
+*/
+@media (forced-colors: active) {
+    .__CONTROL__-table th,
+    .__CONTROL__-table td {
+        border-bottom-color: ButtonBorder;
+    }
+
+    .__CONTROL__-pager button {
+        border-color: ButtonBorder;
+    }
+
+    .__CONTROL__-pager button:disabled {
+        color: GrayText;
+        border-color: GrayText;
+    }
+
+    /* An open-record button is a link in everything but markup, and forced
+       colours is where that has to be said out loud — the brand colour is gone
+       and the underline is the only thing left distinguishing it from a cell. */
+    .__CONTROL__-open {
+        color: LinkText;
+        text-decoration: underline;
+    }
+
+    .__CONTROL__-sort:focus-visible,
+    .__CONTROL__-open:focus-visible,
+    .__CONTROL__-pager button:focus-visible {
+        outline-color: Highlight;
+    }
+}
+
+/*
+  Shortened, not removed. These transitions are decoration — a row hover, a
+  button press — and none of them carries state on its own, so cutting them to
+  nothing loses nothing.
+*/
+@media screen and (prefers-reduced-motion: reduce) {
+    .__CONTROL__-table tbody tr,
+    .__CONTROL__-sort,
+    .__CONTROL__-open,
+    .__CONTROL__-pager button {
+        transition-duration: 0.01ms;
+    }
 }

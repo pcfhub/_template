@@ -69,6 +69,36 @@
       -->
       <platform-library name="React" version="16.14.0" />
       <platform-library name="Fluent" version="8.121.1" />
+      <!--
+        Every language the control ships.
+
+        A .resx that exists on disk but is not listed here is not shipped, and
+        nothing warns — the file is simply never packed, and the control runs
+        in English for that locale while the repository looks translated.
+        `npm run check` catches both that and a key missing from a language.
+
+        Drop the ones you will not maintain. A stale translation is worse than
+        an honest fallback to English, and every key added to 1033 is a key
+        owed to each file listed here.
+
+        THE ORDER IS DELIBERATE AND 1033 GOES LAST. `pcf-start` picks the .resx
+        by manifest order rather than by locale: it reads whichever file is
+        listed *last* and ignores the LCID and the browser language entirely.
+        The platform itself ignores the order completely — a real app resolves
+        from the user's provisioned language — so `npm start` is the only thing
+        in the world that reads this order, and it is ordered for it. Listing
+        1033 first is the tidier-looking arrangement and it makes `npm start`
+        render the whole control in Japanese, which reads as a broken build.
+
+        The consequence to remember: ADD A NEW LANGUAGE ABOVE THIS LINE, not
+        below it. Appending a sixth file after 1033 silently moves the harness
+        to that language, and the symptom shows up in a `npm start` session
+        nobody connects to a manifest edit.
+      -->
+      <resx path="strings/__CONTROL__.3082.resx" version="1.0.0" />
+      <resx path="strings/__CONTROL__.1036.resx" version="1.0.0" />
+      <resx path="strings/__CONTROL__.1031.resx" version="1.0.0" />
+      <resx path="strings/__CONTROL__.1041.resx" version="1.0.0" />
       <resx path="strings/__CONTROL__.1033.resx" version="1.0.0" />
     </resources>
   </control>

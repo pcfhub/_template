@@ -5,9 +5,21 @@
  * selector here would restyle the host — and unlike a field control, where the
  * blast radius is one form, a customizer is assigned to every view of a table.
  *
- * Colours are literal rather than Fluent theme tokens. A cell renderer is
- * mounted per cell with no provider above it, so there is no theme context to
- * read from — see the manifest's platform-library comment.
+ * Colours are literal rather than Fluent theme tokens, and this is the one
+ * variant where that is correct. The other two read `var(--colorNeutralX, …)`.
+ *
+ * The reason is *not* that there is no provider above the cell. CSS custom
+ * properties inherit through the DOM and care nothing about React context, so
+ * tokens published anywhere up the tree would reach here perfectly well. The
+ * reason is that they would be the **wrong** tokens: those are Fluent 9, and
+ * the grid these cells are mounted in is Fluent 8 — which is why the manifest
+ * declares `<platform-library name="Fluent" version="8.121.1" />`. Fluent 9's
+ * `colorNeutralForeground2` is #424242 where Fluent 8's `neutralSecondary` is
+ * #605e5c, so reading the token would make a customized cell disagree with the
+ * untouched cell beside it. Matching the immediate surroundings beats matching
+ * the app, and here they are not the same thing.
+ *
+ * So: do not "modernise" these to `var()`. The literals are the match.
  *
  * They are literal, but they are not fixed. The custom properties below are
  * what the rules read, and the blocks at the foot of the file redefine them for
@@ -195,6 +207,31 @@
  * a border, an underline and a glyph survive forced colours; a tint does not.
  */
 @media (forced-colors: active) {
-    /* Nothing in the starter above depends on colour. Add rules here as soon as
-       something does. */
+    /*
+     * The skeleton bars are a background tint and nothing else, which is
+     * exactly the shape that does not survive here: forced colours replace
+     * every background with the system `Canvas`, so three bars painted on the
+     * row become three invisible rectangles. The loading row would render as
+     * blank space — on the one screen whose entire job is to say that something
+     * is happening.
+     *
+     * A border is the shape that does survive. `transparent` for the fill so
+     * the outline is all that shows, rather than a filled block that would read
+     * as content rather than as a placeholder.
+     */
+    .__CONTROL__-skeleton {
+        background-color: transparent;
+        border: 1px solid GrayText;
+        box-sizing: border-box;
+    }
+
+    /*
+     * Deliberately not restated: `--__CONTROL__-muted`. Forced colours override
+     * `color` to `CanvasText` regardless of what is declared, so the muted
+     * treatment on the empty-cell dash and on the no-rows body is lost — and
+     * that is fine, because neither was carrying its meaning by colour. The em
+     * dash is a glyph and the no-rows body is a sentence; both still say what
+     * they said. Anything added above whose meaning *is* the colour needs a
+     * rule here.
+     */
 }

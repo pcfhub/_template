@@ -89,8 +89,39 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
     public updateView(context: ComponentFramework.Context<IInputs>): void {
         const dataset = context.parameters.records;
 
+        this.applyTheme(context);
         this.applyPageSize(context, dataset);
         this.render(context, dataset);
+    }
+
+    /**
+     * Picks which set of colour fallbacks the stylesheet uses.
+     *
+     * Only the fallbacks. The stylesheet reads Fluent's design tokens through
+     * `var()`, and a model-driven form already mounts a `FluentProvider` above
+     * every code component on the page — so where the host publishes them this
+     * changes nothing at all, which is what stops the control fighting a host
+     * that knows its own theme better than this code does. It matters on the
+     * hosts that publish nothing: a canvas app, or PCFHub's demo harness.
+     *
+     * The React variant of this control needs no equivalent. It mounts its own
+     * `FluentProvider` with the host's `tokenTheme`, so every token resolves
+     * and no fallback is ever reached.
+     *
+     * `@media (prefers-color-scheme: dark)` is the obvious hook and it is the
+     * wrong question: a model-driven app carries its own theme and the user's
+     * OS setting says nothing about it, so an OS-dark machine on a light app
+     * would render a dark table on a white form. Absent means absent — no
+     * class, light fallbacks, the same guess the host made by not saying.
+     */
+    private applyTheme(context: ComponentFramework.Context<IInputs>): void {
+        const isDarkTheme = context.fluentDesignLanguage?.isDarkTheme;
+
+        if (isDarkTheme === undefined) {
+            return;
+        }
+
+        this.container.classList.toggle('__CONTROL__--dark', isDarkTheme);
     }
 
     /**
