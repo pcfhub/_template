@@ -78,7 +78,34 @@ function Element(tagName) {
     this.childNodes = [];
     this.parentNode = null;
     this.attributes = {};
-    this.style = {};
+    /*
+     * `style` is a plain bag plus the three methods a control actually calls on
+     * it, because plain property assignment (`style.width = '320px'`) and
+     * `setProperty` have to land in the same place — a control commonly writes
+     * a CSS custom property one way and reads it back the other.
+     *
+     * Custom properties are the reason `setProperty` matters at all: `--x` is
+     * not a valid JavaScript property name, so `style['--x'] = …` is not how
+     * anyone writes it, and a control theming itself through custom properties
+     * cannot be checked without this. What it does *not* do is compute
+     * anything: there is no cascade here, no `getComputedStyle`, and a value
+     * set is exactly the value read back.
+     */
+    this.style = {
+        setProperty: function (name, value) {
+            this[name] = value === null || value === undefined ? '' : String(value);
+        },
+        getPropertyValue: function (name) {
+            return Object.prototype.hasOwnProperty.call(this, name) ? this[name] : '';
+        },
+        removeProperty: function (name) {
+            var previous = this.getPropertyValue(name);
+
+            delete this[name];
+
+            return previous;
+        },
+    };
     this.classList = new ClassList(this);
     this.listeners = {};
     this._text = '';
@@ -143,6 +170,55 @@ Object.defineProperty(Element.prototype, 'innerHTML', {
 
         this.childNodes = [];
         this._text = '';
+    },
+});
+
+/*
+ * `element.dataset`, backed by the same attribute map everything else reads.
+ *
+ * Not a separate bag: `dataset.index = '3'` and `getAttribute('data-index')`
+ * have to agree, because a control writes through one and a test — or the
+ * control's own later code — reads through the other. Keeping two stores in
+ * step is the bug this avoids by not having two.
+ *
+ * camelCase to `data-kebab-case` is the real mapping, so `dataset.rowIndex`
+ * becomes `data-row-index`. Deleting a key removes the attribute.
+ */
+Object.defineProperty(Element.prototype, 'dataset', {
+    get: function () {
+        var element = this;
+
+        var toAttribute = function (key) {
+            return 'data-' + String(key).replace(/[A-Z]/g, function (letter) {
+                return '-' + letter.toLowerCase();
+            });
+        };
+
+        return new Proxy(
+            {},
+            {
+                get: function (_target, key) {
+                    var name = toAttribute(key);
+
+                    return Object.prototype.hasOwnProperty.call(element.attributes, name)
+                        ? element.attributes[name]
+                        : undefined;
+                },
+                set: function (_target, key, value) {
+                    element.attributes[toAttribute(key)] = String(value);
+
+                    return true;
+                },
+                deleteProperty: function (_target, key) {
+                    delete element.attributes[toAttribute(key)];
+
+                    return true;
+                },
+                has: function (_target, key) {
+                    return Object.prototype.hasOwnProperty.call(element.attributes, toAttribute(key));
+                },
+            },
+        );
     },
 });
 
@@ -356,6 +432,26 @@ var document = {
      */
     hidden: false,
     createElement: createElement,
+    /*
+     * SVG, and anything else with a namespace.
+     *
+     * The namespace is accepted and ignored, which is honest rather than lazy:
+     * nothing here renders, and every namespaced element behaves like any other
+     * for the purposes a control puts it to — attributes, children, classes,
+     * listeners. What it deliberately does *not* do is pretend to be an
+     * `SVGElement`: there is no `getBBox`, no `ownerSVGElement`, no
+     * `viewBox.baseVal`. A control reaching for those gets an honest
+     * `undefined` here rather than a fake that would let an assertion pass on
+     * geometry this file cannot compute.
+     *
+     * Worth having because drawing an icon in SVG is ordinary DOM work — the
+     * opposite of `innerHTML`, which this file refuses on purpose because it
+     * would need an HTML parser and because a control building markup from a
+     * string is a finding rather than a thing to accommodate.
+     */
+    createElementNS: function (_namespace, tagName) {
+        return createElement(tagName);
+    },
     createTextNode: function (text) {
         var node = createElement('#text');
         node.textContent = text;
