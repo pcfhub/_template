@@ -247,6 +247,66 @@ the rig. It cannot tell you that a real form hands down what these fixtures hand
 down, that a save persists anything, that the stylesheet applies, or that focus
 order is sane — those belong in `SPEC.md` under *Not verified*.
 
+### Timers, and what `destroy` owes
+
+`destroy` is the lifecycle method with nothing visible riding on it, so it is
+the one that quietly does nothing. It matters for exactly three things, and none
+of them shows up on a form:
+
+- an interval or a `requestAnimationFrame` loop, which goes on firing against a
+  container the platform has already thrown away;
+- a listener on `document` or `window` — unlike one on an element inside
+  `container`, it is not collected with the subtree, and it keeps the whole
+  control reachable;
+- anything else with a lifetime the DOM does not own: an `AbortController`, a
+  `ResizeObserver`, a subscription.
+
+On a form somebody leaves open all afternoon, or a subgrid re-rendering its
+rows, these accumulate. **`dev/clock.js` and the assertions at the bottom of
+`dev/smoke.js` exist to make that visible**, and they are written against no
+particular control:
+
+```js
+disposeAll();
+
+const timersBefore = time.pending();
+
+mount({}).destroy();
+
+check('destroy() releases every timer the control took', time.pending() === timersBefore);
+```
+
+`clock.js` installs a fake `Date`, `setInterval` and `setTimeout` onto the
+global **before the bundle is evaluated** — `vm.runInThisContext` shares this
+realm, so those are the ones the control closes over. That is deliberate, and it
+is why there is no clock parameter threaded through the control's constructor:
+production code should not carry a seam whose only purpose is a harness.
+
+Four rules the assertions encode, worth knowing before writing the control
+rather than after:
+
+- **Arm in `init`, clear in `destroy`.** Never from `updateView` — it runs on
+  every change to any bound value, so a `setInterval` reached from the render
+  path adds a timer per render.
+- **Clear before re-arming.** A control that changes its own tick rate has to
+  replace the timer, not run a second one alongside it.
+- **A tick must not call `notifyOutputChanged`.** It makes the form re-evaluate
+  every rule on it at the tick rate, for a control that usually has nothing new
+  to say.
+- **A tick must not read `context`.** `updateView` is handed one for the
+  duration of the call, and nothing promises the same object still describes the
+  form thirty seconds later. Take a plain snapshot of what the repaint needs —
+  including any string or date that needed `context` to produce — and let the
+  tick render from that.
+
+`pcf-sla-timer` is the worked example: a display-only countdown, and the first
+control here with a teardown obligation. The general form of all of this lives
+in the skill's `references/control-patterns.md` under *Timers and teardown*.
+
+**The grid-customizer rig has none of this**, and the omission is deliberate:
+a customizer hands the grid a set of overrides and the grid calls them, so there
+is no container, no render loop, and no `dev/dom.js` in that variant's suite.
+
 ## Grid customizers
 
 ```bash

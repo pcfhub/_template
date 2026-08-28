@@ -53,6 +53,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const dom = require('./dom.js');
 const host = require('./host.js');
+const clock = require('./clock.js');
 
 const BUNDLE = path.join(root, 'out', 'controls', '__CONTROL__', 'bundle.js');
 
@@ -64,6 +65,25 @@ if (!fs.existsSync(BUNDLE)) {
 /* ----------------------------------------------------------- the platform */
 
 dom.install(global);
+
+/*
+ * Time, replaced with something the test drives.
+ *
+ * `vm.runInThisContext` below evaluates the bundle in *this* realm, so the
+ * `Date`, `setInterval` and `setTimeout` the control closes over are the ones
+ * installed here. That is what makes a control with a clock testable without
+ * an injectable clock parameter — which would be production code bent to suit
+ * a harness, and the only reason that seam would exist.
+ *
+ * A control with no timers is unaffected by this: nothing schedules, nothing
+ * fires, and `time.pending()` stays at zero. Keep it anyway — the teardown
+ * assertion at the bottom of this file is written against it, and it is the
+ * assertion worth keeping when the worked example goes.
+ *
+ * The start value is arbitrary and fixed. A suite that starts at "now" asserts
+ * something slightly different every time it runs.
+ */
+const time = clock.install(Date.UTC(2026, 0, 1, 12, 0, 0), global);
 
 const registration = host.captureRegistration(global);
 
@@ -134,6 +154,23 @@ const marked = (key) => `resx:${key}`;
  * platform never produces. Where the *sequence* is the point — a value arriving
  * after an edit — drive `updateView` again through the returned handle.
  */
+/**
+ * Every control mounted and not yet destroyed.
+ *
+ * A suite that mounts and walks away is testing something other than what it
+ * says: an abandoned control keeps its interval and its `document` listeners,
+ * so the next section's counts include them and the next event dispatched at
+ * `document` reaches all of them. That is the leak the teardown assertion
+ * exists to catch, and asserting it from inside one proves nothing.
+ */
+const live = [];
+
+function disposeAll() {
+    while (live.length > 0) {
+        live.pop().destroy();
+    }
+}
+
 function mount(options) {
     const container = dom.createElement('div');
     const tracked = [];
@@ -151,7 +188,7 @@ function mount(options) {
     // container at all.
     const element = instance.updateView(context);
 
-    return {
+    const handle = {
         instance,
         container,
         element,
@@ -162,8 +199,22 @@ function mount(options) {
         tracked: () => tracked,
         /** Re-render in a new state, as the platform does on every change. */
         update: (next) => instance.updateView(host.createContext({ ...options, ...next, getString: marked })),
+        /** Unmount, as the platform does when the form closes or navigates. */
+        destroy: () => {
+            instance.destroy();
+
+            const at = live.indexOf(handle);
+
+            if (at !== -1) {
+                live.splice(at, 1);
+            }
+        },
         find: (selector) => container.querySelector(selector),
     };
+
+    live.push(handle);
+
+    return handle;
 }
 
 check('bundle registered a control', typeof registration.ctor === 'function');
@@ -442,10 +493,9 @@ check(
  * `mode.allocatedWidth` is `-1` until the control calls
  * `mode.trackContainerResize(true)`, so a control that reflows on width without
  * asking lays out against -1 on every host and always picks its narrowest
- * branch. The scaffolded control reflows on neither, so this asserts the
- * scaffolded control reflows on neither, so all this can honestly assert is
- * that a narrow phone-sized container does not break it; the detail line
- * reports whether the control asked, which is the interesting half.
+ * branch. The scaffolded control reflows on neither, so all this can honestly
+ * assert is that a narrow phone-sized container does not break it; the detail
+ * line reports whether the control asked, which is the interesting half.
  *
  * **The moment your control reads `allocatedWidth` or `getFormFactor`, replace
  * this with the pair** — that it called `trackContainerResize(true)`, and that
@@ -476,6 +526,67 @@ check(
             : hidden.container.classList.contains('__CONTROL__--hidden');
     })(),
 );
+
+/* ---------------------------------------------------- what destroy owes */
+
+/*
+ * **Keep this when the worked example above goes.** It is written against no
+ * particular control and needs no knowledge of what yours takes.
+ *
+ * `destroy` is the lifecycle method with nothing visible riding on it, so it is
+ * the one that quietly does nothing. A control that takes an interval, a
+ * `requestAnimationFrame` loop, or a listener on `document` or `window` owes
+ * each of them back — and none of the three shows up on a form. The interval
+ * keeps firing against a container the platform has already thrown away; the
+ * document listener keeps the whole control reachable, so nothing about it is
+ * ever collected. On a form somebody leaves open all afternoon, or a subgrid
+ * that re-renders its rows, they accumulate.
+ *
+ * Counting before and after is the whole trick. The scaffolded control takes
+ * neither, so both numbers are zero and this passes trivially — which is the
+ * point: it starts passing for a real reason the moment somebody adds a timer,
+ * and fails the moment they forget the other half.
+ */
+disposeAll();
+
+const timersBefore = time.pending();
+const listenersBefore = Object.values(dom.document.listeners).reduce((total, list) => total + list.length, 0);
+
+const disposable = mount({});
+
+disposable.destroy();
+
+check(
+    'destroy() releases every timer the control took',
+    time.pending() === timersBefore,
+    `${timersBefore} → ${time.pending()}`,
+);
+
+check(
+    'and every document-level listener',
+    Object.values(dom.document.listeners).reduce((total, list) => total + list.length, 0) === listenersBefore,
+    `${listenersBefore} → ${Object.values(dom.document.listeners).reduce((total, list) => total + list.length, 0)}`,
+);
+
+/*
+ * The other half, and the leak this shape is famous for. `updateView` runs on
+ * every change to any bound value, so a `setInterval` reached from the render
+ * path adds a timer per render rather than replacing one.
+ */
+const rerendered = mount({});
+const afterFirst = time.pending();
+
+rerendered.update({});
+rerendered.update({});
+rerendered.update({});
+
+check(
+    'and re-rendering does not add another one',
+    time.pending() === afterFirst,
+    `${afterFirst} → ${time.pending()}`,
+);
+
+disposeAll();
 
 report();
 

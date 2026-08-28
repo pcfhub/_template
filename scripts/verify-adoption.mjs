@@ -206,7 +206,14 @@ function main() {
          * ways that happens: the file missing, the script missing, and the
          * script pointing somewhere the file is not.
          */
-        check('the dev rig lands', has('dev/smoke.js') && has('dev/host.js') && has('dev/dom.js'));
+        // `clock.js` is named here rather than left to `dev/` landing wholesale:
+        // `smoke.js` requires it at the top and the teardown assertion is
+        // written against it, so an adoption that dropped it would fail at the
+        // first line rather than at the assertion that needs it.
+        check(
+            'the dev rig lands',
+            has('dev/smoke.js') && has('dev/host.js') && has('dev/dom.js') && has('dev/clock.js'),
+        );
 
         check('the browser harness lands for a standard control', has('dev/harness.html') && has('dev/harness.js'));
 

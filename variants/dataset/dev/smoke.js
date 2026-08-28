@@ -48,6 +48,7 @@ const path = require('path');
 const root = path.join(__dirname, '..');
 const dom = require('./dom.js');
 const host = require('./host.js');
+const clock = require('./clock.js');
 const fixture = require('./fixture.js');
 
 const BUNDLE = path.join(root, 'out', 'controls', '__CONTROL__', 'bundle.js');
@@ -60,6 +61,22 @@ if (!fs.existsSync(BUNDLE)) {
 /* ----------------------------------------------------------- the platform */
 
 dom.install(global);
+
+/*
+ * Time, replaced with something the test drives.
+ *
+ * `vm.runInThisContext` below evaluates the bundle in *this* realm, so the
+ * `Date`, `setInterval` and `setTimeout` the control closes over are the ones
+ * installed here — no injectable clock parameter, and therefore no production
+ * code bent to suit a harness.
+ *
+ * A dataset control is likelier to want a timer than a field control is: an
+ * auto-refreshing view, a debounce around `dataset.refresh()`, a countdown in a
+ * cell. A control with none is unaffected — nothing schedules and
+ * `time.pending()` stays at zero — but the teardown assertion at the bottom of
+ * this file is written against it either way.
+ */
+const time = clock.install(Date.UTC(2026, 0, 1, 12, 0, 0), global);
 
 const registration = host.captureRegistration(global);
 
@@ -165,6 +182,22 @@ const marked = (key) => `resx:${key}`;
  * The returned handle exposes both halves: what was drawn (or, for a virtual
  * control, what was passed down), and what the platform was asked to do.
  */
+/**
+ * Every control bound and not yet destroyed.
+ *
+ * A suite that binds and walks away is testing something other than what it
+ * says: an abandoned control keeps its interval and its `document` listeners,
+ * so the next section's counts include them. That is the leak the teardown
+ * assertion exists to catch, and asserting it from inside one proves nothing.
+ */
+const live = [];
+
+function disposeAll() {
+    while (live.length > 0) {
+        live.pop().destroy();
+    }
+}
+
 function bind(options) {
     const handle = host.createHost(fixture, { getString: marked, ...options });
     const container = dom.createElement('div');
@@ -192,7 +225,19 @@ function bind(options) {
 
             return driven;
         },
+        /** Unmount, as the platform does when the form closes or navigates. */
+        destroy: () => {
+            instance.destroy();
+
+            const at = live.indexOf(view);
+
+            if (at !== -1) {
+                live.splice(at, 1);
+            }
+        },
     };
+
+    live.push(view);
 
     return view;
 }
@@ -522,6 +567,65 @@ if (!isVirtual) {
         bind({ host: 'canvas' }).props().theme === undefined,
     );
 }
+
+/* ---------------------------------------------------- what destroy owes */
+
+/*
+ * **Keep this when the worked example above goes.** It is written against no
+ * particular control and needs no knowledge of what yours takes.
+ *
+ * `destroy` is the lifecycle method with nothing visible riding on it, so it is
+ * the one that quietly does nothing. A control that takes an interval, a
+ * `requestAnimationFrame` loop, or a listener on `document` or `window` owes
+ * each of them back — and none of the three shows up on a form. The interval
+ * keeps firing against a container the platform has already thrown away; the
+ * document listener keeps the whole control reachable, so nothing about it is
+ * ever collected.
+ *
+ * A dataset control makes this worse than a field control does. It is the shape
+ * that ends up on a subgrid, in a gallery, or on a form the user navigates
+ * between records on — so it is mounted and unmounted repeatedly, and each pass
+ * leaves whatever the last one did not release.
+ *
+ * Counting before and after is the whole trick. The scaffolded control takes
+ * neither a timer nor a listener, so both numbers are zero and this passes
+ * trivially — which is the point: it starts passing for a real reason the
+ * moment somebody adds a refresh timer, and fails the moment they forget the
+ * other half.
+ */
+disposeAll();
+
+const timersBefore = time.pending();
+const listeners = () => Object.values(dom.document.listeners).reduce((total, list) => total + list.length, 0);
+const listenersBefore = listeners();
+
+bind({}).destroy();
+
+check(
+    'destroy() releases every timer the control took',
+    time.pending() === timersBefore,
+    `${timersBefore} → ${time.pending()}`,
+);
+
+check('and every document-level listener', listeners() === listenersBefore, `${listenersBefore} → ${listeners()}`);
+
+/*
+ * The other half, and the leak this shape is famous for. `updateView` runs on
+ * every change to any bound value — and on a dataset control it runs again
+ * every time the platform finishes a page, a sort or a filter, which is far
+ * more often than a field control sees. A `setInterval` reached from the render
+ * path adds a timer per pass rather than replacing one.
+ */
+const rerendered = bind({});
+const afterFirst = time.pending();
+
+rerendered.settle();
+rerendered.settle();
+rerendered.settle();
+
+check('and re-rendering does not add another one', time.pending() === afterFirst, `${afterFirst} → ${time.pending()}`);
+
+disposeAll();
 
 report();
 

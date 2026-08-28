@@ -330,6 +330,31 @@ function createElement(tagName) {
 var document = {
     documentElement: createElement('html'),
     activeElement: null,
+    /*
+     * `document` is where page-level events live — `visibilitychange`,
+     * `fullscreenchange`, a keydown handler a popup installs to close itself —
+     * and a listener put here is the one that outlives the control: the
+     * platform throws the container's subtree away on unmount, so a listener on
+     * an element inside it goes with it, and a listener on `document` does not.
+     * That makes it exactly the thing a teardown assertion needs to see, which
+     * it cannot do if this object has no event API and the control throws
+     * instead.
+     *
+     * Borrowed from Element rather than reimplemented, so document-level
+     * dispatch behaves the same as element-level dispatch — including having no
+     * bubbling, which is the limitation stated above `Element.dispatchEvent`.
+     */
+    listeners: {},
+    addEventListener: Element.prototype.addEventListener,
+    removeEventListener: Element.prototype.removeEventListener,
+    dispatchEvent: Element.prototype.dispatchEvent,
+    /*
+     * Visible, because that is the state a test starts in and the one the
+     * platform is in whenever it calls a control. Set it directly before
+     * dispatching `visibilitychange`, which is what the browser does — the
+     * property changes first and the event announces it.
+     */
+    hidden: false,
     createElement: createElement,
     createTextNode: function (text) {
         var node = createElement('#text');
