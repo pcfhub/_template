@@ -578,6 +578,18 @@ customizers* for what replaces them.
 
 ## Things that surprise people
 
+- **Both CI workflows are callers, not pipelines.** `build.yml` and
+  `release.yml` in an adopted repository are a few lines each; the steps live in
+  `build-reusable.yml` and `release-reusable.yml` here, referenced at `@v1`. So
+  a fix to the build reaches every repository by moving one tag — and editing a
+  copy of the steps into your own repo puts you back in the state this was built
+  to end. `setup.mjs` deletes both shared files on adoption for that reason.
+
+  Every input the build takes defaults to the strict value: `check-template`,
+  `lint` and `smoke` are all on. A repository that has to turn one off says so
+  in its own `build.yml`, next to a comment saying why — which is the point.
+  Before this was shared, eleven repositories ran no smoke suite and nobody
+  could see it, because a step that is absent looks like nothing at all.
 - **`docs/` filenames are a closed set.** `overview.md`, `installation.md`,
   `canvas.md`, `model-driven.md`, `api.md`, `examples.md`, `limitations.md`,
   `faq.md`, `migration.md`. Anything else is skipped — `npm run check` catches
