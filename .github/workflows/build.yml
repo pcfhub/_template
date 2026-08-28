@@ -27,8 +27,8 @@ jobs:
   template:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
 
@@ -44,14 +44,46 @@ jobs:
     needs: template
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      # `cache: npm` is a hard failure when there is no lock file — not a
+      # warning, and not a cache miss. The template deliberately ships none
+      # (TEMPLATE.md tells the adopter to run `npm install` and commit the
+      # result), so this job could never reach its first real step *on the
+      # template itself*: it died at setup-node, before adoption, before
+      # anything it was written to test.
+      #
+      # So the cache is asked for only when there is something to key it on.
+      # An adopted repository has committed package-lock.json by the time CI
+      # runs and caches normally; the template installs cold, which costs
+      # seconds on a job that packs a solution with msbuild anyway.
+      #
+      # Testing for the file rather than for the repository name, because a
+      # fork of the template has a different name and still no lock file — a
+      # `github.repository != 'pcfhub/_template'` check reintroduces the bug for
+      # exactly the people most likely to hit it.
+      - name: Decide whether npm can be cached
+        id: npm-cache
+        shell: bash
+        run: |
+          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
+            echo 'use=npm' >> "$GITHUB_OUTPUT"
+          else
+            echo 'use=' >> "$GITHUB_OUTPUT"
+          fi
+
+      # An empty string is how setup-node is told not to cache; there is no
+      # `cache: false`. And it has to arrive as an empty *output*, not from an
+      # inline `${{ cond && '' || 'npm' }}` — an empty string is falsy in an
+      # Actions expression, so that ternary returns 'npm' on both branches. It
+      # looks right, it reads right, and it is why the first attempt at this fix
+      # failed identically to no fix at all.
+      - uses: actions/setup-node@v7
         with:
           node-version: 20
-          cache: npm
+          cache: ${{ steps.npm-cache.outputs.use }}
 
-      - uses: microsoft/setup-msbuild@v2
+      - uses: microsoft/setup-msbuild@v3
 
       # The template cannot build itself: `__NAMESPACE__` and `__CONTROL__` are
       # not valid identifiers, and the .pcfproj carries a placeholder GUID. So
