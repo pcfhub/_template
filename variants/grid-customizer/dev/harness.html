@@ -50,7 +50,15 @@
             is true — see SPEC.md.
         -->
 
-        <link rel="stylesheet" href="../css/__CONTROL__.css" />
+        <!--
+            The control's own stylesheet, which lives inside the control
+            directory rather than beside this file: `dev/` sits at the
+            repository root and `css/` is packed with the control. A `../css/`
+            here resolves to a root directory that does not exist, and a missing
+            stylesheet is a silent 404 — the harness renders, the cells just
+            quietly lose every class the overrides put on them.
+        -->
+        <link rel="stylesheet" href="../__CONTROL__/css/__CONTROL__.css" />
         <style>
             body {
                 margin: 0;

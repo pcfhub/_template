@@ -409,6 +409,22 @@ function applyType(control) {
     // Only dataset controls get one: the hub reads it for nothing else.
     cpSync(join(source, 'demo'), join(root, 'demo'), { recursive: true });
 
+    /*
+     * The dev rig, overlaid rather than replacing: `dev/dom.js` is the same
+     * file for every DOM shape and stays where the field variant put it, while
+     * the host, the fixture, the page and the assertions are all dataset-shaped
+     * and land on top.
+     *
+     * What this buys is the thing no other harness gives a dataset control:
+     * more than one page. The hub's demo harness seeds a single page and
+     * reports no next or previous page, which is why every dataset control in
+     * the catalogue is published at fidelity "limited" — so the paging and
+     * sorting code, which is most of the hard code in the shape, has never been
+     * exercised by anything. See `dev/host.js` for the three real platform
+     * misbehaviours it can reproduce on demand.
+     */
+    cpSync(join(source, 'dev'), join(root, 'dev'), { recursive: true });
+
     edit('pcfhub.json', (text) => text.replace('"type": "field"', '"type": "dataset"'));
 }
 
@@ -476,6 +492,12 @@ function applyGridCustomizer(control) {
     // no attribute metadata; `npm start` hosts the control the way a form would,
     // where a customizer correctly renders nothing. Without this, the only way
     // to see a customizer work is to pack a solution and import it.
+    //
+    // Replaced outright rather than overlaid, unlike the dataset rig: a
+    // customizer touches no DOM — its overrides return React elements — so the
+    // field variant's `dom.js` and its form-shaped host would be two files
+    // nothing in this repository loads.
+    rmSync(join(root, 'dev'), { recursive: true, force: true });
     cpSync(join(source, 'dev'), join(root, 'dev'), { recursive: true });
 
     // The grid's rows for PCFHub's demo harness. One fixture covering every
@@ -516,43 +538,11 @@ function applyGridCustomizer(control) {
                 '"fidelity": "none",\n    "host": "grid",\n    "datasetFixture": "demo/columns.json",',
             ));
 
-    // `dev/smoke.js` drives the built bundle from Node and asserts what the
-    // overrides decide per cell. Added here rather than in the shared
-    // package.json because that file is also the field and dataset variants',
-    // and a `smoke` script pointing at a file those repositories do not have is
-    // worse than no script at all.
-    edit('package.json', (text) => {
-        const pkg = JSON.parse(text);
-        const { lint, ...rest } = pkg.scripts;
-
-        // Before `lint`, so the two verification steps read in the order CI
-        // runs them and neither ends up appended after the release scripts.
-        pkg.scripts = { ...rest, smoke: 'node dev/smoke.js', lint };
-
-        return `${JSON.stringify(pkg, null, 2)}\n`;
-    });
-
-    // The CI step, after the pack rather than after `npm run build`.
-    //
-    // msbuild overwrites out/controls with the production bundle, so running it
-    // there drives the code that actually ships — the same argument the
-    // workflow already makes about whether the control compiles, applied to
-    // what it does. Minification does not disturb the assertions: terser leaves
-    // string literals and React lifecycle names alone with property mangling
-    // off.
-    edit('.github/workflows/build.yml', (text) =>
-        text.replace(
-            '      # A control is served as a single web resource',
-            [
-                '      # After the pack, deliberately: msbuild has just overwritten out/controls',
-                '      # with the production bundle, so this drives the code that actually ships',
-                '      # rather than the development build `npm run build` left there.',
-                '      - name: Smoke-test the shipping bundle',
-                '        run: npm run smoke',
-                '',
-                '      # A control is served as a single web resource',
-            ].join('\n'),
-        ));
+    // The `smoke` script and its CI step are not added here any more. Every
+    // shape ships a `dev/smoke.js` now, so both live in the shared
+    // `package.json` and `build.yml` — which is also the only way the field and
+    // dataset rigs could reach CI, since a customizer-only edit could not add
+    // them for shapes it never runs on.
 
     applyReactTooling(FLUENT8_PACKAGE, FLUENT8_VERSION);
 }
@@ -561,6 +551,26 @@ function applyFramework(control) {
     if (framework !== 'react' || type === 'grid-customizer') {
         return;
     }
+
+    /*
+     * The browser half of the dev rig goes, and `dev/smoke.js` stays.
+     *
+     * `dev/harness.html` loads the built bundle in a plain page, and a virtual
+     * control's bundle expects the platform's React *and* Fluent under the
+     * globals its `<platform-library>` entries compile them out to.
+     * `@fluentui/react-components` ships no UMD build — there is no file to put
+     * in a `<script src>`, and adding a bundler to produce one would make the
+     * page the thing that needs building. (Grid customizers keep their harness
+     * because Fluent 8 does ship one.)
+     *
+     * Nothing is lost that matters: unlike a customizer, a virtual field or
+     * dataset control renders perfectly well under `npm start`. What `npm start`
+     * cannot do is *assert*, and `dev/smoke.js` works on this shape unchanged —
+     * `updateView` returns an element tree, Fluent is stubbed component by
+     * component, and the props the control passed survive for inspection.
+     */
+    rmSync(join(root, 'dev', 'harness.html'), { force: true });
+    rmSync(join(root, 'dev', 'harness.js'), { force: true });
 
     // The dataset variant carries its own React sources: a dataset control's
     // entry point shares no code with a bound-column one beyond the class

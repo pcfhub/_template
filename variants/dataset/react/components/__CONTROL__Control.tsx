@@ -137,7 +137,14 @@ export function __CONTROL__Control(props: IProps): React.ReactElement | null {
                     <thead>
                         <tr>
                             {columns.map((column) => {
-                                const status = dataset.sorting.find((entry) => entry.name === column.name);
+                                // `sorting` is typed as a required array and
+                                // the local test harness supplies `undefined`,
+                                // so this reads through a fallback — without
+                                // it `npm start` renders nothing and swallows
+                                // the TypeError.
+                                const status = (dataset.sorting ?? []).find(
+                                    (entry) => entry.name === column.name,
+                                );
                                 const sorted = status
                                     ? status.sortDirection === 1
                                         ? 'descending'

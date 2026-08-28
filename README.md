@@ -94,7 +94,15 @@ npm start          # the PCF test harness
 npm run build
 npm run lint
 npm run check      # what CI runs first: placeholders, pcfhub.json, control shape
+npm run smoke      # assertions against the built bundle — see dev/
 ```
+
+`npm start` renders the control; `dev/` is for the states it cannot reach. Build
+first, then `npm run smoke` for the assertions, or open `dev/harness.html` in a
+browser for the switches — field-level security, a failed business rule, a host
+that publishes no theme or no column metadata, and for a dataset control, more
+than one page. Both read the bundle `npm run build` wrote, and both are
+described in the header of `dev/smoke.js`.
 
 Run `npm run refreshTypes` after every manifest edit — until you do,
 `context.parameters` is typed from the old manifest and `tsc` will accept code that
@@ -133,6 +141,7 @@ from the hourly sweep otherwise. A sync imports a draft; a person publishes it.
 | --- | --- |
 | `__CONTROL__/` | The control: manifest, entry point, CSS, localised strings |
 | `Solution/` | The Dataverse solution that packages it |
+| `dev/` | A stand-in host: `npm run smoke` asserts, `harness.html` shows |
 | `SPEC.md` | What building this corrected, and what is verified versus read |
 | `docs/` | The pages PCFHub publishes — see the comments in each file |
 | `media/` | Images and video referenced from the docs |

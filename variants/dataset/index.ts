@@ -297,7 +297,12 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
             if (column.disableSorting) {
                 th.textContent = column.displayName;
             } else {
-                const status = dataset.sorting.find((entry) => entry.name === column.name);
+                // `sorting` is typed as a required array, and the local test
+                // harness supplies `undefined` for it — so this reads through
+                // a fallback. Without it, `npm start` renders a blank control
+                // and swallows the TypeError, which is the worst possible
+                // first impression of a freshly scaffolded dataset control.
+                const status = (dataset.sorting ?? []).find((entry) => entry.name === column.name);
                 th.setAttribute(
                     'aria-sort',
                     status ? (status.sortDirection === DESCENDING ? 'descending' : 'ascending') : 'none',
@@ -479,11 +484,26 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
      * building a three-deep sort nobody asked for.
      */
     private sortBy(dataset: DataSet, columnName: string): void {
-        const current = dataset.sorting.find((status) => status.name === columnName);
+        const sorting = dataset.sorting;
+
+        /*
+         * Typed as required, absent on `npm start`.
+         *
+         * The order has to be expressed by mutating this array in place, so
+         * with no array there is nothing to express it through — and the local
+         * harness cannot sort anyway. Decline rather than throw: a click that
+         * does nothing there is a great deal better than a control that
+         * disappears.
+         */
+        if (!sorting) {
+            return;
+        }
+
+        const current = sorting.find((status) => status.name === columnName);
         const direction: SortDirection = current?.sortDirection === ASCENDING ? DESCENDING : ASCENDING;
 
-        dataset.sorting.length = 0;
-        dataset.sorting.push({ name: columnName, sortDirection: direction });
+        sorting.length = 0;
+        sorting.push({ name: columnName, sortDirection: direction });
 
         // A new order makes "page 4" meaningless.
         this.page = 1;

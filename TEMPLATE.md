@@ -108,6 +108,145 @@ If you add roles, add `::props-table{kind=dataset_column}` back to
 has no dataset columns" rather than as a section nobody wrote. The manifest's
 own comments say this too, at the point where you would change it.
 
+## The dev rig
+
+Every shape ships a `dev/` directory, and it is the only thing in the repository
+that asserts anything about the control:
+
+```bash
+npm run build
+npm run smoke          # assertions, with an exit code
+# then open dev/harness.html in a browser
+```
+
+No bundler, no dev server, no test framework, no new dependencies. `smoke.js`
+loads the bundle `npm run build` produced, drives the control through the states
+a host can put it in, and prints a pass or a fail per decision. CI runs it
+**after the msbuild pack**, so there it drives the production bundle rather than
+the development one.
+
+### What `npm start` already covers
+
+**Use `npm start` for the happy path**, and know exactly what it is. Read off
+the running harness (`pcf-start` 1.51.1), the whole of it is:
+
+- **Context Inputs** — form factor (Web / Tablet / Phone / Unknown), component
+  container width, component container height.
+- **Data Inputs** — one text box per input and output property, and for a
+  dataset, a CSV upload with a data-type picker per column.
+
+That is the complete list. **Two of those the rig did not have and now does**,
+because they are the platform surface `npm start` is genuinely best at:
+`client.getFormFactor()` and `mode.allocatedWidth` / `allocatedHeight`. Use
+whichever is in front of you.
+
+Everything else a form can do to a control, `npm start` cannot. And its dataset
+mock is thinner than it looks — from the harness source, and confirmed by
+running the scaffolded control against it:
+
+```
+paging: { totalResultCount: n, hasNextPage: false, hasPreviousPage: false,
+          loadNextPage: () => log(…), loadPreviousPage: () => log(…),
+          reset: () => log(…), setPageSize: e => log("loadNextPage", …) },
+sortedRecordIds: <every row in the CSV>,
+sorting: undefined,
+loading: false, error: false, errorMessage: undefined,
+```
+
+`hasNextPage` and `hasPreviousPage` are **hardcoded false**, so the CSV is
+always exactly one page. The mutators are `console.log` and nothing else —
+driving the scaffolded control produced `Invoked method loadNextPage on Paging
+interface. Parameters: 25.` for its `setPageSize(25)` call (the harness logs
+that one under the wrong name) and `Invoked method refresh on DataSet
+interface.`, and no data moved. `sorting` is not even an array. `loading` and
+`error` are hardcoded, so those states are unreachable too.
+
+**`sorting: undefined` is the one that bites, and it bit this template.** The
+type definitions declare `sorting` as a required array, so the obvious
+`dataset.sorting.find(...)` in a sortable header throws a TypeError against
+`npm start` — **and the harness swallows it.** No console error, no message: the
+control renders as an empty box. A freshly scaffolded dataset control did
+exactly that, which is the worst possible first impression, since `npm start` is
+step three of the Develop section in `README.md`.
+
+Both dataset variants now read through `(dataset.sorting ?? [])` and decline a
+sort they have no array to express, and `npm run smoke` asserts both against a
+`sortingAbsent` host. Verified against `pcf-start` 1.51.1 by instrumenting the
+control: before the fix, a blank container with three columns and three records
+sitting unused in the dataset; after it, a rendered table and a working pager.
+
+So for a dataset control, `npm start` shows you one unsorted page and logs your
+mutators into the console. That is the gap the rig exists to fill:
+
+| Shape | What only the rig reaches |
+| --- | --- |
+| field | Field-level security (`security.readable` false is *not* an empty column), the platform's own `error`/`errorMessage`, a host that publishes no theme, a host that publishes no column metadata, and whether a cleared value comes back as `null` rather than `undefined`. |
+| dataset | **More than one page.** Server-side sorting, a non-sortable column, a hidden column, columns out of order — and the three ways real paging misbehaves, as switches. |
+| grid-customizer | The whole shape; see below. |
+
+Both harness pages also carry the two switches `npm start` has — form factor and
+allocated width — so a responsive control can be developed in one place. Note
+that `getFormFactor()` is **0 unknown, 1 desktop, 2 tablet, 3 phone**: web is
+`1`, and `3` is a phone, which is the comparison people get backwards. And
+`allocatedWidth` is `-1` until the control calls
+`mode.trackContainerResize(true)`, so a control that reflows on width without
+asking lays out against `-1` on every host and silently picks its narrowest
+branch forever.
+
+The dataset rig is the one that changes what is possible rather than what is
+convenient. PCFHub's demo harness seeds a single page and reports no next or
+previous page, which is why every dataset control in the catalogue is published
+at `demo.fidelity: "limited"` — so until this landed, the paging and sorting
+code, which is most of the hard code in the shape, had never been exercised by
+anything at all. `dev/host.js` ships twelve records and a page size of five,
+because three pages is the smallest number that tells you whether page two came
+from the platform or from a slice.
+
+**Its `quirks` switches default to the platform's observed misbehaviour, not to
+its documentation, and that is deliberate.** The scaffolded dataset control
+carries three repairs — `loadNextPage(true)` ignoring its argument and
+accumulating ids, `hasPreviousPage` never unlocking, `firstPageNumber`
+disagreeing with the ids — each of which reads as superstition until you can
+turn the behaviour off and watch the repair stop being needed. A harness that
+modelled the platform as written down would pass a control that cannot page on a
+real form, which is the failure the switches exist to prevent.
+
+Three things to know before editing any of it:
+
+- **`dev/host.js` withholds what the platform withholds.** `security` is
+  `undefined` on a column with no field-level security, `attributes` is
+  `undefined` on canvas, `fluentDesignLanguage` is `undefined` on a host that
+  publishes no theme. Filling those in "so the control has something to read" is
+  how a control that cannot work on a real form passes every local check — it
+  has happened here before, in the grid rig, twice.
+- **`dev/dom.js` is a DOM only in the parts that were needed**, and throws by
+  name for anything else rather than quietly returning `undefined`. A missing
+  piece should read as "add it to `dev/dom.js`", not as a mysterious failure.
+- **The assertions below the divider in `smoke.js` are a worked example.**
+  Replace them. Everything above the divider is plumbing that works for any
+  control of that shape.
+
+`npm run build` writes the development bundle over whatever the last msbuild
+pack left, so locally the rig tests whichever bundle is on disk.
+
+### What it deliberately does not do
+
+`--framework react` **deletes `dev/harness.html` and `dev/harness.js`** and
+keeps `smoke.js`. A virtual control's bundle expects Fluent under the global its
+`<platform-library>` entry compiles it out to, and
+`@fluentui/react-components` ships no UMD build — there is no file to put in a
+`<script src>`, and adding a bundler to produce one would make the harness the
+thing that needs building. Nothing is lost: unlike a customizer, a virtual field
+or dataset control renders perfectly well under `npm start`, and `smoke.js`
+works on it unchanged by reading the props it passed down instead of the DOM it
+wrote. Grid customizers keep their harness because Fluent 8 does ship a UMD
+build.
+
+Nothing here proves the control works. Every value the rig supplies comes from
+the rig. It cannot tell you that a real form hands down what these fixtures hand
+down, that a save persists anything, that the stylesheet applies, or that focus
+order is sane — those belong in `SPEC.md` under *Not verified*.
+
 ## Grid customizers
 
 ```bash
@@ -141,6 +280,10 @@ Three things it scaffolds that the other shapes do not:
 - **`dev/`** — a local stand-in for the grid; see below.
 
 ### Developing one
+
+The same rig as every other shape — `dev/harness.html` and `npm run smoke` —
+but for a different reason. Elsewhere it reaches states `npm start` cannot;
+here it is the only way to see the control at all.
 
 `npm start` is no help here. It hosts the control the way a form would, and a
 customizer correctly renders nothing on a form — so the harness that works for

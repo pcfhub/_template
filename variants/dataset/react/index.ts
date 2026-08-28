@@ -172,11 +172,24 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
      * ORDER BY, so replace rather than append.
      */
     private sortBy(dataset: DataSet, columnName: string): void {
-        const current = dataset.sorting.find((status) => status.name === columnName);
+        const sorting = dataset.sorting;
+
+        /*
+         * Typed as required, absent on `npm start`.
+         *
+         * The order is expressed by mutating this array in place, so with no
+         * array there is nothing to express it through — and the local harness
+         * cannot sort anyway. Decline rather than throw.
+         */
+        if (!sorting) {
+            return;
+        }
+
+        const current = sorting.find((status) => status.name === columnName);
         const direction: SortDirection = current?.sortDirection === ASCENDING ? DESCENDING : ASCENDING;
 
-        dataset.sorting.length = 0;
-        dataset.sorting.push({ name: columnName, sortDirection: direction });
+        sorting.length = 0;
+        sorting.push({ name: columnName, sortDirection: direction });
 
         // A new order makes "page 4" meaningless.
         this.page = 1;

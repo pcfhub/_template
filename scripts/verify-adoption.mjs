@@ -195,6 +195,34 @@ function main() {
         check('the string table is renamed', has(`${ANSWERS.control}/strings/${ANSWERS.control}.1033.resx`));
         check('the pcfproj is renamed', has(`${ANSWERS.control}.pcfproj`));
 
+        /*
+         * The dev rig, which is the only thing in an adopted repository that
+         * asserts anything about the control.
+         *
+         * `npm run smoke` is wired in the shared package.json and run by CI
+         * after the msbuild pack, so a rig that failed to land would take the
+         * repository's only assertions with it and still go green — the script
+         * would simply not be there to fail. The three checks are the three
+         * ways that happens: the file missing, the script missing, and the
+         * script pointing somewhere the file is not.
+         */
+        check('the dev rig lands', has('dev/smoke.js') && has('dev/host.js') && has('dev/dom.js'));
+
+        check('the browser harness lands for a standard control', has('dev/harness.html') && has('dev/harness.js'));
+
+        const pkg = JSON.parse(read('package.json'));
+
+        check(
+            'package.json runs the smoke suite',
+            pkg.scripts.smoke === 'node dev/smoke.js',
+            pkg.scripts.smoke,
+        );
+
+        check(
+            'and CI runs it after the pack, where the production bundle is',
+            /- name: Smoke-test the shipping bundle/.test(read('.github/workflows/build.yml')),
+        );
+
         // The caller has to name the directory that actually exists. A wrong
         // control-dir fails at release time, on a Windows runner, minutes in.
         const release = read('.github/workflows/release.yml');
