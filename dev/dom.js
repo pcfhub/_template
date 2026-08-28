@@ -328,6 +328,23 @@ Element.prototype.focus = function () {
 };
 
 /*
+ * `select()`, and the document-wide selection it puts there.
+ *
+ * Modelled rather than stubbed away, because `document.execCommand('copy')`
+ * copies **the selection** — not an element, and not an argument. A control
+ * using the deprecated clipboard path appends an off-screen `<textarea>`, sets
+ * its value, and selects it, and forgetting that last step is a copy that
+ * silently puts nothing on the clipboard.
+ *
+ * So the selection is recorded here and an `execCommand` stub reads it, which
+ * makes that omission fail rather than pass. A `select()` that did nothing
+ * would let it through.
+ */
+Element.prototype.select = function () {
+    module.exports.document.selection = this.value === undefined ? this.textContent : this.value;
+};
+
+/*
  * The table builders, because the scaffolded dataset control uses them and
  * `document.createElement('tr').insertCell()` is not something a plain object
  * has. They behave as the DOM's do: each returns the element it created and
@@ -431,6 +448,12 @@ var document = {
      * property changes first and the event announces it.
      */
     hidden: false,
+    /*
+     * What `Element.select()` last put here, and what an `execCommand('copy')`
+     * stub should read. `null` until something is selected, which is the state
+     * a control that forgot to select leaves it in.
+     */
+    selection: null,
     createElement: createElement,
     /*
      * SVG, and anything else with a namespace.
