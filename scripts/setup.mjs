@@ -317,6 +317,54 @@ rmSync(join(root, 'scripts', 'verify-adoption.mjs'), { force: true });
  */
 rmSync(join(root, '.github', 'workflows', 'release-reusable.yml'), { force: true });
 
+/*
+ * `build-reusable.yml` is the same arrangement, arrived at a second time and for
+ * the same reason: build.yml *was* the copied-per-repository file, and by the
+ * time it was shared, thirteen of fifteen repositories were still pinning
+ * actions on a Node runtime GitHub had begun retiring, eleven ran no smoke
+ * suite, and two checked no bundle size. Nothing had gone wrong; nobody had
+ * edited fifteen files in one sitting, which is the same thing.
+ *
+ * So it is deleted here for exactly the reason its release counterpart is.
+ */
+rmSync(join(root, '.github', 'workflows', 'build-reusable.yml'), { force: true });
+
+/*
+ * The template calls the shared build locally — `./.github/workflows/…`, which
+ * resolves against the calling commit, so its own CI tests the working tree.
+ * An adopted repository has no copy to resolve, so it has to point at the tag.
+ *
+ * `adopt-first` goes with it: it is true only in a repository that still has
+ * placeholders to replace, and this script has just replaced them.
+ *
+ * **The comment goes too, and that is not tidiness.** The version of this
+ * script before P7 rewrote the `uses:` line and left the paragraph above it
+ * explaining that the reference was local and that setup.mjs would rewrite it —
+ * a file describing, in an adopted repository, a state that only exists in the
+ * template. That is the same failure as the comment which explained
+ * placeholders using a placeholder, and verify-adoption.mjs exists because
+ * neither is visible from inside the template.
+ */
+edit('.github/workflows/build.yml', (text) =>
+    text
+        .replace(
+            /# TEMPLATE-ONLY NOTE[\s\S]*?# END TEMPLATE-ONLY NOTE\n/,
+            '# Pinned to @v1 rather than @main — a build that can change without\n'
+                + '# warning is one you cannot bisect. The shared workflow lives in\n'
+                + '# pcfhub/_template; open an issue there rather than forking a copy back\n'
+                + '# into this repository, which is the drift it was built to end.\n'
+                + '#\n'
+                + '# Every input it takes defaults to the strict value. If this repository\n'
+                + '# ever needs to skip a step — no dev/ directory, so no smoke suite —\n'
+                + '# say so here with a comment, where a reader will find it.\n',
+        )
+        .replace(
+            'uses: ./.github/workflows/build-reusable.yml',
+            'uses: pcfhub/_template/.github/workflows/build-reusable.yml@v1',
+        )
+        .replace(/\n    with:\n      adopt-first: true\n/, '\n'),
+);
+
 const templateDoc = join(root, 'TEMPLATE.md');
 
 if (existsSync(templateDoc)) {
@@ -670,8 +718,11 @@ function edit(relative, transform) {
     const before = readFileSync(path, 'utf8');
     const after = transform(before);
 
+    // Failing on a no-op is the point: every caller is replacing a string it
+    // expects to be there, so "changed nothing" means the template moved and
+    // this script did not. Silently carrying on ships a half-adopted file.
     if (after === before) {
-        fail(`Could not apply the react framework patch to ${relative}.`);
+        fail(`Could not patch ${relative} — the text this script rewrites was not found.`);
     }
 
     writeFileSync(path, after);

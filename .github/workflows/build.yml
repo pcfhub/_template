@@ -1,5 +1,27 @@
 name: Build
 
+# The steps live in build-reusable.yml, shared by every component repository, so
+# a fix to the build reaches all of them instead of the one that happened to be
+# edited. What stays here is only what differs between repositories.
+#
+# TEMPLATE-ONLY NOTE — setup.mjs replaces everything between this line and the
+# next marker, because none of it is true once adopted.
+#
+# **Referenced locally, not at @v1, and that is the deliberate difference from
+# release.yml.** A `./` reference resolves against the calling commit, so this
+# runs the reusable workflow as it exists in the working tree — meaning a change
+# to it is tested here, on the repository it lives in, before any tag moves it
+# into fifteen other pipelines. release.yml cannot do the same because its job
+# is skipped on the template entirely; build must run here, since this is the
+# only CI that ever compiles the control sources every new repository is seeded
+# from.
+#
+# `adopt-first` is true for the same reason: `__NAMESPACE__` is not a valid
+# identifier, so the template adopts itself into a scratch state and builds
+# that. setup.mjs drops the input along with this note.
+#
+# END TEMPLATE-ONLY NOTE
+
 on:
   push:
     branches: [main]
@@ -7,160 +29,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  # Cheap and first. Everything below takes minutes on a Windows runner, and a
-  # repository still carrying template placeholders fails all of it for one
-  # reason that is easier to read here.
-  #
-  # **Which of the two checks runs depends on which repository this is, and that
-  # is the whole point.** `check-template.mjs` exists to fail while placeholders
-  # remain, so on the template itself it exits 1 by design — meaning this job
-  # could never pass here, the Windows build behind `needs: template` never ran,
-  # and the repository every component was cloned from effectively had no CI.
-  # Two bugs lived in it undetected until somebody adopted it by hand and read
-  # what came out: a comment that explained placeholders *using* a placeholder,
-  # and an inherited copy of the shared release pipeline that quietly recreated
-  # the drift it had just been built to remove.
-  #
-  # So the template verifies its *output* instead. verify-adoption.mjs adopts it
-  # into a scratch directory and asserts what comes out — the state nothing else
-  # constructs, and the only state in which either bug is visible.
-  template:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 20
-
-      - name: Verify adoption produces a correct repository
-        if: github.repository == 'pcfhub/_template'
-        run: node scripts/verify-adoption.mjs
-
-      - name: Check the template was adopted
-        if: github.repository != 'pcfhub/_template'
-        run: node scripts/check-template.mjs
-
   build:
-    needs: template
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v7
-
-      # `cache: npm` is a hard failure when there is no lock file — not a
-      # warning, and not a cache miss. The template deliberately ships none
-      # (TEMPLATE.md tells the adopter to run `npm install` and commit the
-      # result), so this job could never reach its first real step *on the
-      # template itself*: it died at setup-node, before adoption, before
-      # anything it was written to test.
-      #
-      # So the cache is asked for only when there is something to key it on.
-      # An adopted repository has committed package-lock.json by the time CI
-      # runs and caches normally; the template installs cold, which costs
-      # seconds on a job that packs a solution with msbuild anyway.
-      #
-      # Testing for the file rather than for the repository name, because a
-      # fork of the template has a different name and still no lock file — a
-      # `github.repository != 'pcfhub/_template'` check reintroduces the bug for
-      # exactly the people most likely to hit it.
-      - name: Decide whether npm can be cached
-        id: npm-cache
-        shell: bash
-        run: |
-          if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then
-            echo 'use=npm' >> "$GITHUB_OUTPUT"
-          else
-            echo 'use=' >> "$GITHUB_OUTPUT"
-          fi
-
-      # An empty string is how setup-node is told not to cache; there is no
-      # `cache: false`. And it has to arrive as an empty *output*, not from an
-      # inline `${{ cond && '' || 'npm' }}` — an empty string is falsy in an
-      # Actions expression, so that ternary returns 'npm' on both branches. It
-      # looks right, it reads right, and it is why the first attempt at this fix
-      # failed identically to no fix at all.
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 20
-          cache: ${{ steps.npm-cache.outputs.use }}
-
-      - uses: microsoft/setup-msbuild@v3
-
-      # The template cannot build itself: `__NAMESPACE__` and `__CONTROL__` are
-      # not valid identifiers, and the .pcfproj carries a placeholder GUID. So
-      # on the template it is adopted first, in place, and everything below
-      # compiles the result. An adopted repository skips this and builds itself.
-      #
-      # Worth the step, because otherwise nothing ever compiles the control
-      # source every new repository is seeded from — a syntax error in
-      # `__CONTROL__/index.ts` would be discovered by the first author to run
-      # `npm run build` after cloning, which is the worst possible reviewer.
-      - name: Adopt the template so there is something to build
-        if: github.repository == 'pcfhub/_template'
-        run: |
-          node scripts/setup.mjs --yes `
-            --control CiProbe --namespace PCFHub --slug pcf-ci-probe `
-            --title "CI Probe" --tagline "Built in CI and thrown away." `
-            --category utilities --owner pcfhub --repo pcf-ci-probe `
-            --publisher PCFHub --prefix pcfhub
-        shell: pwsh
-
-      # `npm ci` everywhere it can be: the lockfile is what was tested. The
-      # template deliberately ships none — that is why step 1 of the publish
-      # guide says to commit the one `npm install` writes — so it is the one
-      # repository that has to resolve fresh.
-      - name: Install dependencies
-        run: ${{ github.repository == 'pcfhub/_template' && 'npm install' || 'npm ci' }}
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Build the control
-        run: npm run build
-
-      # Packing on every push, not only on a tag. A solution that only fails to
-      # pack at release time fails while somebody is waiting to ship it, and the
-      # cause is usually a change made days earlier.
-      #
-      # This is also the only step that builds the control the way it ships:
-      # __CONTROL__.pcfproj sets PcfBuildMode=production, so msbuild rebuilds
-      # into out/controls and overwrites what `npm run build` left there. A
-      # production build is not merely a minified development build — webpack
-      # applies optimisations that can fail on code development mode tolerates —
-      # so a green `npm run build` above is not evidence the shipping bundle
-      # compiles.
-      - name: Pack the solution
-        run: msbuild /t:build /restore /p:configuration=Release
-        working-directory: Solution
-
-      # After the pack, deliberately: msbuild has just overwritten out/controls
-      # with the production bundle, so this drives the code that actually ships
-      # rather than the development build `npm run build` left there.
-      #
-      # Minification does not disturb it — terser leaves string literals and
-      # lifecycle names alone with property mangling off — and `dev/smoke.js`
-      # asserts decisions rather than markup, so it does not care what the
-      # bundler did to the shape around them.
-      - name: Smoke-test the shipping bundle
-        run: npm run smoke
-
-      # A control is served as a single web resource, and Dataverse rejects one
-      # larger than 5 MB by default. Without this the failure appears as a
-      # solution import error in somebody's environment, long after the commit
-      # that caused it — and bundling a large dependency can cross the line in
-      # one step.
-      #
-      # After the pack, because that is the step that writes the production
-      # bundle. Administrators can raise the ceiling to 128 MB via Power
-      # Platform admin centre -> Environments -> Settings -> Email, but a
-      # component that needs that is harder to deploy, so treat it as a limit.
-      - name: Check the bundle fits a default environment
-        shell: pwsh
-        run: |
-          $limit = 5242880
-          $bundle = Get-ChildItem out/controls -Filter bundle.js -Recurse | Select-Object -First 1
-          if (-not $bundle) { throw "No bundle.js under out/controls after the pack." }
-
-          Write-Host "bundle.js is $($bundle.Length) bytes (limit $limit)"
-          if ($bundle.Length -gt $limit) {
-            throw "bundle.js is $($bundle.Length) bytes, over the $limit byte default Dataverse web resource limit."
-          }
+    uses: ./.github/workflows/build-reusable.yml
+    with:
+      adopt-first: true

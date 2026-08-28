@@ -176,6 +176,7 @@ function main() {
         // tag; a copy in an adopted repository is a second definition of the
         // release that nothing references and everything can drift from.
         check('release-reusable.yml is not inherited', !has('.github/workflows/release-reusable.yml'));
+        check('build-reusable.yml is not inherited', !has('.github/workflows/build-reusable.yml'));
         check('adopt.mjs is removed', !has('scripts/adopt.mjs'));
         check('the variants directory is removed', !has('variants'));
         check('TEMPLATE.md is removed', !has('TEMPLATE.md'));
@@ -225,9 +226,25 @@ function main() {
             pkg.scripts.smoke,
         );
 
+        // Once build.yml became a six-line caller, "does it contain the smoke
+        // step" stopped being answerable from this repository — the step lives
+        // in build-reusable.yml now. What an adopted repository can still be
+        // held to is that it calls the shared build, and that it does not opt
+        // out of the suite it ships: `smoke` defaults to true, so a fresh
+        // adoption naming it at all can only be turning it off.
+        const build = read('.github/workflows/build.yml');
         check(
-            'and CI runs it after the pack, where the production bundle is',
-            /- name: Smoke-test the shipping bundle/.test(read('.github/workflows/build.yml')),
+            'build.yml calls the shared workflow at a pinned tag',
+            /uses:\s*pcfhub\/_template\/\.github\/workflows\/build-reusable\.yml@v\d/.test(build),
+        );
+        check(
+            'and CI runs the smoke suite after the pack, where the production bundle is',
+            !/smoke:\s*false/.test(build),
+            build.match(/smoke:.*/)?.[0],
+        );
+        check(
+            'the local reference the template uses is rewritten on adoption',
+            !build.includes('./.github/workflows/') && !build.includes('adopt-first'),
         );
 
         // The caller has to name the directory that actually exists. A wrong
