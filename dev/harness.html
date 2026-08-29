@@ -27,9 +27,10 @@
             How to use it:
 
                 npm run build
-                then open this file directly in a browser
+                npm run harness
 
-            No bundler, no dev server, no new dependencies. It loads the bundle
+            No bundler and no new dependencies: `npm run harness` is
+            `dev/serve.js`, which is `node:http` and nothing else. It loads the bundle
             `npm run build` already produced, and the same `dev/host.js` that
             `npm run smoke` uses.
 

@@ -30,9 +30,10 @@
             How to use it:
 
                 npm run build
-                then open this file directly in a browser
+                npm run harness
 
-            No bundler, no dev server, and no new dependencies. It loads the
+            No bundler and no new dependencies -- `npm run harness` is
+            `dev/serve.js`, `node:http` and nothing else. It loads the
             bundle `npm run build` already produced, plus React and Fluent from
             `node_modules` — the same libraries the platform would supply,
             because the manifest declares them as `<platform-library>` and the
