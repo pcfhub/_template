@@ -383,7 +383,9 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         const previous = document.createElement('button');
         previous.type = 'button';
         previous.className = '__CONTROL__-previous';
-        previous.textContent = getString('__CONTROL___Previous');
+        // Chevron then label. Decoration on a button that already says what it
+        // does, so the accessible name is unchanged.
+        previous.append(chevron(CHEVRON_PREVIOUS), document.createTextNode(getString('__CONTROL___Previous')));
         previous.disabled = this.page <= 1;
         previous.addEventListener('click', () => {
             if (this.page <= 1) {
@@ -404,7 +406,8 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         const next = document.createElement('button');
         next.type = 'button';
         next.className = '__CONTROL__-next';
-        next.textContent = getString('__CONTROL___Next');
+        // Label then chevron: the glyph points the way the button goes.
+        next.append(document.createTextNode(getString('__CONTROL___Next')), chevron(CHEVRON_NEXT));
         next.disabled = !dataset.paging.hasNextPage;
         next.addEventListener('click', () => {
             if (!dataset.paging.hasNextPage) {
@@ -529,4 +532,57 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         this.notifyOutputChanged();
         dataset.openDatasetItem(record.getNamedReference());
     }
+}
+
+/** The SVG namespace. `createElement('svg')` makes an *HTML* element of that
+ *  name: it parses, it appends, it occupies no space and draws nothing. */
+const SVG_NS = 'http://www.w3.org/2000/svg';
+
+/** The pager chevrons, on a 20×20 grid. Two strokes each. */
+const CHEVRON_PREVIOUS = 'M12.5 5 7.5 10l5 5';
+const CHEVRON_NEXT = 'M7.5 5l5 5-5 5';
+
+/**
+ * A chevron, inline, so it can follow the theme.
+ *
+ * **An `<img>` cannot do this job**, whatever the file format. An image behind
+ * `<img src>` — a resource, a data URL, PNG or SVG alike — renders as an
+ * isolated document that cannot see this control's stylesheet, so a
+ * `currentColor` inside it resolves to black and a dark form gets a black glyph
+ * on a dark background. A control in this house shipped exactly that, and it
+ * was found on a real form rather than in review. Inline, `currentColor` is
+ * whatever the button's `color` resolves to.
+ *
+ * Three things bite while writing one:
+ *
+ *   - `createElement('svg')` makes an HTML element named “svg” that draws
+ *     nothing, and the failure reads as a CSS problem. `createElementNS` is not
+ *     optional.
+ *   - `className` on an SVG element is a read-only `SVGAnimatedString`;
+ *     assigning to it silently does nothing. Use `classList`.
+ *   - `hidden` is an `HTMLElement` property, so hiding one needs the
+ *     *attribute* and a `[hidden]` rule to outrank the element's own display.
+ *
+ * Decorative, because it sits on a button that already says what it does.
+ */
+function chevron(d: string): SVGSVGElement {
+    const svg = document.createElementNS(SVG_NS, 'svg') as SVGSVGElement;
+
+    svg.classList.add('__CONTROL__-chevron');
+    svg.setAttribute('viewBox', '0 0 20 20');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('focusable', 'false');
+
+    const path = document.createElementNS(SVG_NS, 'path');
+
+    path.setAttribute('d', d);
+    path.setAttribute('fill', 'none');
+    path.setAttribute('stroke', 'currentColor');
+    path.setAttribute('stroke-width', '1.5');
+    path.setAttribute('stroke-linecap', 'round');
+    path.setAttribute('stroke-linejoin', 'round');
+
+    svg.appendChild(path);
+
+    return svg;
 }

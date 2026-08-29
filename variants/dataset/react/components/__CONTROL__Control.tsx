@@ -65,6 +65,36 @@ function pagerLabel(props: IProps): string {
         .replace('{2}', String(total));
 }
 
+/** The pager chevrons, on a 20×20 grid. Two strokes each. */
+const CHEVRON_PREVIOUS = 'M12.5 5 7.5 10l5 5';
+const CHEVRON_NEXT = 'M7.5 5l5 5-5 5';
+
+/**
+ * A chevron, inline, so it can follow the theme.
+ *
+ * **An `<img>` cannot do this job**, whatever the file format: an image behind
+ * `<img src>` renders as an isolated document that cannot see this control's
+ * stylesheet, so a `currentColor` inside it resolves to black and a dark form
+ * gets a black glyph on a dark background. A control in this house shipped
+ * exactly that and it was found on a real form. Inline, `currentColor` is the
+ * button's own colour — here, the Fluent theme the provider is handed.
+ *
+ * Decorative, because it sits on a button that already says what it does.
+ */
+function Chevron(props: { d: string }): React.ReactElement {
+    return (
+        <svg className="__CONTROL__-chevron" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+            <path
+                d={props.d}
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    );
+}
 export function __CONTROL__Control(props: IProps): React.ReactElement | null {
     const { dataset, columns, pageIds, getString } = props;
 
@@ -232,6 +262,9 @@ export function __CONTROL__Control(props: IProps): React.ReactElement | null {
                     disabled={props.disabled || props.page <= 1}
                     onClick={props.onPreviousPage}
                 >
+                    {/* Chevron then label — decoration on a button that
+                        already says what it does. */}
+                    <Chevron d={CHEVRON_PREVIOUS} />
                     {getString('__CONTROL___Previous')}
                 </button>
 
@@ -244,7 +277,10 @@ export function __CONTROL__Control(props: IProps): React.ReactElement | null {
                     disabled={props.disabled || !dataset.paging.hasNextPage}
                     onClick={props.onNextPage}
                 >
+                    {/* Label then chevron: the glyph points the way the
+                        button goes. */}
                     {getString('__CONTROL___Next')}
+                    <Chevron d={CHEVRON_NEXT} />
                 </button>
             </div>
         </>,

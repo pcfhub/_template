@@ -237,10 +237,43 @@
   button that is 26px tall next to a form full of 32px controls is the same
   mismatch as a field that is the wrong height, just further down the page.
 */
+/*
+  The pager chevrons.
+
+  Inline `<svg>`, inheriting the button’s `color`. An icon behind `<img src>`
+  — a resource, a data URL, PNG or SVG alike — renders in an isolated document
+  that cannot read this stylesheet, so it resolves `currentColor` to black and a
+  dark form gets a black glyph on a dark background. A control in this house
+  shipped exactly that.
+
+  `flex: none` so a chevron never squashes on a narrow form — the label is what
+  should give way instead.
+*/
+.__CONTROL__-chevron {
+    flex: 0 0 auto;
+    width: 16px;
+    height: 16px;
+}
+
+/*
+  Mirrored in right-to-left. A chevron is directional, and reordering the flex
+  children does not turn the glyph around: `<` stays `<` and ends up pointing at
+  the label rather than away from it.
+
+  Keyed off *any* right-to-left ancestor rather than this control’s own `dir`.
+  A DOM control sets `dir` on its container, a React one on the `FluentProvider`
+  above it, and a host form in an right-to-left language sets it higher again —
+  an ancestor selector is the one that is right in all three cases.
+*/
+[dir="rtl"] .__CONTROL__-chevron {
+    transform: scaleX(-1);
+}
+
 .__CONTROL__-pager button {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    gap: var(--spacingHorizontalXS, 4px);
     box-sizing: border-box;
     min-height: 32px;
     padding: var(--spacingVerticalXS, 4px) var(--spacingHorizontalM, 12px);

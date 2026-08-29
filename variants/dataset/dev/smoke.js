@@ -413,6 +413,40 @@ check(
     noExact.calls().join(' '),
 );
 
+/*
+ * The pager chevrons are inline `<svg>`, and that is a theming decision.
+ *
+ * The same glyph behind an `<img src>` — a resource, a data URL, PNG or SVG
+ * alike — renders in an isolated document that cannot see the control’s
+ * stylesheet, so its `currentColor` resolves to black and a dark form gets a
+ * black chevron on a dark background. A control in this house shipped exactly
+ * that, and it was found on a real form rather than in review.
+ *
+ * A virtual control has no DOM here, so this reads the rendered markup instead.
+ */
+if (isVirtual) {
+    const markup = renderDeep(view.driven.element) || '';
+
+    check(
+        'the pager renders inline svg chevrons, not images',
+        (markup.match(/<svg/g) || []).length === 2 && !markup.includes('<img'),
+        `${(markup.match(/<svg/g) || []).length} svg, ${(markup.match(/<img/g) || []).length} img`,
+    );
+} else {
+    for (const [what, selector] of [['previous', '.__CONTROL__-previous'], ['next', '.__CONTROL__-next']]) {
+        // A tag selector scoped to the button: `dev/dom.js` supports 'tag',
+        // '.class' and 'tag.class', and throws by name on anything else.
+        const button = view.find(selector);
+        const glyph = button && button.querySelector('svg');
+
+        check(
+            `the ${what} button carries an inline svg chevron, not an image`,
+            glyph !== null && glyph.tagName.toLowerCase() === 'svg',
+            glyph ? glyph.tagName : 'no svg found',
+        );
+    }
+}
+
 /* ----------------------------------------------------------------- sorting */
 
 const sorted = bind({});
