@@ -95,14 +95,22 @@ npm run build
 npm run lint
 npm run check      # what CI runs first: placeholders, pcfhub.json, control shape
 npm run smoke      # assertions against the built bundle — see dev/
+npm run harness    # serves dev/harness.html and opens it
 ```
 
 `npm start` renders the control; `dev/` is for the states it cannot reach. Build
-first, then `npm run smoke` for the assertions, or open `dev/harness.html` in a
-browser for the switches — field-level security, a failed business rule, a host
-that publishes no theme or no column metadata, and for a dataset control, more
-than one page. Both read the bundle `npm run build` wrote, and both are
-described in the header of `dev/smoke.js`.
+first, then `npm run smoke` for the assertions, or `npm run harness` for the
+switches — field-level security, a failed business rule, a host that publishes
+no theme or no column metadata, and for a dataset control, more than one page.
+Both read the bundle `npm run build` wrote, and both are described in the header
+of `dev/smoke.js`.
+
+`npm run harness` serves the repository over `http://` rather than leaving you to
+open the file: over `file://` a dataset fixture cannot be fetched and a module
+script is refused, and both arrive as an empty control with a CORS error. It
+takes `--port` and `--no-open`, and needs no dependency — `dev/serve.js` is
+`node:http`. A React (virtual) control has no harness page, and the script says
+so rather than serving a 404.
 
 Run `npm run refreshTypes` after every manifest edit — until you do,
 `context.parameters` is typed from the old manifest and `tsc` will accept code that

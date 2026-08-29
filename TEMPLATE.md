@@ -116,14 +116,22 @@ that asserts anything about the control:
 ```bash
 npm run build
 npm run smoke          # assertions, with an exit code
-# then open dev/harness.html in a browser
+npm run harness        # serves dev/harness.html and opens it
 ```
 
-No bundler, no dev server, no test framework, no new dependencies. `smoke.js`
-loads the bundle `npm run build` produced, drives the control through the states
-a host can put it in, and prints a pass or a fail per decision. CI runs it
-**after the msbuild pack**, so there it drives the production bundle rather than
-the development one.
+No bundler, no test framework, no new dependencies. `smoke.js` loads the bundle
+`npm run build` produced, drives the control through the states a host can put
+it in, and prints a pass or a fail per decision. CI runs it **after the msbuild
+pack**, so there it drives the production bundle rather than the development
+one.
+
+`npm run harness` is `dev/serve.js`, which serves the repository over `http://`
+and opens the page. That is forty lines of `node:http` rather than a dev server
+with a build step behind it, and it earns its place because `file://` is not
+good enough: a dataset fixture cannot be fetched from it and a module script is
+refused outright. Both failures arrive as an empty control and a CORS message,
+which reads as a broken control rather than as a missing server. It takes
+`--port` and `--no-open`.
 
 ### What `npm start` already covers
 
@@ -381,10 +389,10 @@ Hence `dev/`:
 
 ```bash
 npm run build
-# then open dev/harness.html in a browser
+npm run harness
 ```
 
-No bundler, no dev server, no new dependencies. It loads the bundle the build
+No bundler, no new dependencies. It loads the bundle the build
 already produced, plus React and Fluent from `node_modules` — the libraries the
 platform would otherwise supply, which the manifest's `<platform-library>`
 entries keep out of the bundle. It calls every override the way the grid does,
