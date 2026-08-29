@@ -146,6 +146,25 @@
             window.setTimeout(pump, 0);
         });
 
+        /*
+         * And the case a click listener alone misses.
+         *
+         * A control can ask the platform for data from something other than a
+         * click — a debounce around a search box, an auto-refresh, any timer.
+         * Without this the request is made, the stand-in serves it, and
+         * nothing ever renders the answer: the control looks like it ignored
+         * what was typed, which is the exact bug the rig exists to rule out.
+         *
+         * Polling rather than hooking refresh() keeps the stand-in honest.
+         * It renders when the platform owes a render and at no other time, so
+         * the pass count still means what it means.
+         */
+        window.setInterval(function () {
+            if (handle && handle.renderOwed()) {
+                pump();
+            }
+        }, 50);
+
         status.textContent = 'Registered ' + registration.name + '.';
 
         mount();

@@ -203,7 +203,11 @@ function bind(options) {
     const container = dom.createElement('div');
     const instance = new registration.ctor();
 
-    instance.init(handle.context, () => {}, {}, container);
+    let notifications = 0;
+
+    instance.init(handle.context, () => {
+        notifications += 1;
+    }, {}, container);
 
     let driven = host.drive(instance, handle, 10);
 
@@ -217,6 +221,9 @@ function bind(options) {
         /** The props a virtual control passed down; `{}` for a standard one. */
         props: () => (driven.element && driven.element.props) || {},
         calls: () => handle.state.calls,
+        /** How many times the control said its outputs changed. */
+        notifications: () => notifications,
+        outputs: () => (instance.getOutputs ? instance.getOutputs() : {}),
         find: (selector) => container.querySelector(selector),
         findAll: (selector) => container.querySelectorAll(selector),
         /** Let the platform catch up after something the control asked for. */
@@ -493,6 +500,78 @@ check(
     'and declines a sort it has no way to express, rather than throwing',
     unsorted !== null && sortError === null,
     sortError || undefined,
+);
+
+/* --------------------------------------------------------------- filtering */
+
+/*
+ * **The host that supplies no `dataset.filtering`.**
+ *
+ * Same shape as the sorting assertion above, one step less certain: the type
+ * definitions declare `filtering` as always present, so a control that calls
+ * `dataset.filtering.setFilter(...)` has taken them at their word. The
+ * scaffolded table never filters, so this passes for free — and starts earning
+ * its keep the first time somebody adds a search box.
+ */
+let unfiltered = null;
+let filterRenderError = null;
+
+try {
+    unfiltered = bind({ quirks: { filteringAbsent: true } });
+    renderDeep(unfiltered.driven.element);
+} catch (error) {
+    filterRenderError = `${error.constructor.name}: ${error.message}`;
+}
+
+check(
+    'renders on a host that supplies no filtering object',
+    filterRenderError === null && unfiltered !== null,
+    filterRenderError ? `threw during render — ${filterRenderError}` : 'filtering was undefined',
+);
+
+/*
+ * The stand-in's own contract, asserted here rather than assumed by whoever
+ * writes the first control that filters. Three facts, and each is one a real
+ * platform enforces:
+ *
+ *   1. `setFilter` alone changes nothing. `refresh()` is the fetch, and a
+ *      control that omits it must see its rows stay exactly as they were —
+ *      otherwise this file would pass a control that never refreshes.
+ *   2. Once fetched, the filter is the server's result set, so
+ *      `totalResultCount` follows it. A control that prints the view's total
+ *      under a filter is reading a number it was never given.
+ *   3. Filtering does **not** reset the page. Staying on page three of a result
+ *      set that now has one page is the control's bug to avoid, and this file
+ *      would rather reproduce it than paper over it.
+ */
+const rig = host.createHost(fixture, { pageSize: 5 });
+const before = rig.dataset.paging.totalResultCount;
+
+rig.dataset.filtering.setFilter({
+    filterOperator: host.OR,
+    conditions: [{ attributeName: 'name', conditionOperator: host.OPERATOR.Like, value: 'contoso%' }],
+});
+
+const beforeRefresh = rig.dataset.paging.totalResultCount;
+
+rig.dataset.refresh();
+
+check(
+    'a filter that was set but never refreshed moves nothing',
+    beforeRefresh === before,
+    `${before} → ${beforeRefresh} without a refresh`,
+);
+
+check(
+    'and once refreshed, the total is the filtered total',
+    before === 12 && rig.dataset.paging.totalResultCount < before,
+    `${before} → ${rig.dataset.paging.totalResultCount}`,
+);
+
+check(
+    'filtering leaves the page where it was — resetting it is the control’s job',
+    rig.state.page === 1 && !rig.state.calls.includes('paging.reset'),
+    rig.state.calls.join(' '),
 );
 
 /* ------------------------------------------------------------ the counters */

@@ -174,7 +174,10 @@ function disposeAll() {
 function mount(options) {
     const container = dom.createElement('div');
     const tracked = [];
-    const context = host.createContext({ ...options, tracked, getString: marked });
+    // `getString` first, so a single assertion can override it — the marked key
+    // proves a string came from the .resx, but it cannot prove a `{0}` was
+    // substituted, because a marked key has no `{0}` in it to substitute.
+    const context = host.createContext({ getString: marked, ...options, tracked });
     const instance = new registration.ctor();
 
     let notifications = 0;
@@ -198,7 +201,7 @@ function mount(options) {
         /** `trackContainerResize` / `setFullScreen` calls the control made. */
         tracked: () => tracked,
         /** Re-render in a new state, as the platform does on every change. */
-        update: (next) => instance.updateView(host.createContext({ ...options, ...next, getString: marked })),
+        update: (next) => instance.updateView(host.createContext({ getString: marked, ...options, ...next })),
         /** Unmount, as the platform does when the form closes or navigates. */
         destroy: () => {
             instance.destroy();

@@ -1,6 +1,7 @@
 /*
- * The platform, stood in for: a working `DataSet` with real paging and real
- * sorting, plus the switches for the ways a real one misbehaves.
+ * The platform, stood in for: a working `DataSet` with real paging, real
+ * sorting and real filtering, plus the switches for the ways a real one
+ * misbehaves.
  *
  * Loaded by both `harness.html` in a browser and `smoke.js` in Node, which is
  * why it attaches to `window` *and* assigns `module.exports` and requires
@@ -20,6 +21,12 @@
  * this file. It ships with twelve records and a page size of five for exactly
  * that reason: three pages is the smallest number that tells you whether page
  * two came from the platform or from a slice.
+ *
+ * Filtering is thinner still everywhere else: the hub's harness and `npm start`
+ * both accept a `setFilter` call and discard it, so a filtered view is one of
+ * the few things a control can get *completely* wrong and still demo. Here the
+ * expression is applied, the counts follow it, and forgetting the `refresh()`
+ * afterwards shows up as a set of rows that did not change.
  *
  * ---
  *
@@ -71,6 +78,30 @@
     /** `SortDirection` is a numeric union: 0 ascending, 1 descending. */
     var ASCENDING = 0;
     var DESCENDING = 1;
+
+    /**
+     * `FilterOperator`, which combines the conditions of one expression.
+     *
+     * 0 And, 1 Or — and the default matters: an expression that omits
+     * `filterOperator` is `And`, so a search that meant "this term in any of
+     * four columns" and forgot to say `Or` matches nothing and looks like a
+     * broken query rather than a missing field.
+     */
+    var AND = 0;
+    var OR = 1;
+
+    /**
+     * The `ConditionOperator` values this stand-in honours, out of the ~90 the
+     * platform defines.
+     *
+     * These five are the ones a control can use on **both** hosts. The rest of
+     * the enum is where the hosts disagree, and the disagreement is not
+     * symmetric: `NotLike` (7) and `NotNull` (13) are canvas-only, while
+     * `Yesterday` (14), `Today` (15) and `Tomorrow` (16) are model-driven-only.
+     * A control that reaches past this object is choosing a host, and should
+     * say so in `docs/limitations.md`.
+     */
+    var OPERATOR = { Equal: 0, NotEqual: 1, GreaterThan: 2, LessThan: 3, Like: 6, Null: 12 };
 
     var STRINGS = {
         __CONTROL___Name: '__TITLE__',
@@ -175,6 +206,19 @@
              * covers the one host known to deviate.
              */
             sortingAbsent: false,
+
+            /**
+             * Whether `dataset.filtering` exists at all.
+             *
+             * Same shape of risk as `sortingAbsent`, one step less certain: the
+             * type definitions declare `filtering` as always present, and a
+             * control that calls `dataset.filtering.setFilter(...)` without
+             * checking has taken the types at their word. Turn this on to find
+             * out what that costs before a host does it for you.
+             *
+             * Off by default, because a real form supplies it.
+             */
+            filteringAbsent: false,
         },
     };
 
@@ -216,13 +260,148 @@
 
         var sorting = [];
 
+        /**
+         * The expression the control last set, and the one the data actually
+         * reflects — which are not the same thing between a `setFilter` and the
+         * `refresh()` that follows it.
+         *
+         * Two variables for the same reason `pageSize` and `requestedPageSize`
+         * are two: filtering is server-side, so setting one changes nothing
+         * until a fetch. **A control that calls `setFilter` and forgets
+         * `refresh()` must see its rows stay exactly as they were**, because
+         * that is what a real host does and it is the single easiest thing to
+         * get wrong — a stub that filtered on `setFilter` alone would pass a
+         * control that never refreshes.
+         *
+         * Once applied, the filter is the *server's* result set: the record
+         * map, `totalResultCount` and `hasNextPage` all follow it. The reason a
+         * control's pager breaks under a filter is almost always a total that
+         * did not.
+         */
+        var requestedFilter = null;
+        var filter = null;
+
         function log(name, argument) {
             state.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
         }
 
-        /** All records in the order the current sort puts them. */
+        /**
+         * One `ConditionExpression` against one row.
+         *
+         * `Like` takes SQL wildcards rather than a substring — `dana%` is a
+         * prefix match and `%dana%` a contains — and is case-insensitive, which
+         * is Dataverse's default collation. A control that lowercases the term
+         * itself and expects an exact match here is testing something the
+         * server does not do.
+         */
+        function holds(row, condition) {
+            var actual = row.values[condition.attributeName];
+            var left = formatted(actual).toLowerCase();
+            var right = formatted(condition.value).toLowerCase();
+
+            switch (condition.conditionOperator) {
+                case OPERATOR.Equal:
+                    return left === right;
+                case OPERATOR.NotEqual:
+                    return left !== right;
+                case OPERATOR.GreaterThan:
+                    return Number(actual) > Number(condition.value);
+                case OPERATOR.LessThan:
+                    return Number(actual) < Number(condition.value);
+                case OPERATOR.Null:
+                    return actual === null || actual === undefined || actual === '';
+                case OPERATOR.Like:
+                    return likePattern(right).test(left);
+                default:
+                    /*
+                     * Unhonoured operators pass rather than fail, so an
+                     * assertion about a filter this file cannot model reads as
+                     * "no filtering happened" instead of "everything vanished".
+                     * The second is indistinguishable from a control that
+                     * filtered its own rows away.
+                     */
+                    return true;
+            }
+        }
+
+        function escapeForRegExp(part) {
+            return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+        }
+
+        /**
+         * A SQL `LIKE` pattern as a regular expression.
+         *
+         * Three things are special and the third is the one people miss:
+         * `%` is any run, `_` is any single character, and **`[c]` is a literal
+         * `c`** — which is how a search term containing a wildcard is escaped,
+         * because a backslash is not an escape character here.
+         *
+         * Without the bracket case a control that correctly escapes a typed `%`
+         * to `[%]` looks broken against this stand-in while being right on the
+         * server, which is the worst way for a harness to be wrong.
+         */
+        function likePattern(pattern) {
+            var source = '^';
+
+            for (var at = 0; at < pattern.length; at += 1) {
+                var character = pattern.charAt(at);
+
+                if (character === '[' && pattern.charAt(at + 2) === ']') {
+                    source += escapeForRegExp(pattern.charAt(at + 1));
+                    at += 2;
+                } else if (character === '%') {
+                    source += '.*';
+                } else if (character === '_') {
+                    source += '.';
+                } else {
+                    source += escapeForRegExp(character);
+                }
+            }
+
+            return new RegExp(source + '$');
+        }
+
+        /** A `FilterExpression`, including any child `filters`, against one row. */
+        function passes(row, expression) {
+            if (!expression) {
+                return true;
+            }
+
+            var conditions = expression.conditions || [];
+            var children = expression.filters || [];
+
+            var results = conditions
+                .map(function (condition) {
+                    return holds(row, condition);
+                })
+                .concat(
+                    children.map(function (child) {
+                        return passes(row, child);
+                    }),
+                );
+
+            if (results.length === 0) {
+                return true;
+            }
+
+            // Undeclared is `And` — see the note on FilterOperator above.
+            var operator = expression.filterOperator === undefined ? AND : expression.filterOperator;
+
+            return operator === OR ? results.some(Boolean) : results.every(Boolean);
+        }
+
+        /** Every record the current filter admits — the server's result set. */
+        function matching() {
+            return filter
+                ? allRecords.filter(function (row) {
+                    return passes(row, filter);
+                })
+                : allRecords;
+        }
+
+        /** All matching records in the order the current sort puts them. */
         function ordered() {
-            var rows = allRecords.slice();
+            var rows = matching().slice();
 
             if (sorting.length === 0) {
                 return rows;
@@ -280,6 +459,30 @@
             };
         }
 
+        var filtering = {
+            /*
+             * Returns what was set, which is how a control tells "the filter I
+             * am about to apply" from "the filter already in force". Without
+             * that comparison, re-applying on every `updateView` is an
+             * unbounded refresh loop — the one `drive()` counts passes to
+             * catch.
+             */
+            getFilter: function () {
+                return requestedFilter || undefined;
+            },
+
+            setFilter: function (expression) {
+                log('filtering.setFilter', (expression && expression.conditions ? expression.conditions.length : 0));
+                // Requested, not applied. Nothing changes until a fetch.
+                requestedFilter = expression || null;
+            },
+
+            clearFilter: function () {
+                log('filtering.clearFilter');
+                requestedFilter = null;
+            },
+        };
+
         var dataset = {
             get columns() {
                 return columns;
@@ -321,16 +524,23 @@
                 return quirks.sortingAbsent ? undefined : sorting;
             },
 
-            filtering: {
-                getFilter: function () {
-                    return undefined;
-                },
-                setFilter: function (expression) {
-                    log('filtering.setFilter', expression && expression.conditions ? expression.conditions.length : true);
-                },
-                clearFilter: function () {
-                    log('filtering.clearFilter');
-                },
+            /**
+             * Real filtering, and `undefined` under `filteringAbsent`.
+             *
+             * **Setting a filter is not a fetch.** `setFilter` records the
+             * expression and not one row moves until the control calls
+             * `refresh()` — which is the platform's contract and the half
+             * people leave out, because a control that forgets the refresh
+             * looks exactly like one whose filter did not match anything.
+             *
+             * Nor does it reset the page. Filter from page three and the
+             * control is asking for page three of a result set that may have
+             * one page in it; the platform will happily hand back nothing at
+             * all. `paging.reset()` before `refresh()` is the control's job,
+             * and leaving it out here is what makes the omission visible.
+             */
+            get filtering() {
+                return quirks.filteringAbsent ? undefined : filtering;
             },
 
             paging: {
@@ -338,12 +548,17 @@
                     return state.pageSize;
                 },
 
+                /*
+                 * The *filtered* total, not the view's. A server counts what it
+                 * returned; a control that filters and then prints "of 12" is
+                 * reading a number the platform never gave it.
+                 */
                 get totalResultCount() {
-                    return quirks.uncounted ? -1 : allRecords.length;
+                    return quirks.uncounted ? -1 : matching().length;
                 },
 
                 get hasNextPage() {
-                    return state.page * state.pageSize < allRecords.length;
+                    return state.page * state.pageSize < matching().length;
                 },
 
                 /*
@@ -454,6 +669,7 @@
          */
         function fetched() {
             state.pageSize = state.requestedPageSize;
+            filter = requestedFilter;
             state.refreshes += 1;
             state.renderOwed = true;
         }
@@ -587,6 +803,9 @@
     return {
         ASCENDING: ASCENDING,
         DESCENDING: DESCENDING,
+        AND: AND,
+        OR: OR,
+        OPERATOR: OPERATOR,
         FORM_FACTORS: FORM_FACTORS,
         HOSTS: HOSTS,
         STRINGS: STRINGS,

@@ -128,7 +128,12 @@
          */
         document.getElementById('harness-notified').textContent =
             'notifyOutputChanged x' + notifications
-            + (tracked.length > 0 ? ' · trackContainerResize called' : ' · never asked to be resized');
+            // Only the resize calls, which arrive as a bare boolean.
+            // `tracked` also collects `getResource:` and `pickFile:` entries now,
+            // and counting those would report every control as having asked.
+            + (tracked.some(function (call) { return typeof call === 'boolean'; })
+                ? ' · trackContainerResize called'
+                : ' · never asked to be resized');
     }
 
     window.__harnessStart = function () {

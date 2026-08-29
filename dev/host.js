@@ -156,6 +156,47 @@
         dark: undefined,
         rtl: false,
         maxLength: 100,
+
+        /**
+         * The control's own input properties, merged into `parameters`.
+         *
+         * The scaffolded control has only `placeholder`, and every real one
+         * grows more — including further *bound* properties, which arrive the
+         * same way. Pass them as raw values — `{ maxSizeKb: 512 }` — and they
+         * reach the control as `{ raw: … }` where it expects them.
+         *
+         * Passing them rather than editing this file is what keeps a repo's
+         * copy of the rig close enough to the template's to update by copying.
+         */
+        inputs: {},
+
+        /**
+         * What `context.device.pickFile()` resolves with — an array of
+         * `FileObject` — or `null` to reject.
+         *
+         * **`null` is the default, and that is not pessimism.** Every device
+         * method rejects outside a real device origin: the hub's demo sandbox,
+         * `npm start`, a canvas app in a browser tab. A control that treats the
+         * rejection as an error state rather than as an ordinary outcome shows
+         * a red message to most of the people who ever run it.
+         *
+         * Note `fileSize` is in **KB**, not bytes. It is the one field of a
+         * `FileObject` that reads like it means something else, and a size
+         * check written against bytes lets a file a thousand times too large
+         * straight through.
+         */
+        pickFile: null,
+
+        /**
+         * What `context.resources.getResource()` hands to its success callback,
+         * or `null` to call the failure callback instead.
+         *
+         * `null` by default for the same reason: an `<img>` resource resolves
+         * on a model-driven form and is not something to count on elsewhere, so
+         * a control whose empty state depends on one has no empty state on the
+         * hosts that matter most for a demo.
+         */
+        resource: null,
     };
 
     /**
@@ -176,8 +217,17 @@
                 return STRINGS[key] !== undefined ? STRINGS[key] : key;
             };
 
+        // The control's own inputs, wrapped the way the platform hands them
+        // over. A raw `null` is a real value here — a property the maker left
+        // unset — so it is passed through rather than defaulted.
+        var parameters = {};
+
+        Object.keys(o.inputs).forEach(function (name) {
+            parameters[name] = { raw: o.inputs[name] };
+        });
+
         return {
-            parameters: {
+            parameters: Object.assign(parameters, {
                 value: {
                     raw: o.value,
                     /*
@@ -203,7 +253,7 @@
                     type: 'SingleLine.Text',
                 },
                 placeholder: { raw: o.placeholder, type: 'SingleLine.Text' },
-            },
+            }),
 
             mode: {
                 isVisible: o.visible,
@@ -232,7 +282,59 @@
                 allocatedHeight: o.height,
             },
 
-            resources: { getString: getString },
+            resources: {
+                getString: getString,
+
+                /*
+                 * Callback-style, not a promise — the one API on `context` that
+                 * is, which is why code around it tends to be written as though
+                 * it returned something and silently gets `undefined`.
+                 *
+                 * The failure path is the default. See `resource` in DEFAULTS.
+                 */
+                getResource: function (name, success, failure) {
+                    if (o.tracked) {
+                        o.tracked.push('getResource:' + name);
+                    }
+
+                    if (o.resource === null || o.resource === undefined) {
+                        if (failure) {
+                            failure();
+                        }
+
+                        return;
+                    }
+
+                    if (success) {
+                        success(o.resource);
+                    }
+                },
+            },
+
+            /*
+             * Every method rejects unless the caller supplied something for it
+             * to resolve with, which is what a browser without the host's
+             * native bridge does. A control that declares
+             * `<uses-feature required="false">` and degrades is testable here;
+             * one that assumes the call succeeds hangs on its own promise.
+             */
+            device: {
+                pickFile: function (pickOptions) {
+                    if (o.tracked) {
+                        o.tracked.push('pickFile:' + JSON.stringify(pickOptions || {}));
+                    }
+
+                    return o.pickFile
+                        ? Promise.resolve(o.pickFile)
+                        : Promise.reject(new Error('No file picker on this host.'));
+                },
+                captureImage: function () {
+                    return Promise.reject(new Error('No camera on this host.'));
+                },
+                getBarcodeValue: function () {
+                    return Promise.reject(new Error('No scanner on this host.'));
+                },
+            },
 
             /*
              * Absent on a host that publishes no theme, which is what the

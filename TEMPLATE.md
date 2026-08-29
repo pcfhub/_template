@@ -180,8 +180,8 @@ mutators into the console. That is the gap the rig exists to fill:
 
 | Shape | What only the rig reaches |
 | --- | --- |
-| field | Field-level security (`security.readable` false is *not* an empty column), the platform's own `error`/`errorMessage`, a host that publishes no theme, a host that publishes no column metadata, and whether a cleared value comes back as `null` rather than `undefined`. |
-| dataset | **More than one page.** Server-side sorting, a non-sortable column, a hidden column, columns out of order — and the three ways real paging misbehaves, as switches. |
+| field | Field-level security (`security.readable` false is *not* an empty column), the platform's own `error`/`errorMessage`, a host that publishes no theme, a host that publishes no column metadata, whether a cleared value comes back as `null` rather than `undefined`, and a `device`/`getResource` that reject the way every host without a native bridge does. |
+| dataset | **More than one page.** Server-side sorting, server-side *filtering*, a non-sortable column, a hidden column, columns out of order — and the three ways real paging misbehaves, as switches. |
 | grid-customizer | The whole shape; see below. |
 
 Both harness pages also carry the two switches `npm start` has — form factor and
@@ -210,6 +210,28 @@ disagreeing with the ids — each of which reads as superstition until you can
 turn the behaviour off and watch the repair stop being needed. A harness that
 modelled the platform as written down would pass a control that cannot page on a
 real form, which is the failure the switches exist to prevent.
+
+**Filtering is thinner everywhere else than paging is.** `npm start`'s dataset
+mock logs `setFilter` and moves nothing — the same treatment it gives every
+other mutator — and the hub's demo harness is documented as discarding a sort
+request on each render, so expect no better of a filter there until a release
+proves otherwise. The rig models filtering the way the platform does: `filtering.setFilter()` records an expression
+and moves nothing, `refresh()` is the fetch, and `totalResultCount` then follows
+the filtered set rather than the view's. A stub that filtered on `setFilter`
+alone would pass a control that never refreshes — which is the single easiest
+way to ship a search box that does nothing. Filtering also does **not** reset
+the page; staying on page three of a one-page result set is the control's bug to
+avoid, so the rig reproduces the trap rather than papering over it. There is a
+`filteringAbsent` switch beside `sortingAbsent` for the host that supplies no
+`filtering` object at all.
+
+On the field side, `context.device` and `context.resources.getResource` both
+**fail by default**. That is the honest default rather than a grudging one:
+every device method rejects outside a real device origin — the hub's demo
+sandbox, `npm start`, a canvas app in a browser tab — and an `<img>` resource is
+not something to count on off a model-driven form. Pass `pickFile: [ … ]` or
+`resource: '…'` to see the success path. Note `FileObject.fileSize` is in **KB**,
+which is the field that reads like it means bytes.
 
 Three things to know before editing any of it:
 
