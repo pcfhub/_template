@@ -288,6 +288,37 @@ Element.prototype.removeAttribute = function (name) {
     delete this.attributes[name];
 };
 
+/*
+ * The handful of attributes a browser keeps in sync with a same-named property.
+ *
+ * `img.src = url` and `img.setAttribute('src', url)` are the same write in a
+ * browser, and they were not here: the first set a plain property that
+ * `getAttribute` could not see. That matters because of which assertions it
+ * breaks — a test written as "the control requested no tile", checking
+ * `getAttribute('src') === null`, passed whether or not the control had set
+ * one. It was reading a slot nothing ever wrote to, and reporting the absence
+ * as proof.
+ *
+ * The list is deliberately short. Reflection in a real DOM is per-element and
+ * full of exceptions — `value` on an input reflects only until a user types,
+ * `href` resolves to an absolute URL on read — and a stub that guessed at the
+ * general rule would be wrong in a way nothing here could reveal. These are the
+ * ones a code component sets as a property and a test reads as an attribute.
+ * `value` is NOT in the list: it is already special-cased below, because its
+ * real behaviour is the exception rather than the rule.
+ */
+['src', 'href', 'alt', 'title', 'type'].forEach(function (name) {
+    Object.defineProperty(Element.prototype, name, {
+        get: function () {
+            return this.getAttribute(name) === null ? '' : this.getAttribute(name);
+        },
+        set: function (value) {
+            this.setAttribute(name, value);
+        },
+        configurable: true,
+    });
+});
+
 Element.prototype.addEventListener = function (type, handler) {
     (this.listeners[type] = this.listeners[type] || []).push(handler);
 };

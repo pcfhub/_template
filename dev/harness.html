@@ -229,6 +229,52 @@
                 <code>trackContainerResize</code>.</span>
             </label>
 
+            <label>
+                Location
+                <select id="harness-position">
+                    <option value="no-bridge">No geolocation on this host</option>
+                    <option value="denied">Permission denied</option>
+                    <option value="unavailable">Unavailable (rejects with null)</option>
+                    <option value="seattle">A fix, 20&thinsp;m accuracy</option>
+                    <option value="vague">A fix, 1200&thinsp;m accuracy</option>
+                </select>
+                <span>Three refusals, and only one is an <code>Error</code>.</span>
+            </label>
+
+            <label>
+                Camera
+                <select id="harness-camera">
+                    <option value="none">No camera on this host</option>
+                    <option value="photo">Returns one photo</option>
+                </select>
+                <span><code>captureImage</code> resolves with <em>one</em> file,
+                not an array.</span>
+            </label>
+
+            <label>
+                Record identity
+                <select id="harness-identity">
+                    <option value="none">None (canvas, and the default)</option>
+                    <option value="contextinfo">mode.contextInfo</option>
+                </select>
+                <span>Undocumented and untyped; absent is the honest default.</span>
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-webapi" checked />
+                context.webAPI exists
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-utils" checked />
+                context.utils exists
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-offline" />
+                Offline
+            </label>
+
             <label class="is-switch">
                 <button type="button" id="harness-clear">Clear the column</button>
             </label>

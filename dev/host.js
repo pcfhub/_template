@@ -185,24 +185,128 @@
          * check written against bytes lets a file a thousand times too large
          * straight through.
          */
-        /**
-         * Which events the host binds into `context.events`, by name — or
-         * `null` for a host that publishes no events bag at all.
-         *
-         * **The refusal is the case worth having.** `ComponentFramework.Context`
-         * types `events` as non-optional, so nothing in the type system will
-         * ever make a control guard it, and a manifest `<common-event>` is a
-         * claim about the schema rather than about the runtime. A control that
-         * calls `context.events.OnSelect()` unguarded is worth being able to
-         * break here, which is what `events: null` does.
-         *
-         * Each name becomes a function that records the call, so an assertion
-         * can be about whether the control raised the event rather than about
-         * what a handler did with it.
-         */
-        events: ['OnSelect'],
-
         pickFile: null,
+
+        /**
+         * What `context.device.captureImage()` resolves with — **one**
+         * `FileObject`, not an array — or `null` to reject.
+         *
+         * The arity is the trap. `pickFile` resolves with `FileObject[]` and
+         * this resolves with a single object, so the reflex that worked on the
+         * picker (`files[0]`) reads `undefined` here and the control uploads
+         * nothing, silently. Both are stubbed so that mistake is available to
+         * make locally rather than on a phone.
+         *
+         * Rejects by default for the reason `pickFile` does, and rather more
+         * strongly: there is no camera anywhere this rig runs.
+         */
+        captureImage: null,
+
+        /**
+         * Whether `context.device` exists at all.
+         *
+         * **Absence is a fourth state, and it is not a refusal.** A refusal is
+         * the platform saying no; absence is the API never having been there,
+         * which is what `<uses-feature required="false">` buys and what Power
+         * Pages does to every `Device.*` method unconditionally. A control has
+         * to say something different in each case — "not on this client" is
+         * actionable on another one, "that did not work" is not — and it cannot
+         * be tested for that without being able to reach both.
+         */
+        device: true,
+
+        /**
+         * What `context.device.getCurrentPosition()` does.
+         *
+         * Either an object of coordinates to resolve with —
+         * `{ latitude, longitude, accuracy }`, the rest filled in — or one of
+         * three **named refusals**, because the refusals are not
+         * interchangeable and a control that handles one handles none:
+         *
+         *   'denied'      -> rejects with `{ code, message }`, a plain object.
+         *                    The user, or the client, said no.
+         *   'unavailable' -> rejects with **`null`**. Documented: an older
+         *                    model-driven mobile client, or a device with no
+         *                    geolocation capability at all, passes `null` to
+         *                    the error callback and nothing else.
+         *   'no-bridge'   -> rejects with an `Error`. A browser tab with no
+         *                    native host: `npm start`, the hub's sandbox.
+         *   'absent'      -> **the method is not on the bag at all.** Not a
+         *                    rejection: `typeof device.getCurrentPosition` is
+         *                    'undefined', and a control that calls it without
+         *                    checking throws a TypeError rather than reaching
+         *                    any catch block it wrote.
+         *
+         * **'no-bridge' is the default**, because it is what every host this rig
+         * can imitate actually does — and because `getCurrentPosition` is
+         * narrower than it looks. It is canvas apps and the model-driven
+         * **mobile** client only; a model-driven form in a *browser* has no
+         * location at all, which is the degradation most geo controls never
+         * test because it is the one they were written on.
+         *
+         * `'unavailable'` is the one to write a test for first. A
+         * `catch (error)` that reads `error.message` throws on `null` — so the
+         * handler for the failure fails, and the control hangs on its own
+         * promise instead of showing the state it has for exactly this.
+         */
+        position: 'no-bridge',
+
+        /**
+         * Whether `context.webAPI` exists at all.
+         *
+         * The same switch, and the same reasoning, as the dataset rig's: WebAPI
+         * is Dataverse-dependent and **not available in canvas apps**, so a
+         * control that reaches for it unguarded works everywhere it was tested
+         * and nowhere else.
+         */
+        webAPI: true,
+
+        /**
+         * What `webAPI.createRecord` resolves with — an id — or `null` to
+         * reject.
+         *
+         * Success is the default, unlike every device switch above, and the
+         * difference is honest rather than inconsistent: a create against a
+         * model-driven form's Dataverse ordinarily works, so the rejection is
+         * the exception and the exception is what a caller asks for.
+         */
+        createRecord: '11111111-2222-3333-4444-555555555555',
+
+        /** What `webAPI.retrieveRecord` resolves with, or `null` to reject. */
+        retrieveRecord: {},
+
+        /** Whether `webAPI.updateRecord` resolves. `false` rejects. */
+        updateRecord: true,
+
+        /**
+         * Whether `context.utils` exists, and the entity set its metadata
+         * answers with.
+         *
+         * `getEntityMetadata` is **model-driven only** and gated behind the
+         * `Utility` feature, so absence is a real host. See `utils` in the
+         * context below for the shape it answers with, which is not the shape
+         * it looks like.
+         */
+        utils: true,
+        entitySetName: 'accounts',
+
+        /**
+         * `context.mode.contextInfo`, or `null` for a host without it.
+         *
+         * **`null` is the default, and this member is the reason.** It is
+         * absent from `@types/powerapps-component-framework` altogether, so
+         * every use of it is an untyped cast; and the platform's own FAQ says
+         * code components deliberately do *not* carry the record's identity,
+         * pointing at bound `entityId` / `entityName` input properties instead.
+         * Defaulting it to absent puts the documented fallback under test rather
+         * than the undocumented happy path.
+         *
+         * Set it to `{ entityId, entityTypeName }` to get the other branch.
+         */
+        contextInfo: null,
+
+        /** `context.client.isOffline()`. A phone out in a field is this one. */
+        offline: false,
 
         /**
          * What `context.resources.getResource()` hands to its success callback,
@@ -316,6 +420,23 @@
                 },
                 allocatedWidth: o.width,
                 allocatedHeight: o.height,
+
+                /*
+                 * The record this control is sitting on — undocumented, untyped,
+                 * and absent by default.
+                 *
+                 * `ComponentFramework.Mode` does not declare this member, so
+                 * reading it costs a cast; and the platform's own FAQ says code
+                 * components are not given the record's identity "because they
+                 * need to be supported on multiple surfaces where this
+                 * information may not be available", naming bound input
+                 * properties as the supported route instead. Both are real, the
+                 * cast is what everybody actually writes, and only one of them
+                 * survives canvas — so a control that needs identity should try
+                 * this and fall back, and the default here is what makes it
+                 * write the fallback.
+                 */
+                contextInfo: o.contextInfo || undefined,
             },
 
             resources: {
@@ -351,8 +472,14 @@
              * native bridge does. A control that declares
              * `<uses-feature required="false">` and degrades is testable here;
              * one that assumes the call succeeds hangs on its own promise.
+             *
+             * **The refusals are not one refusal.** A device API can fail three
+             * distinguishable ways and only one of them is an `Error`, so a
+             * stub that rejected uniformly would let a control pass here with a
+             * handler that throws in two of the three states a real device puts
+             * it in. See `position` in DEFAULTS for what each one means.
              */
-            device: {
+            device: !o.device ? undefined : {
                 pickFile: function (pickOptions) {
                     log('pickFile', pickOptions || {});
 
@@ -360,13 +487,208 @@
                         ? Promise.resolve(o.pickFile)
                         : Promise.reject(new Error('No file picker on this host.'));
                 },
-                captureImage: function () {
-                    return Promise.reject(new Error('No camera on this host.'));
+
+                /*
+                 * Resolves with **one** `FileObject`, where `pickFile` resolves
+                 * with an array of them. That asymmetry is the platform's, not
+                 * this file's, and it is why both are stubbed rather than one.
+                 */
+                captureImage: function (imageOptions) {
+                    log('captureImage', imageOptions || {});
+
+                    return o.captureImage
+                        ? Promise.resolve(o.captureImage)
+                        : Promise.reject(new Error('No camera on this host.'));
                 },
+
                 getBarcodeValue: function () {
+                    log('getBarcodeValue');
+
                     return Promise.reject(new Error('No scanner on this host.'));
                 },
+
+                /*
+                 * Geolocation, and its three separate refusals.
+                 *
+                 * The resolved shape is the one worth reading twice.
+                 * `Position.timestamp` is typed `Date` by
+                 * `@types/powerapps-component-framework` and documented, on the
+                 * very same page, as a DOMTimeStamp — which is a **number**. The
+                 * platform sends the number, so that is what this sends, and
+                 * `position.timestamp.toISOString()` therefore compiles against
+                 * the types and throws against the host. Handing back a real
+                 * `Date` here to match the type would make this rig the only
+                 * place that bug cannot be found.
+                 *
+                 * `coords` carries every member the interface declares, because
+                 * they are all non-optional there while `altitude`, `heading`
+                 * and `speed` are routinely null on a device standing still —
+                 * another lie in the types, and one a control that formats them
+                 * has to survive.
+                 */
+                getCurrentPosition: o.position === 'absent' ? undefined : function () {
+                    log('getCurrentPosition');
+
+                    if (o.position === 'denied') {
+                        /*
+                         * A plain object, not an `Error` — the Client API's
+                         * `errorCallback` documents `code` and `message`. Note
+                         * `code`, where a webAPI rejection says `errorCode`:
+                         * two platform APIs, two names, and one error reader
+                         * that has to know both.
+                         */
+                        return Promise.reject({
+                            code: 1,
+                            message: 'The user denied access to their location.',
+                        });
+                    }
+
+                    if (o.position === 'unavailable') {
+                        // Documented, and the shape nothing survives by accident.
+                        return Promise.reject(null);
+                    }
+
+                    if (o.position === 'no-bridge' || !o.position) {
+                        return Promise.reject(new Error('No geolocation on this host.'));
+                    }
+
+                    return Promise.resolve({
+                        coords: {
+                            latitude: o.position.latitude,
+                            longitude: o.position.longitude,
+                            accuracy: o.position.accuracy !== undefined ? o.position.accuracy : 20,
+                            altitude: o.position.altitude !== undefined ? o.position.altitude : null,
+                            altitudeAccuracy:
+                                o.position.altitudeAccuracy !== undefined ? o.position.altitudeAccuracy : null,
+                            heading: o.position.heading !== undefined ? o.position.heading : null,
+                            speed: o.position.speed !== undefined ? o.position.speed : null,
+                        },
+                        // A number. See above.
+                        timestamp: o.position.timestamp !== undefined ? o.position.timestamp : Date.now(),
+                    });
+                },
             },
+
+            /*
+             * The Web API, absent when the host has none.
+             *
+             * The same switch and the same rejection shape as the dataset rig's,
+             * so an assertion reads the same in both: **a rejection is a plain
+             * object carrying `errorCode` and `message`, not an `Error`.** A
+             * stub that rejected with an `Error` would pass a control that
+             * renders the string "[object Object]" where the platform's
+             * explanation belongs.
+             */
+            webAPI: o.webAPI
+                ? {
+                    createRecord: function (entityType, data) {
+                        log('webAPI.createRecord', entityType);
+
+                        if (o.createRecord === null || o.createRecord === undefined) {
+                            return Promise.reject({
+                                errorCode: 2147746581,
+                                message: 'The record could not be created.',
+                            });
+                        }
+
+                        /*
+                         * The platform resolves with an `EntityReference`, whose
+                         * `id` is an **object with a `guid` on it**, not a
+                         * string — so `String(reference.id)` is "[object
+                         * Object]" and the id the control stored is useless.
+                         * Reproduced rather than flattened, for that reason.
+                         */
+                        return Promise.resolve({
+                            entityType: entityType,
+                            id: { guid: o.createRecord },
+                            name: (data && data.subject) || '',
+                        });
+                    },
+
+                    updateRecord: function (entityType, id, data) {
+                        log('webAPI.updateRecord', entityType + ' ' + id + ' ' + Object.keys(data || {}).join(','));
+
+                        return o.updateRecord
+                            ? Promise.resolve({ entityType: entityType, id: { guid: id }, name: '' })
+                            : Promise.reject({
+                                errorCode: 2147746581,
+                                message: 'The record could not be updated.',
+                            });
+                    },
+
+                    retrieveRecord: function (entityType, id, options) {
+                        log('webAPI.retrieveRecord', entityType + ' ' + id + ' ' + (options || ''));
+
+                        return o.retrieveRecord === null || o.retrieveRecord === undefined
+                            ? Promise.reject({
+                                errorCode: 2147746581,
+                                message: 'The record could not be retrieved.',
+                            })
+                            : Promise.resolve(o.retrieveRecord);
+                    },
+                }
+                : undefined,
+
+            /*
+             * Navigation. `context.navigation` itself is present on every host
+             * — it is the individual methods that are not — so this is an object
+             * rather than a switch, and `openUrl` is the one method that works
+             * in canvas and model-driven alike.
+             *
+             * Recorded rather than performed: there is nowhere to navigate to
+             * here, and what regresses is the URL the control built, not the
+             * platform's ability to open it.
+             */
+            navigation: {
+                openUrl: function (url) {
+                    log('navigation.openUrl', url);
+                },
+            },
+
+            /*
+             * `context.utils`, absent on a host without the `Utility` feature.
+             *
+             * **`getEntityMetadata` resolves with a class instance, not a plain
+             * object**, and this reproduces that rather than flattening it: the
+             * own enumerable properties are private fields, and the public
+             * members are getters on the prototype. Code that walks
+             * `Object.keys` sees `_entityDescriptor` and concludes the entity
+             * has no entity set, while reading `metadata.EntitySetName` by name
+             * works perfectly well — because property *access* traverses the
+             * prototype chain and enumeration does not.
+             *
+             * A flat object here would let that code pass locally and fail on a
+             * form, which is the most expensive thing a stub can do.
+             */
+            utils: o.utils
+                ? {
+                    getEntityMetadata: function (entityName, attributes) {
+                        log('getEntityMetadata', entityName);
+
+                        function Metadata() {
+                            // Private fields, and the only things Object.keys sees.
+                            this._entityDescriptor = { EntityLogicalName: entityName };
+                            // The argument is a *request*, not a result. It reads
+                            // exactly like an answer, which is the trap.
+                            this._attributes = attributes || [];
+                        }
+
+                        Object.defineProperty(Metadata.prototype, 'EntitySetName', {
+                            get: function () {
+                                return o.entitySetName;
+                            },
+                        });
+
+                        Object.defineProperty(Metadata.prototype, 'PrimaryIdAttribute', {
+                            get: function () {
+                                return entityName + 'id';
+                            },
+                        });
+
+                        return Promise.resolve(new Metadata());
+                    },
+                }
+                : undefined,
 
             /*
              * The event bag, or nothing at all.
@@ -411,7 +733,7 @@
                     return FORM_FACTORS[o.formFactor] !== undefined ? FORM_FACTORS[o.formFactor] : 1;
                 },
                 isOffline: function () {
-                    return false;
+                    return o.offline;
                 },
             },
 

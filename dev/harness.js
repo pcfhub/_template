@@ -26,6 +26,34 @@
     /** Every `trackContainerResize` / `setFullScreen` call the control made. */
     var calls = [];
 
+    /*
+     * What the "Location" switch means, spelled out here rather than in the
+     * markup so the page stays a list of switches and this stays a list of
+     * platform behaviours.
+     *
+     * The two fixes differ only in `accuracy`, which is the number a control
+     * has to make a decision about: a 1200-metre fix is a real answer from a
+     * real device on a bad day, not an error, and a control that renders it the
+     * same way it renders a 20-metre one is lying to whoever reads the record.
+     */
+    var POSITIONS = {
+        seattle: { latitude: 47.6062, longitude: -122.3321, accuracy: 20 },
+        vague: { latitude: 47.6062, longitude: -122.3321, accuracy: 1200 },
+    };
+
+    /*
+     * One `FileObject`, and `fileSize` in **KB** — see `pickFile` in
+     * `host.js`. A one-pixel PNG, so the content is real base64 rather than a
+     * word that happens to be in the right field.
+     */
+    var PHOTO = {
+        fileName: 'capture.png',
+        mimeType: 'image/png',
+        fileSize: 1,
+        fileContent:
+            'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+    };
+
     function options() {
         return {
             host: document.getElementById('harness-host').value,
@@ -39,6 +67,17 @@
             visible: document.getElementById('harness-visible').checked,
             dark: document.getElementById('harness-dark').checked,
             rtl: document.getElementById('harness-rtl').checked,
+            position:
+                POSITIONS[document.getElementById('harness-position').value]
+                || document.getElementById('harness-position').value,
+            captureImage: document.getElementById('harness-camera').value === 'photo' ? PHOTO : null,
+            contextInfo:
+                document.getElementById('harness-identity').value === 'contextinfo'
+                    ? { entityId: '0f8fad5b-d9cb-469f-a165-70867728950e', entityTypeName: 'account' }
+                    : null,
+            webAPI: document.getElementById('harness-webapi').checked,
+            utils: document.getElementById('harness-utils').checked,
+            offline: document.getElementById('harness-offline').checked,
         };
     }
 

@@ -273,6 +273,66 @@ if (manifestPath && exists(join(root, manifestPath))) {
                 'Delete the ones the control does not call.',
             );
         }
+
+        // A Device.* feature declared required="true" is not a stronger
+        // guarantee, it is a narrower one: on a host without the native bridge
+        // the component fails to load outright rather than degrading. Since
+        // every host that is not a phone lacks the bridge — a model-driven form
+        // in a browser included — that is nearly always the wrong attribute.
+        //
+        // Power Pages settles it: it supports no Device.* API at all and
+        // documents that <uses-feature> must not be set to true there.
+        //
+        // A warning rather than a problem, because it is occasionally right: a
+        // control that *is* the feature, like a barcode scanner with no manual
+        // entry path, may as well fail loudly.
+        const hardDevice = [...xml.matchAll(/<uses-feature\s+name="(Device\.[^"]+)"\s+required="true"/g)]
+            .map((match) => match[1]);
+
+        if (hardDevice.length > 0) {
+            warnings.push(
+                `${manifestPath} declares ${hardDevice.join(', ')} as required="true". A host without the ` +
+                'native bridge then fails to load the component rather than degrading, and that is most '
+                + 'hosts — canvas in a browser, a model-driven form on the web, and Power Pages, which '
+                + 'supports no Device API at all. Use required="false" and feature-detect unless the control '
+                + 'is nothing but this feature.',
+            );
+        }
+    }
+}
+
+// ------------------------------------------------- external service usage
+//
+// Enabling this makes the control **premium**: every end user of an app that
+// contains it needs a Power Apps licence rather than an Office 365 one. That is
+// a cost imposed on whoever installs the control, decided by one XML attribute,
+// and it is invisible everywhere else — nothing fails, no build warns, and the
+// bill lands on somebody who never read the manifest.
+//
+// So this is checked in both directions: enabled with no domains is a problem,
+// and enabled at all is worth saying out loud once per run.
+
+if (manifestPath && exists(join(root, manifestPath))) {
+    const xml = readFileSync(join(root, manifestPath), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const node = xml.match(/<external-service-usage\s+enabled="(true|false)"\s*(\/>|>([\s\S]*?)<\/external-service-usage>)/);
+
+    if (node && node[1] === 'true') {
+        const domains = [...(node[3] || '').matchAll(/<domain>\s*([^<\s][^<]*?)\s*<\/domain>/g)].map((m) => m[1]);
+
+        if (domains.length === 0) {
+            problems.push(
+                `${manifestPath} sets external-service-usage enabled="true" with no <domain> child. The ` +
+                'schema expects every domain the control talks to to be listed, so this declares the '
+                + 'licensing cost without declaring what it buys. Add the domains, or set enabled="false".',
+            );
+        } else {
+            warnings.push(
+                `${manifestPath} sets external-service-usage enabled="true" (${domains.join(', ')}). This ` +
+                'makes the control premium: end users of any app containing it need a Power Apps licence. '
+                + 'Confirm that is intended and say so in docs/limitations.md — it is a cost to whoever '
+                + 'installs the control, not to whoever wrote it.',
+            );
+        }
     }
 }
 
