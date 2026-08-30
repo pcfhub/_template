@@ -212,6 +212,15 @@
             hasLoadExactPage: true,
 
             /**
+             * Whether `dataset.addColumn` exists at all.
+             *
+             * Typed optional in @types/powerapps-component-framework, which is
+             * the rare case of the type definitions being honest — so a control
+             * that calls it unguarded is worth being able to break here.
+             */
+            hasAddColumn: true,
+
+            /**
              * Whether `mode.setFullScreen` exists at all. The same claim as
              * `loadExactPage` makes: typed as always present, which is a
              * statement about the type definitions rather than about the host,
@@ -270,7 +279,16 @@
         var hostKind = HOSTS[o.host] || HOSTS['model-driven'];
 
         var allRecords = o.records || fixture.records;
-        var columns = o.columns || fixture.columns;
+        var columns = (o.columns || fixture.columns).slice();
+
+        /**
+         * Logical names handed to `addColumn` and not yet fetched.
+         *
+         * Requested rather than added, because that is what the platform does:
+         * the column appears in the *next* result, not in the call. A stub that
+         * added it synchronously would pass a control that never refreshed.
+         */
+        var requestedColumns = [];
 
         var state = {
             /** The page the platform believes it is on. */
@@ -699,8 +717,28 @@
 
             addColumn: function (name) {
                 log('addColumn', name);
+
+                /*
+                 * Only a column the table actually has can arrive. `catalogue`
+                 * on the fixture is the set of columns that exist but are not on
+                 * the view — ask for anything else and nothing comes back,
+                 * which is what a real table does with a name that is not one of
+                 * its own. The control has to cope with having asked and not
+                 * received.
+                 */
+                if (requestedColumns.indexOf(name) === -1) {
+                    requestedColumns.push(name);
+                }
             },
         };
+
+        /*
+         * Deleted rather than never defined, so the literal above stays one
+         * readable shape.
+         */
+        if (!quirks.hasAddColumn) {
+            delete dataset.addColumn;
+        }
 
         /**
          * A round trip to the server: the requested page size takes effect and
@@ -710,6 +748,27 @@
          * inside `updateView` shows up as a count instead of a stack overflow.
          */
         function fetched() {
+            /*
+             * Columns asked for since the last fetch arrive now, if the table
+             * has them. `fixture.catalogue` holds the columns that exist on the
+             * table but are not on the bound view — which is the whole reason
+             * `addColumn` exists.
+             */
+            var catalogue = fixture.catalogue || {};
+
+            requestedColumns.forEach(function (name) {
+                var definition = catalogue[name];
+                var already = columns.some(function (column) {
+                    return column.name === name;
+                });
+
+                if (definition && !already) {
+                    columns.push(definition);
+                }
+            });
+
+            requestedColumns = [];
+
             state.pageSize = state.requestedPageSize;
             filter = requestedFilter;
             state.refreshes += 1;
