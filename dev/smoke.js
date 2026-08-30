@@ -173,11 +173,11 @@ function disposeAll() {
 
 function mount(options) {
     const container = dom.createElement('div');
-    const tracked = [];
+    const calls = [];
     // `getString` first, so a single assertion can override it — the marked key
     // proves a string came from the .resx, but it cannot prove a `{0}` was
     // substituted, because a marked key has no `{0}` in it to substitute.
-    const context = host.createContext({ getString: marked, ...options, tracked });
+    const context = host.createContext({ getString: marked, ...options, calls });
     const instance = new registration.ctor();
 
     let notifications = 0;
@@ -199,7 +199,7 @@ function mount(options) {
         outputs: () => instance.getOutputs(),
         notifications: () => notifications,
         /** `trackContainerResize` / `setFullScreen` calls the control made. */
-        tracked: () => tracked,
+        calls: () => calls,
         /** Re-render in a new state, as the platform does on every change. */
         update: (next) => instance.updateView(host.createContext({ getString: marked, ...options, ...next })),
         /** Unmount, as the platform does when the form closes or navigates. */
@@ -511,7 +511,7 @@ const sized = mount({ width: 320, formFactor: 'phone' });
 check(
     'renders in a phone-sized container',
     sized.element !== undefined ? sized.element !== null : Boolean(sized.find('input')),
-    `trackContainerResize: ${sized.tracked().length > 0 ? 'called' : 'never called'}`,
+    `trackContainerResize: ${sized.calls().some((call) => call.indexOf('trackContainerResize') === 0) ? 'called' : 'never called'}`,
 );
 
 /*

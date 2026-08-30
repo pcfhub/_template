@@ -171,6 +171,27 @@
          */
         inputs: {},
 
+        /**
+         * Whether `context.webAPI` exists at all.
+         *
+         * Absent is a real host and it is the reason a control declares
+         * `<uses-feature required="false">`: WebAPI is Dataverse-dependent and is
+         * not available in canvas apps, so a control that reaches for it
+         * unguarded works everywhere it was tested and nowhere else.
+         */
+        webAPI: true,
+
+        /**
+         * Whether `context.navigation.openFile` exists.
+         *
+         * Separate from `webAPI` because it is absent for a different reason:
+         * `openFile` is documented model-driven apps only, while
+         * `context.navigation` itself is present either way. A control that
+         * checks the bag rather than the method passes on a host that cannot
+         * open a file.
+         */
+        openFile: true,
+
         quirks: {
             /**
              * `loadNextPage(true)` returns the whole range from page one rather
@@ -189,6 +210,15 @@
              * being able to break here.
              */
             hasLoadExactPage: true,
+
+            /**
+             * Whether `mode.setFullScreen` exists at all. The same claim as
+             * `loadExactPage` makes: typed as always present, which is a
+             * statement about the type definitions rather than about the host,
+             * so a control that calls it unguarded is worth being able to break
+             * here. Canvas is the known case.
+             */
+            hasFullScreen: true,
 
             /**
              * Whether `dataset.sorting` exists at all.
@@ -451,6 +481,18 @@
                     return row.values[name];
                 },
                 getFormattedValue: function (name) {
+                    /*
+                     * A row may carry its own `formatted` bag, and it exists so a
+                     * fixture can make the formatted value differ from the raw one
+                     * — "$1,204.75" against 1204.75. Without that, a control that
+                     * plots the formatted string and one that plots the number are
+                     * indistinguishable from any assertion, and only one of them
+                     * is right.
+                     */
+                    if (row.formatted && Object.prototype.hasOwnProperty.call(row.formatted, name)) {
+                        return row.formatted[name];
+                    }
+
                     return formatted(row.values[name]);
                 },
                 getNamedReference: function () {
@@ -687,7 +729,7 @@
                 parameters[name] = { raw: o.inputs[name] };
             });
 
-            return {
+            var context = {
                 parameters: parameters,
 
                 mode: {
@@ -706,6 +748,83 @@
                     allocatedWidth: o.width,
                     allocatedHeight: o.height,
                 },
+
+                /*
+                 * The Web API, with its refusals modelled first.
+                 *
+                 * `retrieveRecord` answers from the fixture row rather than from
+                 * a table of its own, so one place describes each row and the
+                 * four outcomes are expressed by what that row carries:
+                 *
+                 *   body absent   -> resolves with the property MISSING, which
+                 *                    is what a column nobody populated does
+                 *   body ''       -> resolves with an empty string, which is a
+                 *                    zero-byte file and not the same thing
+                 *   body null     -> REJECTS
+                 *   body '…'      -> resolves with it
+                 *
+                 * **The rejection is a plain object, not an `Error`, and that is
+                 * the point of it.** `context.webAPI` rejects with an object
+                 * carrying `errorCode` and `message`, exactly as the Client
+                 * API's `errorCallback` documents — so a stub that rejected with
+                 * an `Error` would pass a control that renders the string
+                 * "[object Object]" where the platform's explanation belongs.
+                 */
+                webAPI: o.webAPI
+                    ? {
+                        retrieveRecord: function (entityType, id, options) {
+                            log('webAPI.retrieveRecord', entityType + ' ' + id + ' ' + (options || ''));
+
+                            var match = null;
+
+                            (fixture.records || []).forEach(function (row) {
+                                if (row.id === id) {
+                                    match = row;
+                                }
+                            });
+
+                            if (!match || match.body === null) {
+                                return Promise.reject({
+                                    errorCode: 2147746581,
+                                    message: 'The record could not be retrieved.',
+                                });
+                            }
+
+                            var selected = String(options || '').replace(/^\?\$select=/, '') || 'documentbody';
+                            var answer = {};
+
+                            if (match.body !== undefined) {
+                                answer[selected] = match.body;
+                            }
+
+                            return Promise.resolve(answer);
+                        },
+                    }
+                    : undefined,
+
+                /*
+                 * Navigation, with `openFile` behind its own switch.
+                 *
+                 * The call is recorded rather than performed — there is no file
+                 * system here — so an assertion can be about what the control
+                 * handed over, which is the half that regresses: the name, the
+                 * size in KB rather than bytes, the MIME type, and whether it
+                 * asked to save rather than to open.
+                 */
+                navigation: o.openFile
+                    ? {
+                        openFile: function (file, fileOptions) {
+                            log('navigation.openFile', {
+                                fileName: (file || {}).fileName,
+                                fileSize: (file || {}).fileSize,
+                                mimeType: (file || {}).mimeType,
+                                openMode: (fileOptions || {}).openMode,
+                            });
+
+                            return Promise.resolve();
+                        },
+                    }
+                    : {},
 
                 resources: {
                     getString:
@@ -735,6 +854,16 @@
 
                 updatedProperties: [],
             };
+
+            /*
+             * Deleted rather than never defined, so the literal above stays one
+             * readable shape. A host that lacks full screen is a real host.
+             */
+            if (!quirks.hasFullScreen) {
+                delete context.mode.setFullScreen;
+            }
+
+            return context;
         }
 
         return {

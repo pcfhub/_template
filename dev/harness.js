@@ -24,14 +24,14 @@
     var notifications = 0;
 
     /** Every `trackContainerResize` / `setFullScreen` call the control made. */
-    var tracked = [];
+    var calls = [];
 
     function options() {
         return {
             host: document.getElementById('harness-host').value,
             formFactor: document.getElementById('harness-formfactor').value,
             width: Number(document.getElementById('harness-width').value),
-            tracked: tracked,
+            calls: calls,
             value: columnValue,
             security: document.getElementById('harness-security').value,
             error: document.getElementById('harness-error').checked,
@@ -129,9 +129,9 @@
         document.getElementById('harness-notified').textContent =
             'notifyOutputChanged x' + notifications
             // Only the resize calls, which arrive as a bare boolean.
-            // `tracked` also collects `getResource:` and `pickFile:` entries now,
+            // `calls` also collects `getResource(…)` and `pickFile(…)` entries,
             // and counting those would report every control as having asked.
-            + (tracked.some(function (call) { return typeof call === 'boolean'; })
+            + (calls.some(function (call) { return call.indexOf('trackContainerResize') === 0; })
                 ? ' · trackContainerResize called'
                 : ' · never asked to be resized');
     }

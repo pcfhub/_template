@@ -185,6 +185,23 @@
          * check written against bytes lets a file a thousand times too large
          * straight through.
          */
+        /**
+         * Which events the host binds into `context.events`, by name — or
+         * `null` for a host that publishes no events bag at all.
+         *
+         * **The refusal is the case worth having.** `ComponentFramework.Context`
+         * types `events` as non-optional, so nothing in the type system will
+         * ever make a control guard it, and a manifest `<common-event>` is a
+         * claim about the schema rather than about the runtime. A control that
+         * calls `context.events.OnSelect()` unguarded is worth being able to
+         * break here, which is what `events: null` does.
+         *
+         * Each name becomes a function that records the call, so an assertion
+         * can be about whether the control raised the event rather than about
+         * what a handler did with it.
+         */
+        events: ['OnSelect'],
+
         pickFile: null,
 
         /**
@@ -208,6 +225,22 @@
      */
     function createContext(options) {
         var o = Object.assign({}, DEFAULTS, options || {});
+
+        /*
+         * Every platform call the control made, in order, with its argument.
+         *
+         * The same shape and the same formatting as the dataset rig's, so an
+         * assertion reads the same in both: `trackContainerResize(true)`,
+         * `events.OnSelect()`. The array is supplied by the caller rather than
+         * held here, because `createContext` is called afresh for every render
+         * and a log that reset with it could not span one.
+         */
+        function log(name, argument) {
+            if (o.calls) {
+                o.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
+            }
+        }
+
         var host = HOSTS[o.host] || HOSTS['model-driven'];
         var security = SECURITY[o.security];
 
@@ -227,7 +260,14 @@
         });
 
         return {
-            parameters: Object.assign(parameters, {
+            /*
+             * The literals FIRST and `parameters` second, so `options.inputs`
+             * wins — which is what the `inputs` comment in DEFAULTS already
+             * claims. The other order shipped, and it meant a control with its
+             * own `placeholder` input could not be tested with a different
+             * placeholder: the literal below silently overwrote it.
+             */
+            parameters: Object.assign({
                 value: {
                     raw: o.value,
                     /*
@@ -253,7 +293,7 @@
                     type: 'SingleLine.Text',
                 },
                 placeholder: { raw: o.placeholder, type: 'SingleLine.Text' },
-            }),
+            }, parameters),
 
             mode: {
                 isVisible: o.visible,
@@ -269,14 +309,10 @@
                  * Set `width` to drive the second.
                  */
                 trackContainerResize: function (value) {
-                    if (o.tracked) {
-                        o.tracked.push(value);
-                    }
+                    log('trackContainerResize', value);
                 },
                 setFullScreen: function (value) {
-                    if (o.tracked) {
-                        o.tracked.push('setFullScreen:' + value);
-                    }
+                    log('setFullScreen', value);
                 },
                 allocatedWidth: o.width,
                 allocatedHeight: o.height,
@@ -293,9 +329,7 @@
                  * The failure path is the default. See `resource` in DEFAULTS.
                  */
                 getResource: function (name, success, failure) {
-                    if (o.tracked) {
-                        o.tracked.push('getResource:' + name);
-                    }
+                    log('getResource', name);
 
                     if (o.resource === null || o.resource === undefined) {
                         if (failure) {
@@ -320,9 +354,7 @@
              */
             device: {
                 pickFile: function (pickOptions) {
-                    if (o.tracked) {
-                        o.tracked.push('pickFile:' + JSON.stringify(pickOptions || {}));
-                    }
+                    log('pickFile', pickOptions || {});
 
                     return o.pickFile
                         ? Promise.resolve(o.pickFile)
@@ -335,6 +367,26 @@
                     return Promise.reject(new Error('No scanner on this host.'));
                 },
             },
+
+            /*
+             * The event bag, or nothing at all.
+             *
+             * `undefined` is a real host: the platform types promise this
+             * member unconditionally, and neither the manifest nor the
+             * generated types are evidence that a name declared as a
+             * `<common-event>` arrives here as a callable. A control that
+             * feature-detects passes both ways; one that does not fails on the
+             * host it was never run on.
+             */
+            events: o.events === null || o.events === undefined
+                ? undefined
+                : o.events.reduce(function (bag, name) {
+                    bag[name] = function (payload) {
+                        log('events.' + name, payload);
+                    };
+
+                    return bag;
+                }, {}),
 
             /*
              * Absent on a host that publishes no theme, which is what the
