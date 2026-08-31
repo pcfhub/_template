@@ -169,7 +169,7 @@ if (manifestPath && !exists(join(root, manifestPath))) {
 //
 // Still a light structural read: the manifest is matched, not parsed.
 
-const TYPES = ['field', 'dataset', 'virtual'];
+const TYPES = ['field', 'dataset', 'virtual', 'grid_customizer'];
 const FRAMEWORKS = ['standard', 'react', 'react_virtual'];
 
 const type = manifest.control?.type;
@@ -196,7 +196,36 @@ if (manifestPath && exists(join(root, manifestPath))) {
           ? 'virtual'
           : 'field';
 
-    if (type !== undefined && TYPES.includes(type) && type !== derived) {
+    /*
+     * `grid_customizer` is the exception, and the reason is structural rather
+     * than an oversight: a grid customizer's manifest is control-type="virtual"
+     * with no <data-set> and one bound property — which is, character for
+     * character, what a React virtual *field* control looks like. **The
+     * manifest cannot tell the two apart**, so comparing against `derived`
+     * here would report every customizer in the catalogue as a mistake.
+     *
+     * What this checks instead is the half that IS knowable from the file: a
+     * customizer is virtual, and it is not a dataset control. If the hub's
+     * parser has gained a rule that separates the two, mirror it here — that is
+     * the only way this file and the hub can keep agreeing.
+     */
+    if (type === 'grid_customizer') {
+        if (declared !== 'virtual') {
+            problems.push(
+                `pcfhub.json says control.type is "grid_customizer", but ${manifestPath} has ` +
+                `control-type="${declared}". A grid customizer returns React elements by contract, so its ` +
+                'manifest is control-type="virtual".',
+            );
+        }
+
+        if (/<data-set[\s>]/.test(xml)) {
+            problems.push(
+                `pcfhub.json says control.type is "grid_customizer", but ${manifestPath} declares a ` +
+                '<data-set>. A customizer binds nothing — the grid hands it renderers to return, and a '
+                + 'dataset property means this is an ordinary dataset control.',
+            );
+        }
+    } else if (type !== undefined && TYPES.includes(type) && type !== derived) {
         problems.push(
             `pcfhub.json says control.type is "${type}", but ${manifestPath} describes a "${derived}" control. ` +
             'The hub derives it from the manifest at every release, so the manifest wins.',

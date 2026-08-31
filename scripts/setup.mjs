@@ -566,11 +566,13 @@ function applyGridCustomizer(control) {
 
     edit('pcfhub.json', (text) =>
         text
-            // "virtual", not a fourth value: the hub's ControlManifestParser
-            // resolves dataset -> virtual -> field from the manifest at every
-            // release, and a customizer's manifest says control-type="virtual".
-            // Anything else here would be re-derived and quietly disagree.
-            .replace('"type": "field"', '"type": "virtual"')
+            // "grid_customizer" — a real fourth value on the hub, and not one
+            // the manifest can be read back to. A customizer's manifest is
+            // control-type="virtual" with no <data-set>, which is exactly what
+            // a React virtual *field* control looks like, so this is the one
+            // shape whose type the repository has to state rather than have
+            // derived. (It was "virtual" until the hub grew the category.)
+            .replace('"type": "field"', '"type": "grid_customizer"')
             .replace('"framework": "standard"', '"framework": "react_virtual"')
             // The demo surface the hub's harness stands up. Without "grid" the
             // harness hosts this the way it hosts a form control — hands it a

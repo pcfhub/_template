@@ -74,6 +74,12 @@ the React one: a React *dataset* control is `type: "dataset"` with
 `framework: "react_virtual"`, because the hub's parser resolves
 dataset → virtual → field in that order. `npm run check` enforces it.
 
+A **grid customizer** is the exception to that resolution and carries its own
+type, `grid_customizer`. Its manifest is `control-type="virtual"` with no
+`<data-set>` — identical to a React virtual field control — so the hub cannot
+derive it and the repository states it instead. `--type grid-customizer`
+scaffolds it already set.
+
 All four now have a repository behind them rather than an assurance:
 `pcf-star-rating` (field, standard), `pcf-choices-picker` (field, react),
 `pcf-data-table` (dataset, react) and `pcf-compact-list` (dataset, standard) —

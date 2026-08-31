@@ -87,12 +87,31 @@ if (!namespace) {
  * The hub's ControlManifestParser resolves dataset -> virtual -> field, in that
  * order, and re-derives it at every release regardless of what pcfhub.json
  * says. Deriving it the same way here is the only way the two can agree.
+ *
+ * `grid_customizer` sits outside that resolution and has to be guessed at,
+ * because a customizer's manifest is control-type="virtual" with no <data-set>
+ * — indistinguishable from a React virtual field control. The signature used
+ * here is Microsoft's own convention for the shape: a single bound property
+ * named EventName and nothing else, which is what their grid-customizer
+ * template emits and what both customizers in this catalogue carry.
+ *
+ * It is a heuristic, and it is labelled one. Adoption writes a first draft a
+ * human reads, so a wrong guess here costs a correction rather than a bad
+ * release — and guessing "virtual" for a customizer was the old behaviour,
+ * which was wrong every time rather than occasionally.
  */
+const looksLikeCustomizer =
+    declaredType === 'virtual'
+    && !/<data-set[\s>]/.test(manifestXml)
+    && /<property\s[^>]*name="EventName"/.test(manifestXml);
+
 const controlType = /<data-set[\s>]/.test(manifestXml)
     ? 'dataset'
-    : declaredType === 'virtual'
-      ? 'virtual'
-      : 'field';
+    : looksLikeCustomizer
+      ? 'grid_customizer'
+      : declaredType === 'virtual'
+        ? 'virtual'
+        : 'field';
 
 /*
  * `react` (bundled) is the case the manifest cannot express: a virtual control
