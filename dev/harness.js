@@ -210,19 +210,21 @@
 
         document.getElementById('harness-value').value = columnValue === null ? '' : String(columnValue);
 
-        [
-            'harness-host',
-            'harness-formfactor',
-            'harness-width',
-            'harness-security',
-            'harness-error',
-            'harness-disabled',
-            'harness-visible',
-            'harness-dark',
-            'harness-rtl',
-        ].forEach(function (id) {
-            document.getElementById(id).addEventListener('change', render);
-        });
+        /*
+         * One delegated listener, not a list of ids.
+         *
+         * This was a hand-maintained array, and the array is the bug: a switch
+         * added to `harness.html` and to `options()` but forgotten here renders
+         * perfectly, reads correctly, and never triggers an update — so it
+         * appears to do nothing, or worse, appears to work the moment any
+         * *other* switch is touched. Six switches shipped in that state.
+         *
+         * Delegating to the panel covers every control in it, including ones
+         * added later, and `change` bubbles from `select` and `input` alike.
+         * The text field has its own `input` handler below for the same reason
+         * it always did — typing is a different event from committing.
+         */
+        document.querySelector('.harness-controls').addEventListener('change', render);
 
         // Typed into the field's *column*, not into the control — this is the
         // platform handing down a new bound value, which is a different event
