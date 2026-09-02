@@ -149,6 +149,8 @@
         height: -1,
         pageSize: 5,
         visible: true,
+        /** `mode.isControlDisabled` — a read-only form, or a canvas DisplayMode. */
+        disabled: false,
         dark: undefined,
         rtl: false,
         /** No records yet, which is the state of the first `updateView`. */
@@ -191,6 +193,50 @@
          * open a file.
          */
         openFile: true,
+
+        /**
+         * Whether `context.navigation` exists at all.
+         *
+         * Typed non-optional, which is a claim about the type definitions
+         * rather than about the host — the same claim `loadExactPage` and
+         * `setFullScreen` make, and the reason both have a switch. A control
+         * that reads `context.navigation.openForm` through an unguarded bag
+         * throws a TypeError rather than degrading, and a rig that cannot
+         * remove the bag cannot tell the two apart.
+         */
+        hasNavigation: true,
+
+        /**
+         * Whether `webAPI.deleteRecord` rejects.
+         *
+         * A destructive call is the one place a rejection is not an edge case:
+         * a delete fails on a cascade restriction, a missing privilege, or a
+         * record somebody else already removed, and all three are ordinary.
+         * The rejection is a plain object carrying `errorCode` and `message`,
+         * never an `Error` — see the note on `retrieveRecord` below.
+         */
+        webApiFails: false,
+
+        /**
+         * What the platform dialogs do, and there are four answers rather than
+         * two.
+         *
+         *   'confirmed' -> `openConfirmDialog` resolves `{ confirmed: true }`
+         *   'cancelled' -> resolves `{ confirmed: false }` — **a resolve, not a
+         *                  reject.** A control that treats a cancel as a
+         *                  failure reports an error the user did not cause,
+         *                  and this is the single easiest thing to get wrong
+         *                  about the dialog API.
+         *   'rejected'  -> the promise rejects, which is what a dialog the host
+         *                  refuses to open does
+         *   'absent'    -> the three dialog methods are **deleted from the
+         *                  bag**, which is what canvas is. Absence is a
+         *                  different state from refusal — it is the state
+         *                  `<uses-feature required="false">` is actually about
+         *                  — and `pcf-geo-stamp` found that out the hard way on
+         *                  the device APIs.
+         */
+        dialogs: 'confirmed',
 
         quirks: {
             /**
@@ -309,6 +355,17 @@
         var sorting = [];
 
         /**
+         * The selected ids, held rather than counted.
+         *
+         * This used to be a hardcoded `[]` with a `setSelectedRecordIds` that
+         * logged only `ids.length`, which meant a control could set a selection
+         * and read back nothing — so "selects the row it just acted on" was
+         * unassertable and every control that tried looked correct while doing
+         * nothing. The platform keeps the ids; so does this.
+         */
+        var selected = [];
+
+        /**
          * The expression the control last set, and the one the data actually
          * reflects — which are not the same thing between a `setFilter` and the
          * `refresh()` that follows it.
@@ -328,6 +385,21 @@
          */
         var requestedFilter = null;
         var filter = null;
+
+        /**
+         * Records deleted on the server, and records the client knows are gone.
+         *
+         * Two lists for the same reason `pageSize` and `requestedPageSize` are
+         * two: a delete is a round trip, and the row does not leave the data
+         * this control is holding until the next fetch. `deleteRecord` adds to
+         * the pending list and `fetched()` moves it across — so **a control
+         * that deletes and forgets `dataset.refresh()` sees the row still on
+         * screen**, which is what a real form does and the single easiest thing
+         * to get wrong. A stub that removed the row on the call would pass that
+         * control.
+         */
+        var removedPending = [];
+        var removed = [];
 
         function log(name, argument) {
             state.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
@@ -440,11 +512,17 @@
 
         /** Every record the current filter admits — the server's result set. */
         function matching() {
+            var alive = removed.length === 0
+                ? allRecords
+                : allRecords.filter(function (row) {
+                    return removed.indexOf(row.id) === -1;
+                });
+
             return filter
-                ? allRecords.filter(function (row) {
+                ? alive.filter(function (row) {
                     return passes(row, filter);
                 })
-                : allRecords;
+                : alive;
         }
 
         /** All matching records in the order the current sort puts them. */
@@ -704,15 +782,23 @@
             },
 
             getSelectedRecordIds: function () {
-                return [];
+                /*
+                 * A copy, because the platform's is not the control's to
+                 * mutate. A control that pushes onto the array it was handed
+                 * changes the host's selection without calling the setter, and
+                 * on a real form that write is simply lost.
+                 */
+                return selected.slice();
             },
 
             setSelectedRecordIds: function (ids) {
                 log('setSelectedRecordIds', ids.length);
+                selected = (ids || []).slice();
             },
 
             clearSelectedRecordIds: function () {
                 log('clearSelectedRecordIds');
+                selected = [];
             },
 
             addColumn: function (name) {
@@ -769,10 +855,143 @@
 
             requestedColumns = [];
 
+            // Deletes the server has taken arrive with this fetch and not
+            // before it. See the note on `removedPending`.
+            removed = removed.concat(removedPending);
+            removedPending = [];
+
             state.pageSize = state.requestedPageSize;
             filter = requestedFilter;
             state.refreshes += 1;
             state.renderOwed = true;
+        }
+
+        /**
+         * `context.navigation`, assembled method by method.
+         *
+         * **Presence is per method, not per bag**, and that is the whole reason
+         * this is a function rather than an object literal. `openForm` and
+         * `openUrl` are there on every host; `openFile` is documented
+         * model-driven only; the three dialogs are a model-driven affordance
+         * that canvas does not have. A control that checks `context.navigation`
+         * once and then calls four methods through it passes on the host it was
+         * written on and throws on the next one — so each of these can be
+         * removed independently here, because each is removed independently in
+         * the world.
+         *
+         * Nothing is performed. Every call is recorded, so an assertion can be
+         * about what the control *handed over* — which is the half that
+         * regresses.
+         */
+        function buildNavigation() {
+            if (!o.hasNavigation) {
+                return undefined;
+            }
+
+            var navigation = {
+                /**
+                 * Resolves with an `OpenFormSuccessResponse`, whose
+                 * `savedEntityReference` is populated only when a *quick create*
+                 * form saved something — an ordinary form opening resolves with
+                 * an empty array, and a control that waits for a reference from
+                 * one waits forever.
+                 */
+                openForm: function (formOptions) {
+                    log('navigation.openForm', {
+                        entityName: (formOptions || {}).entityName,
+                        entityId: (formOptions || {}).entityId,
+                    });
+
+                    return Promise.resolve({ savedEntityReference: [] });
+                },
+
+                /**
+                 * **Returns `void`, not a promise.** The odd one out in this
+                 * bag, and `void openUrl(...)` in the type definitions — so
+                 * `await`ing it is harmless and `.catch()` on it is a
+                 * TypeError. There is also no failure channel: a URL the host
+                 * refuses to open reports nothing back, which is why the
+                 * control has to decide the URL is acceptable *before* it calls.
+                 */
+                openUrl: function (url) {
+                    log('navigation.openUrl', url);
+                },
+            };
+
+            if (o.openFile) {
+                navigation.openFile = function (file, fileOptions) {
+                    log('navigation.openFile', {
+                        fileName: (file || {}).fileName,
+                        fileSize: (file || {}).fileSize,
+                        mimeType: (file || {}).mimeType,
+                        openMode: (fileOptions || {}).openMode,
+                    });
+
+                    return Promise.resolve();
+                };
+            }
+
+            /*
+             * 'absent' removes the three rather than making them fail, because
+             * those are different states and only one of them is a bug in the
+             * control.
+             */
+            if (o.dialogs === 'absent') {
+                return navigation;
+            }
+
+            var refused = function () {
+                return Promise.reject({
+                    errorCode: 2147746581,
+                    message: 'The dialog could not be opened.',
+                });
+            };
+
+            navigation.openAlertDialog = function (alertStrings) {
+                log('navigation.openAlertDialog', (alertStrings || {}).text);
+                return o.dialogs === 'rejected' ? refused() : Promise.resolve();
+            };
+
+            /**
+             * The one that matters, and the one everybody gets wrong.
+             *
+             * **Cancel is a resolve.** `{ confirmed: false }` comes back through
+             * the success path, not through `catch` — so a control that puts
+             * its delete inside `.then()` without reading `confirmed` deletes
+             * the record the user just declined to delete, and a control that
+             * treats the cancel as a failure shows an error for something the
+             * user did on purpose. Both are one line away from correct and
+             * neither shows up without this switch.
+             */
+            navigation.openConfirmDialog = function (confirmStrings) {
+                log('navigation.openConfirmDialog', (confirmStrings || {}).text);
+
+                return o.dialogs === 'rejected'
+                    ? refused()
+                    : Promise.resolve({ confirmed: o.dialogs === 'confirmed' });
+            };
+
+            navigation.openErrorDialog = function (errorOptions) {
+                /*
+                 * `details` is logged, and that is not tidiness.
+                 *
+                 * The control writes its own sentence into `message` and the
+                 * *platform's* explanation into `details`, so an assertion that
+                 * reads only `message` is reading a slot the platform never
+                 * filled — it passes whether or not the rejection was ever
+                 * decoded, which makes "and NOT [object Object]" a claim about
+                 * nothing. Both halves are recorded so both can be asserted.
+                 */
+                log('navigation.openErrorDialog', {
+                    message: (errorOptions || {}).message,
+                    details: (errorOptions || {}).details,
+                    errorCode: (errorOptions || {}).errorCode,
+                });
+
+                return o.dialogs === 'rejected' ? refused() : Promise.resolve();
+            };
+
+            return navigation;
         }
 
         function createContext() {
@@ -793,7 +1012,18 @@
 
                 mode: {
                     isVisible: o.visible,
-                    isControlDisabled: false,
+                    /*
+                     * Hardcoded `false` until now, which meant no dataset
+                     * control could be asserted against a read-only form at
+                     * all — the state a maker produces by unchecking one box,
+                     * and the one where a control that still lets you press
+                     * things is a real bug rather than a cosmetic one.
+                     *
+                     * Distinct from `isVisible`: a hidden control renders
+                     * nothing, a disabled one renders everything and acts on
+                     * none of it.
+                     */
+                    isControlDisabled: o.disabled,
                     label: fixture.title,
                     // Recorded rather than delivered — "did the control ask for
                     // resize notifications" is a decision worth asserting; the
@@ -858,32 +1088,68 @@
 
                             return Promise.resolve(answer);
                         },
+
+                        /**
+                         * The last `webAPI` method the catalogue had never
+                         * called, and the only destructive one.
+                         *
+                         * Three things here are not obvious from the name:
+                         *
+                         * **It resolves with a `LookupValue`, not with
+                         * nothing.** `Promise<LookupValue>` in the type
+                         * definitions — `{ entityType, id, name }` for the
+                         * record that is now gone. A control that awaits it
+                         * expecting `void` is not wrong, but one that wants to
+                         * name the deleted record in a message does not have to
+                         * remember it first.
+                         *
+                         * **The row disappears from the fetch, not from the
+                         * call.** `allRecords` is reassigned here, but the
+                         * dataset does not re-read it until `fetched()` — so a
+                         * control that deletes and forgets `dataset.refresh()`
+                         * sees the row still on screen, which is exactly what a
+                         * real form does. A stub that spliced the visible page
+                         * would pass that control.
+                         *
+                         * **The rejection is a plain object.** See the note on
+                         * `retrieveRecord` above; `webApiFails` is the switch.
+                         */
+                        deleteRecord: function (entityType, id) {
+                            log('webAPI.deleteRecord', entityType + ' ' + id);
+
+                            if (o.webApiFails) {
+                                return Promise.reject({
+                                    errorCode: 2147746581,
+                                    message: 'The record could not be deleted.',
+                                });
+                            }
+
+                            var gone = allRecords.filter(function (row) {
+                                return row.id === id;
+                            })[0];
+
+                            if (removedPending.indexOf(id) === -1 && removed.indexOf(id) === -1) {
+                                removedPending.push(id);
+                            }
+
+                            selected = selected.filter(function (chosen) {
+                                return chosen !== id;
+                            });
+
+                            var primary = columns.filter(function (column) {
+                                return column.isPrimary;
+                            })[0];
+
+                            return Promise.resolve({
+                                entityType: entityType,
+                                id: id,
+                                name: gone && primary ? formatted(gone.values[primary.name]) : '',
+                            });
+                        },
                     }
                     : undefined,
 
-                /*
-                 * Navigation, with `openFile` behind its own switch.
-                 *
-                 * The call is recorded rather than performed — there is no file
-                 * system here — so an assertion can be about what the control
-                 * handed over, which is the half that regresses: the name, the
-                 * size in KB rather than bytes, the MIME type, and whether it
-                 * asked to save rather than to open.
-                 */
-                navigation: o.openFile
-                    ? {
-                        openFile: function (file, fileOptions) {
-                            log('navigation.openFile', {
-                                fileName: (file || {}).fileName,
-                                fileSize: (file || {}).fileSize,
-                                mimeType: (file || {}).mimeType,
-                                openMode: (fileOptions || {}).openMode,
-                            });
-
-                            return Promise.resolve();
-                        },
-                    }
-                    : {},
+                navigation: buildNavigation(),
 
                 resources: {
                     getString:

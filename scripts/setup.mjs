@@ -473,7 +473,20 @@ function applyType(control) {
      */
     cpSync(join(source, 'dev'), join(root, 'dev'), { recursive: true });
 
-    edit('pcfhub.json', (text) => text.replace('"type": "field"', '"type": "dataset"'));
+    edit('pcfhub.json', (text) =>
+        text
+            .replace('"type": "field"', '"type": "dataset"')
+            /*
+             * Point at the fixture that was just copied in.
+             *
+             * The grid-customizer branch has always done this and the dataset
+             * branch never did, so every dataset repo hand-wrote the key — and
+             * `npm run check` cannot catch the omission, because a missing
+             * `demo.datasetFixture` is only checked when it is present and
+             * wrong. Fidelity stays "none": the file existing is a fact, and
+             * how faithful the demo is remains the author's call.
+             */
+            .replace('"fidelity": "none",', '"fidelity": "none",\n    "datasetFixture": "demo/records.json",'));
 }
 
 /**

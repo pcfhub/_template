@@ -97,6 +97,18 @@
                 font-size: 12px;
             }
 
+            .harness-controls textarea {
+                font-family: 'Cascadia Mono', Consolas, monospace;
+                font-size: 12px;
+                resize: vertical;
+            }
+
+            /* An unparseable inputs bag, said in the one place you are looking. */
+            .harness-controls textarea.is-bad {
+                border-color: #a4262c;
+                outline: 1px solid #a4262c;
+            }
+
             .harness-group {
                 grid-column: 1 / -1;
                 margin: 4px 0 0;
@@ -222,6 +234,11 @@
                 Right-to-left
             </label>
 
+            <label class="is-switch">
+                <input type="checkbox" id="harness-disabled" />
+                Disabled (read-only form)
+            </label>
+
             <p class="harness-group">
                 How the platform misbehaves — all three observed on a real form,
                 and all three on by default because that is what a real form
@@ -251,6 +268,69 @@
             <label class="is-switch">
                 <input type="checkbox" id="harness-nosorting" />
                 dataset.sorting is undefined (npm start)
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-nofiltering" />
+                dataset.filtering is undefined
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-addcolumn" checked />
+                dataset.addColumn exists
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-fullscreen" checked />
+                mode.setFullScreen exists
+            </label>
+
+            <p class="harness-group">
+                What the host withholds. Each of these is absent on some real
+                host, and each is absent independently — which is the point:
+                a control that checks the bag once and then calls four methods
+                through it passes here and throws there.
+            </p>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-webapi" checked />
+                context.webAPI exists
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-webapifails" />
+                webAPI.deleteRecord rejects
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-navigation" checked />
+                context.navigation exists
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-openfile" checked />
+                navigation.openFile exists
+            </label>
+
+            <label>
+                Platform dialogs
+                <select id="harness-dialogs">
+                    <option value="confirmed">Confirm → confirmed</option>
+                    <option value="cancelled">Confirm → cancelled</option>
+                    <option value="rejected">Dialogs reject</option>
+                    <option value="absent">No dialogs (canvas)</option>
+                </select>
+                <span>A cancel <strong>resolves</strong>, with
+                <code>{ confirmed: false }</code>.</span>
+            </label>
+
+            <label>
+                Input properties
+                <textarea id="harness-inputs" rows="3" spellcheck="false">{}</textarea>
+                <span>JSON, merged into <code>parameters</code> as
+                <code>{ raw }</code>. Seed the manifest's own
+                <code>default-value</code>s here — the platform supplies them
+                and this rig does not.</span>
             </label>
         </div>
 

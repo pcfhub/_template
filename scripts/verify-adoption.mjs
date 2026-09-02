@@ -145,6 +145,139 @@ function commentsDoNotCarryPlaceholders() {
     );
 }
 
+/**
+ * Adopt once more, with shape flags, and hand back a reader.
+ *
+ * The caller owns the scratch directory and must remove it.
+ */
+function adoptWith(extra) {
+    const scratch = mkdtempSync(join(tmpdir(), 'pcfhub-adopt-'));
+
+    cpSync(root, scratch, {
+        recursive: true,
+        filter: (src) => !SKIP_DIRS.has(src.split(/[\\/]/).pop()),
+    });
+
+    execFileSync(
+        process.execPath,
+        [
+            join(scratch, 'scripts', 'setup.mjs'),
+            '--yes',
+            ...Object.entries(ANSWERS).flatMap(([k, v]) => [`--${k}`, v]),
+            ...extra,
+        ],
+        { cwd: scratch, stdio: 'pipe' },
+    );
+
+    return {
+        scratch,
+        has: (p) => existsSync(join(scratch, p)),
+        read: (p) => readFileSync(join(scratch, p), 'utf8'),
+    };
+}
+
+/**
+ * The two shapes CI has never adopted.
+ *
+ * Everything above this runs `setup.mjs` with no shape flags, which is
+ * field + standard — so the dataset dev overlay and the React patch have
+ * shipped to every repository built on them without a single automated
+ * assertion. Two of the three things checked here are *deletions*, which is the
+ * class of bug that looks like nothing: `--framework react` removing a harness
+ * it should keep, or keeping one that cannot work, both produce a repository
+ * that installs and builds.
+ *
+ * The dataset+react combination is deliberate rather than thorough.
+ * `applyType` copies the dataset browser harness in and `applyFramework` then
+ * deletes it, so the two run in an order that matters and only this shape
+ * exercises it.
+ */
+function verifyOtherShapes() {
+    console.log('\nAdopting as a dataset control…\n');
+
+    const dataset = adoptWith(['--type', 'dataset']);
+
+    try {
+        check('the dataset control lands', dataset.has(`${ANSWERS.control}/index.ts`));
+        check('the dataset fixture lands', dataset.has('dev/fixture.js'));
+        check('the hub fixture lands', dataset.has('demo/records.json'));
+        check(
+            'the shared dev files survive the overlay',
+            dataset.has('dev/dom.js') && dataset.has('dev/clock.js') && dataset.has('dev/serve.js'),
+        );
+        check(
+            'a dataset control keeps the browser harness',
+            dataset.has('dev/harness.html') && dataset.has('dev/harness.js'),
+        );
+
+        const manifest = dataset.read(`${ANSWERS.control}/ControlManifest.Input.xml`);
+        check('the manifest declares a data-set', /<data-set\s/.test(manifest));
+
+        const hub = JSON.parse(dataset.read('pcfhub.json'));
+        check('pcfhub.json says dataset', hub.control.type === 'dataset', hub.control.type);
+        /*
+         * The key `check-template.mjs` cannot miss for you: it validates
+         * `demo.datasetFixture` when it is present and says nothing when it is
+         * absent, so every dataset repository wrote it by hand until setup
+         * started writing it here.
+         */
+        check(
+            'and points demo.datasetFixture at the fixture it just copied',
+            hub.demo.datasetFixture === 'demo/records.json' && dataset.has(hub.demo.datasetFixture),
+            String(hub.demo.datasetFixture),
+        );
+    } finally {
+        rmSync(dataset.scratch, { recursive: true, force: true });
+    }
+
+    console.log('\nAdopting as a React (virtual) dataset control…\n');
+
+    const react = adoptWith(['--type', 'dataset', '--framework', 'react']);
+
+    try {
+        check(
+            'the browser harness is removed for a React control',
+            !react.has('dev/harness.html') && !react.has('dev/harness.js'),
+            'Fluent 9 ships no UMD build, so there is nothing to put in a script tag.',
+        );
+        check(
+            'and the rest of the rig stays, because npm run smoke still works',
+            react.has('dev/smoke.js') && react.has('dev/host.js') && react.has('dev/fixture.js'),
+        );
+        check('the React entry point lands', react.has(`${ANSWERS.control}/index.ts`));
+        check(
+            'the React component lands',
+            react.has(`${ANSWERS.control}/components/${ANSWERS.control}Control.tsx`),
+        );
+
+        const manifest = react.read(`${ANSWERS.control}/ControlManifest.Input.xml`);
+        check('the manifest becomes control-type="virtual"', /control-type="virtual"/.test(manifest));
+        check(
+            'and declares both platform libraries',
+            /<platform-library\s+name="React"/.test(manifest) && /<platform-library\s+name="Fluent"/.test(manifest),
+        );
+
+        const hub = JSON.parse(react.read('pcfhub.json'));
+        check('pcfhub.json says react_virtual', hub.control.framework === 'react_virtual', hub.control.framework);
+        /*
+         * And still `dataset`. The hub resolves dataset → virtual → field, so
+         * a React dataset control is typed by its data, not by its framework —
+         * which is why `applyFramework` skips the type replace for this shape
+         * and why getting it wrong here would be invisible until the hub
+         * rendered the wrong demo.
+         */
+        check('and still dataset, not virtual', hub.control.type === 'dataset', hub.control.type);
+
+        const pkg = JSON.parse(react.read('package.json'));
+        check(
+            'React and Fluent are pinned in devDependencies',
+            pkg.devDependencies.react === '16.14.0' && '@fluentui/react-components' in pkg.devDependencies,
+        );
+    } finally {
+        rmSync(react.scratch, { recursive: true, force: true });
+    }
+}
+
 function main() {
     console.log('\nAdopting the template into a scratch directory…\n');
 
@@ -313,6 +446,8 @@ function main() {
     } finally {
         rmSync(scratch, { recursive: true, force: true });
     }
+
+    verifyOtherShapes();
 
     console.log('\nChecking the template itself…\n');
     commentsDoNotCarryPlaceholders();

@@ -20,6 +20,43 @@
     var handle = null;
     var instance = null;
     var container = null;
+    var lastInputs = {};
+
+    /**
+     * The input-property bag, as JSON.
+     *
+     * It is typed rather than picked from a list because the template cannot
+     * know a control's own properties — and it exists at all because the rig
+     * does not synthesise them: **a property with a manifest `default-value`
+     * arrives here as `undefined` unless somebody puts it in this box.** A
+     * control that reads `context.parameters.chartType.raw` therefore works on
+     * a form and throws in the harness, which is a bug in the rig rather than a
+     * reason to write a defensive `?.` in the control. Seed the manifest's own
+     * defaults and the two hosts agree.
+     *
+     * Unparseable text keeps the last good bag rather than mounting against
+     * `{}`, because a half-typed brace should not silently restyle the control.
+     */
+    function inputs() {
+        var box = document.getElementById('harness-inputs');
+        var parsed = null;
+
+        try {
+            parsed = JSON.parse(box.value || '{}');
+        } catch (error) {
+            parsed = null;
+        }
+
+        var usable = parsed !== null && typeof parsed === 'object' && !Array.isArray(parsed);
+
+        box.classList.toggle('is-bad', !usable);
+
+        if (usable) {
+            lastInputs = parsed;
+        }
+
+        return lastInputs;
+    }
 
     function options() {
         var state = document.getElementById('harness-state').value;
@@ -30,6 +67,7 @@
             width: Number(document.getElementById('harness-width').value),
             pageSize: Number(document.getElementById('harness-pagesize').value) || 5,
             visible: document.getElementById('harness-visible').checked,
+            disabled: document.getElementById('harness-disabled').checked,
             dark: document.getElementById('harness-dark').checked,
             rtl: document.getElementById('harness-rtl').checked,
             loading: state === 'loading',
@@ -39,12 +77,21 @@
             // none in the Items Fields flyout — and an empty table reads as a
             // broken control rather than as an unfinished configuration.
             columns: state === 'nocolumns' ? [] : null,
+            inputs: inputs(),
+            webAPI: document.getElementById('harness-webapi').checked,
+            webApiFails: document.getElementById('harness-webapifails').checked,
+            hasNavigation: document.getElementById('harness-navigation').checked,
+            openFile: document.getElementById('harness-openfile').checked,
+            dialogs: document.getElementById('harness-dialogs').value,
             quirks: {
                 accumulatePages: document.getElementById('harness-accumulate').checked,
                 previousPageStuck: document.getElementById('harness-stuck').checked,
                 uncounted: document.getElementById('harness-uncounted').checked,
                 hasLoadExactPage: document.getElementById('harness-exactpage').checked,
                 sortingAbsent: document.getElementById('harness-nosorting').checked,
+                filteringAbsent: document.getElementById('harness-nofiltering').checked,
+                hasAddColumn: document.getElementById('harness-addcolumn').checked,
+                hasFullScreen: document.getElementById('harness-fullscreen').checked,
             },
         };
     }
@@ -114,23 +161,22 @@
             return;
         }
 
-        [
-            'harness-host',
-            'harness-formfactor',
-            'harness-width',
-            'harness-pagesize',
-            'harness-state',
-            'harness-dark',
-            'harness-visible',
-            'harness-rtl',
-            'harness-accumulate',
-            'harness-stuck',
-            'harness-uncounted',
-            'harness-exactpage',
-            'harness-nosorting',
-        ].forEach(function (id) {
-            document.getElementById(id).addEventListener('change', mount);
-        });
+        /*
+         * One listener on the panel rather than one per switch.
+         *
+         * `change` bubbles, so every control inside — including ones added
+         * later — is wired by existing. The list this replaces had to be edited
+         * in two places to add a switch, and a switch added to the markup and
+         * forgotten here did nothing at all while looking entirely functional,
+         * which is the worst way for a rig to fail.
+         */
+        document.querySelector('.harness-controls').addEventListener('change', mount);
+
+        /*
+         * The inputs box is the one control that is not a switch: it is typed
+         * into, and waiting for blur to remount makes it feel broken.
+         */
+        document.getElementById('harness-inputs').addEventListener('input', mount);
 
         /*
          * The platform's asynchronous re-render, in one line.

@@ -239,6 +239,52 @@ avoid, so the rig reproduces the trap rather than papering over it. There is a
 `filteringAbsent` switch beside `sortingAbsent` for the host that supplies no
 `filtering` object at all.
 
+**Navigation, the platform dialogs and `webAPI` are switches too, and each is
+its own.** `context.navigation` is typed non-optional, which is a claim about
+the type definitions rather than about the host, so `hasNavigation: false`
+removes the bag outright. Inside it, presence is *per method*: `openForm` and
+`openUrl` are everywhere, `openFile` is model-driven only, and the three dialogs
+are a model-driven affordance canvas does not have — so `openFile` and
+`dialogs: 'absent'` remove those independently. A control that checks the bag
+once and then calls four methods through it passes on the host it was written on
+and throws on the next one, and only a rig that can remove them one at a time
+will say so.
+
+`dialogs` has four values rather than two, and the middle two are the point:
+
+| `dialogs` | `openConfirmDialog` does |
+| --- | --- |
+| `'confirmed'` | resolves `{ confirmed: true }` |
+| `'cancelled'` | resolves **`{ confirmed: false }`** |
+| `'rejected'` | rejects — the host refused to open a dialog |
+| `'absent'` | the three dialog methods are not on the bag |
+
+**A cancel is a resolve.** It comes back through the success path, so a control
+that puts its delete inside `.then()` without reading `confirmed` deletes the
+record the user just declined to delete, and one that treats the cancel as a
+failure shows an error for something the user did on purpose. Both are one line
+from correct and neither appears without the `'cancelled'` switch.
+
+`webAPI.deleteRecord` is there on the dataset side with a `webApiFails` switch
+beside it, because a delete failing on a cascade restriction or a privilege is
+ordinary rather than exceptional. Its rejection is a plain object carrying
+`errorCode` and `message` — **not an `Error`** — so a control that renders
+`error.message` from a `catch` prints `undefined`, and one that renders the
+object prints `[object Object]`. It resolves with a `LookupValue`, not with
+nothing. And the deleted row leaves the *fetch*, not the call: a control that
+deletes and forgets `dataset.refresh()` sees the row still on screen, which is
+what a real form does.
+
+**Seed your input properties.** The rig builds `context.parameters` from the
+`inputs` bag it is handed and nothing else, so a property with a manifest
+`default-value` arrives as `undefined` here and as a value on a form — and
+`context.parameters.chartType.raw` therefore throws in `smoke.js` and works in
+production. That is a gap in the rig, not a reason to write a defensive `?.` in
+the control: pass the manifest's own defaults from `smoke.js`, and type them
+into the **Input properties** box on the dataset harness page. Remember a
+`default-value` reaches a control as the raw XML *string*, so `"false"` is
+truthy — read every `TwoOptions` through an `asBoolean(raw, fallback)` helper.
+
 On the field side, `context.device` and `context.resources.getResource` both
 **fail by default**. That is the honest default rather than a grudging one:
 every device method rejects outside a real device origin — the hub's demo
@@ -277,6 +323,20 @@ or dataset control renders perfectly well under `npm start`, and `smoke.js`
 works on it unchanged by reading the props it passed down instead of the DOM it
 wrote. Grid customizers keep their harness because Fluent 8 does ship a UMD
 build.
+
+**Treat that as settled rather than as a gap to work around.** The question has
+come up once per virtual control — build a Fluent 9 harness, or go `standard` so
+the page survives — and going `standard` to keep a browser rig is choosing the
+control's framework on the strength of a development tool, which is the wrong
+way round. The ruling: **for a `react_virtual` control, `npm start` is the
+browser and `npm run smoke` is the assertion.** `smoke.js` reads the props the
+control passed down rather than the DOM it wrote, so it loses nothing on this
+shape; what is genuinely gone is switch-flipping a host state and *looking* at
+the result, and `npm start` cannot do that either. What would reopen it is
+Fluent 9 shipping a UMD build, or a control whose bug can only be seen and not
+asserted — neither has happened yet. `pcf-sparkline` went `standard`, and its
+`SPEC.md` says the rig was one reason; that is a legitimate choice for a chart,
+and it is not a precedent for making it because the harness is missing.
 
 Nothing here proves the control works. Every value the rig supplies comes from
 the rig. It cannot tell you that a real form hands down what these fixtures hand
