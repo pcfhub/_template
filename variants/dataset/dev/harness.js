@@ -92,6 +92,7 @@
                 filteringAbsent: document.getElementById('harness-nofiltering').checked,
                 hasAddColumn: document.getElementById('harness-addcolumn').checked,
                 hasFullScreen: document.getElementById('harness-fullscreen').checked,
+                heightUnmeasured: document.getElementById('harness-noheight').checked,
             },
         };
     }

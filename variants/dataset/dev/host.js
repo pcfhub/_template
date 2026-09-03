@@ -147,6 +147,14 @@
          */
         width: -1,
         height: -1,
+        /**
+         * The size the **platform** is paging at, which is what
+         * `paging.pageSize` reports — a main grid's *Rows per page*, a
+         * subgrid's form-designer setting.
+         *
+         * Not the control's `pageSize` input; that is `inputs.pageSize` and it
+         * defaults to unset. See `createContext`.
+         */
         pageSize: 5,
         visible: true,
         /** `mode.isControlDisabled` — a read-only form, or a canvas DisplayMode. */
@@ -291,6 +299,32 @@
              * covers the one host known to deviate.
              */
             sortingAbsent: false,
+
+            /**
+             * `mode.allocatedHeight` stays -1 however the host is sized, and
+             * however politely the control asks.
+             *
+             * **This is a main grid, and it is by design rather than a
+             * timing problem.** A control on a table's main grid is handed a
+             * measured *width* and never a height: `trackContainerResize(true)`
+             * changes the width and leaves the height at -1 for the life of the
+             * control. So the shape a suite has to be able to build is one
+             * axis answered and the other permanently not — which two plain
+             * `width`/`height` options can express only by coincidence, and
+             * which nothing in this rig previously named.
+             *
+             * It matters because "-1 means the host has not measured *yet*" is
+             * the natural reading, and a control that waits for a positive
+             * number waits forever. `pcf-row-commands` gated its scroll layout
+             * on a measured height and ran twenty-five rows off the bottom of a
+             * main grid, taking the pager — the only route to page two — with
+             * them. The fix was to stop waiting: apply the layout always and
+             * let the measurement decide only whether the height is a pixel
+             * number or inherited from the stylesheet.
+             *
+             * Off by default, because a form subgrid does measure both.
+             */
+            heightUnmeasured: false,
 
             /**
              * Whether `dataset.filtering` exists at all.
@@ -997,14 +1031,36 @@
         function createContext() {
             var parameters = {
                 records: dataset,
-                pageSize: { raw: o.pageSize, type: 'Whole.None' },
+
+                /*
+                 * **The control's `pageSize` input is not the host's page size,
+                 * and this rig used to hand over one number for both.**
+                 *
+                 * `o.pageSize` is what the *platform* is paging at — it is what
+                 * `paging.pageSize` reports, the way a main grid reports the
+                 * user's *Rows per page*. The input below is what the *maker*
+                 * typed into the property, and the whole point of that property
+                 * carrying no `default-value` is that leaving it alone is a
+                 * state the control can see. Seeding it from `o.pageSize` made
+                 * that state unreachable: every mount looked like a maker who
+                 * had deliberately asked for exactly what the host was already
+                 * doing, so the adopt-the-host path was never once exercised.
+                 *
+                 * `null` is therefore the default, because unset is what a
+                 * fresh install looks like. Pass `inputs: { pageSize: 10 }` for
+                 * the maker who overrode it.
+                 */
+                pageSize: {
+                    raw: Object.hasOwn(o.inputs, 'pageSize') ? o.inputs.pageSize : null,
+                    type: 'Whole.None',
+                },
             };
 
             // The control's own inputs, wrapped the way the platform hands them
             // over. A raw `null` is a real value here — an input the maker left
             // unset — so it is passed through rather than defaulted.
             Object.keys(o.inputs).forEach(function (name) {
-                parameters[name] = { raw: o.inputs[name] };
+                parameters[name] = { raw: o.inputs[name], type: (parameters[name] || {}).type };
             });
 
             var context = {
@@ -1035,7 +1091,9 @@
                         log('setFullScreen', value);
                     },
                     allocatedWidth: o.width,
-                    allocatedHeight: o.height,
+                    // Pinned at -1 under `heightUnmeasured`, whatever `height`
+                    // says — a main grid answers the width and never this.
+                    allocatedHeight: quirks.heightUnmeasured ? -1 : o.height,
                 },
 
                 /*

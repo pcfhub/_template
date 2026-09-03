@@ -326,13 +326,21 @@ const sortBy = (view, columnName, index) => {
 const view = bind({});
 
 /*
- * A control that mutates in `updateView` without a guard never stops. Two
- * passes is the settled number — one render, then one more for the page size it
- * asked for on the first — and the limit being reached is the loop.
+ * A control that mutates in `updateView` without a guard never stops, and the
+ * limit being reached is the loop.
+ *
+ * **One pass is the settled number, and it used to be two.** The second was the
+ * page size: with a `default-value` on the property, every mount called
+ * `setPageSize` and then `refresh()`, so the platform came back round and a
+ * mount cost a round trip nobody asked for. The property has no default now —
+ * see the manifest — so there is nothing to ask for and the first pass settles.
+ *
+ * A control that *does* override deliberately is back to two, which is what the
+ * bind further down asserts.
  */
 check(
     'settles instead of refreshing forever',
-    !view.driven.looping && view.driven.passes === 2,
+    !view.driven.looping && view.driven.passes === 1,
     `${view.driven.passes} passes, calls: ${view.calls().join(' ')}`,
 );
 
@@ -355,6 +363,61 @@ check(
     'shows one page of records, not the whole view',
     rowsOn(view) === 5,
     `${rowsOn(view)} rows for a page size of 5 over 12 records`,
+);
+
+/*
+ * **An unset optional property is not a property set to its default.**
+ *
+ * `pageSize` carries no `default-value` in the manifest, and these two are the
+ * behaviour that decision buys. A `default-value` would arrive as a real value
+ * from a maker who never touched the property, so the control would call
+ * `setPageSize` on every install — replacing the user's own *Rows per page* on
+ * a main grid and the maker's setting on a subgrid. `pcf-row-commands` shipped
+ * exactly that and had to be released twice to undo it.
+ *
+ * The first assertion is the one that matters, and it is about a call that must
+ * **not** happen. The second proves the control still knows how big a page is,
+ * because reading the host's number is not the same as asking for it — without
+ * that, `currentPage()` has nothing to slice by and the pager cannot count.
+ */
+const adopted = bind({ pageSize: 5 });
+
+check(
+    'an unset page size overrides nothing — the host is already paging',
+    !adopted.calls().some((call) => call.indexOf('setPageSize') === 0),
+    adopted.calls().join(' '),
+);
+
+check(
+    'and the host’s own page size is what gets drawn',
+    rowsOn(adopted) === 5,
+    `${rowsOn(adopted)} rows against a host paging at 5`,
+);
+
+const overridden = bind({ pageSize: 5, inputs: { pageSize: 3 } });
+
+check(
+    'a page size the maker did set overrides deliberately',
+    overridden.calls().some((call) => call.indexOf('setPageSize(3)') === 0),
+    overridden.calls().join(' '),
+);
+
+/*
+ * A main grid answers the width and never the height — `-1` for the life of
+ * the control, however politely it asks. A control that waits for a positive
+ * number waits forever, which is how `pcf-row-commands` ran its rows off the
+ * bottom of a page and took the pager with them.
+ *
+ * The assertion is deliberately weak — that it renders its rows at all — because
+ * what a control *does* with an unmeasured height is its own decision. What is
+ * not its decision is throwing, or drawing nothing, on the host that reports it.
+ */
+const unmeasured = bind({ width: 900, quirks: { heightUnmeasured: true } });
+
+check(
+    'renders on a host that measures a width and never a height',
+    unmeasured.handle.context.mode.allocatedHeight === -1 && rowsOn(unmeasured) > 0,
+    `allocatedHeight ${unmeasured.handle.context.mode.allocatedHeight}, ${rowsOn(unmeasured)} rows`,
 );
 
 const paged = bind({});
