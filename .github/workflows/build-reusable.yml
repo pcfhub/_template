@@ -234,18 +234,35 @@ jobs:
       # cause is usually a change made days earlier.
       #
       # This is also the only step that builds the control the way it ships: the
-      # .pcfproj sets PcfBuildMode=production, so msbuild rebuilds into
-      # out/controls and overwrites what `npm run build` left there. A production
-      # build is not merely a minified development build — webpack applies
-      # optimisations that can fail on code development mode tolerates — so a
-      # green `npm run build` above is not evidence the shipping bundle compiles.
+      # .pcfproj sets PcfBuildMode=production. A production build is not merely a
+      # minified development build — webpack applies optimisations that can fail
+      # on code development mode tolerates — so a green `npm run build` above is
+      # not evidence the shipping bundle compiles.
+      #
+      # **PcfAlwaysNpmRunBuild is what makes that true, and without it this step
+      # silently shipped the development bundle.** `_PcfNpmRunBuild` in
+      # Microsoft.PowerApps.MSBuild.Pcf.targets is an incremental target whose
+      # Outputs are `$(PcfOutputPath)\**\bundle.js` — so the `npm run build`
+      # above, which writes exactly those files in development mode, leaves them
+      # newer than every input and msbuild skips the production build entirely.
+      # The comment here used to claim the pack "overwrites what npm run build
+      # left there". It does not, and nothing failed: the zip packed, the smoke
+      # suite passed against the development bundle, and the release shipped
+      # unminified code with `eval` devtool comments in it.
+      #
+      # Measured on a two-control repository: 33,843 and 22,700 bytes without
+      # this flag, 7,192 and 5,048 with it.
       - name: Pack the solution
-        run: msbuild /t:build /restore /p:configuration=Release
+        run: msbuild /t:build /restore /p:configuration=Release /p:PcfAlwaysNpmRunBuild=true
         working-directory: ${{ inputs.solution-dir }}
 
-      # After the pack, deliberately: msbuild has just overwritten out/controls
-      # with the production bundle, so this drives the code that actually ships
+      # After the pack, deliberately: msbuild has just written the production
+      # bundle into out/controls, so this drives the code that actually ships
       # rather than the development build `npm run build` left there.
+      #
+      # That ordering is only worth anything because the pack above forces the
+      # production build. While it did not, this step asserted against the
+      # development bundle and reported it as evidence about the shipping one.
       #
       # Minification does not disturb it — terser leaves string literals and
       # lifecycle names alone with property mangling off — and `dev/smoke.js`
@@ -269,10 +286,20 @@ jobs:
         shell: pwsh
         run: |
           $limit = ${{ inputs.bundle-max-bytes }}
-          $bundle = Get-ChildItem out/controls -Filter bundle.js -Recurse | Select-Object -First 1
-          if (-not $bundle) { throw "No bundle.js under out/controls after the pack." }
+          $bundles = Get-ChildItem out/controls -Filter bundle.js -Recurse
+          if (-not $bundles) { throw "No bundle.js under out/controls after the pack." }
 
-          Write-Host "bundle.js is $($bundle.Length) bytes (limit $limit)"
-          if ($bundle.Length -gt $limit) {
-            throw "bundle.js is $($bundle.Length) bytes, over the $limit byte default Dataverse web resource limit."
+          # Every bundle, not the first one found. A repository may hold more
+          # than one control — pcf-scripts builds every directory containing a
+          # ControlManifest.Input.xml into its own out/controls/<Constructor>/ —
+          # and each ships as its own web resource, so the ceiling applies to
+          # each separately. `Select-Object -First 1` checked whichever sorted
+          # first and let the rest through unmeasured.
+          foreach ($bundle in $bundles) {
+            $name = Split-Path (Split-Path $bundle.FullName -Parent) -Leaf
+
+            Write-Host "$name/bundle.js is $($bundle.Length) bytes (limit $limit)"
+            if ($bundle.Length -gt $limit) {
+              throw "$name/bundle.js is $($bundle.Length) bytes, over the $limit byte default Dataverse web resource limit."
+            }
           }

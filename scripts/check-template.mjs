@@ -24,7 +24,9 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', 'out', 'bin', 'obj', 'generat
 // The adoption scripts name every token they replace, so they always "contain
 // placeholders" — they are the things that remove them. setup.mjs deletes
 // adopt.mjs on adoption, but a repo may still be mid-flight when this runs.
-const SKIP_PATHS = new Set(['scripts/setup.mjs', 'scripts/adopt.mjs', 'scripts/check-template.mjs']);
+const SKIP_PATHS = new Set([
+    'scripts/setup.mjs', 'scripts/adopt.mjs', 'scripts/add-control.mjs', 'scripts/check-template.mjs',
+]);
 
 const SKIP_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|mp4|webm|zip|ico|woff2?)$/i;
 
@@ -155,6 +157,45 @@ if (hub.reachable) {
 // API reference — every release imports with no properties at all.
 const manifestPath = manifest.control?.manifestPath;
 
+/*
+ * Every control in the repository, not just the one the hub publishes.
+ *
+ * These two are different numbers, and that is the whole point. `pcfhub.json`
+ * holds a single `control` object and the hub reads a single manifest from the
+ * repository root, so **at most one control per repository is ever published**.
+ * But `pcf-scripts` builds every directory containing a
+ * `ControlManifest.Input.xml`, and all of them ship inside the one solution.
+ *
+ * So the checks below split in two. The shape cross-check stays pointed at
+ * `manifestPath`, because that is the manifest the hub actually reads and
+ * re-derives `control.type` from. Everything else — the resx completeness, the
+ * declared features, the external-service licensing cost — is a property of a
+ * control that is being *installed*, and applies to every one of them. A
+ * sibling with a missing translation or an undeclared feature is shipped to the
+ * same customer as the published one, and before this loop nothing looked at it.
+ */
+const controlDirs = findControlFolders(root);
+
+if (controlDirs.length === 0) {
+    problems.push('No */ControlManifest.Input.xml anywhere, so this repository builds no control at all.');
+}
+
+/*
+ * A note rather than a problem. Shipping more controls than the hub can publish
+ * is a legitimate shape — a field control and its dataset sibling in one
+ * solution — and the author has to know the hub shows one of them, but it is
+ * not a mistake to be failed for.
+ */
+if (controlDirs.length > 1) {
+    warnings.push(
+        `This repository builds ${controlDirs.length} controls (${controlDirs.join(', ')}), and PCFHub `
+        + 'publishes one component per repository — one pcfhub.json, one slug, one control, one demo '
+        + `bundle. ${manifest.control?.constructor ?? 'The declared control'} is the one that appears on `
+        + 'the hub; the rest ship inside the same solution and are invisible there. Say so in docs/ and '
+        + 'in demo.limitations, or the download page describes half of what it installs.',
+    );
+}
+
 if (manifestPath && !exists(join(root, manifestPath))) {
     problems.push(`pcfhub.json points control.manifestPath at "${manifestPath}", which does not exist.`);
 }
@@ -268,16 +309,17 @@ if (manifestPath && exists(join(root, manifestPath))) {
 
 const ACCESSORS = { WebAPI: 'webAPI', Utility: 'utils' };
 
-if (manifestPath && exists(join(root, manifestPath))) {
+for (const controlDir of controlDirs) {
+    const relative = `${controlDir}/ControlManifest.Input.xml`;
+
     // Comments stripped first. A commented-out <uses-feature> is not declared,
     // and this template ships its examples inside a comment — scanning the raw
     // file would warn about every freshly scaffolded control, which is the
     // fastest way to teach people to ignore the warning.
-    const xml = readFileSync(join(root, manifestPath), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const xml = readFileSync(join(root, relative), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
     const declared = [...xml.matchAll(/<uses-feature\s+name="([^"]+)"/g)].map((match) => match[1]);
 
     if (declared.length > 0) {
-        const controlDir = manifestPath.split(/[\\/]/)[0];
         let sources = '';
 
         for (const path of walk(join(root, controlDir))) {
@@ -297,7 +339,7 @@ if (manifestPath && exists(join(root, manifestPath))) {
 
         if (unused.length > 0) {
             warnings.push(
-                `${manifestPath} declares ${unused.length} <uses-feature> that nothing appears to use: ` +
+                `${relative} declares ${unused.length} <uses-feature> that nothing appears to use: ` +
                 `${unused.join(', ')}. Each one is an install-time permission prompt for the customer. ` +
                 'Delete the ones the control does not call.',
             );
@@ -320,7 +362,7 @@ if (manifestPath && exists(join(root, manifestPath))) {
 
         if (hardDevice.length > 0) {
             warnings.push(
-                `${manifestPath} declares ${hardDevice.join(', ')} as required="true". A host without the ` +
+                `${relative} declares ${hardDevice.join(', ')} as required="true". A host without the ` +
                 'native bridge then fails to load the component rather than degrading, and that is most '
                 + 'hosts — canvas in a browser, a model-driven form on the web, and Power Pages, which '
                 + 'supports no Device API at all. Use required="false" and feature-detect unless the control '
@@ -341,8 +383,9 @@ if (manifestPath && exists(join(root, manifestPath))) {
 // So this is checked in both directions: enabled with no domains is a problem,
 // and enabled at all is worth saying out loud once per run.
 
-if (manifestPath && exists(join(root, manifestPath))) {
-    const xml = readFileSync(join(root, manifestPath), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+for (const controlDir of controlDirs) {
+    const relative = `${controlDir}/ControlManifest.Input.xml`;
+    const xml = readFileSync(join(root, relative), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
     const node = xml.match(/<external-service-usage\s+enabled="(true|false)"\s*(\/>|>([\s\S]*?)<\/external-service-usage>)/);
 
     if (node && node[1] === 'true') {
@@ -350,13 +393,13 @@ if (manifestPath && exists(join(root, manifestPath))) {
 
         if (domains.length === 0) {
             problems.push(
-                `${manifestPath} sets external-service-usage enabled="true" with no <domain> child. The ` +
+                `${relative} sets external-service-usage enabled="true" with no <domain> child. The ` +
                 'schema expects every domain the control talks to to be listed, so this declares the '
                 + 'licensing cost without declaring what it buys. Add the domains, or set enabled="false".',
             );
         } else {
             warnings.push(
-                `${manifestPath} sets external-service-usage enabled="true" (${domains.join(', ')}). This ` +
+                `${relative} sets external-service-usage enabled="true" (${domains.join(', ')}). This ` +
                 'makes the control premium: end users of any app containing it need a Power Apps licence. '
                 + 'Confirm that is intended and say so in docs/limitations.md — it is a cost to whoever '
                 + 'installs the control, not to whoever wrote it.',
@@ -411,10 +454,10 @@ if (exists(join(root, docsPath))) {
 // All three are cheap to read off the files, and none of them is caught by
 // anything else in the pipeline.
 
-if (manifestPath && exists(join(root, manifestPath))) {
-    const controlDir = manifestPath.split(/[\\/]/)[0];
+for (const controlDir of controlDirs) {
     const stringsDir = join(root, controlDir, 'strings');
-    const xml = readFileSync(join(root, manifestPath), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const xml = readFileSync(join(root, controlDir, 'ControlManifest.Input.xml'), 'utf8')
+        .replace(/<!--[\s\S]*?-->/g, '');
 
     const declared = [...xml.matchAll(/<resx\s+path="([^"]+)"/g)].map((match) => match[1]);
     const onDisk = exists(stringsDir)
@@ -432,7 +475,9 @@ if (manifestPath && exists(join(root, manifestPath))) {
 
     for (const path of declared) {
         if (!exists(join(root, controlDir, path))) {
-            problems.push(`The manifest declares <resx path="${path}">, which does not exist.`);
+            problems.push(
+                `${controlDir}'s manifest declares <resx path="${path}">, which does not exist.`,
+            );
         }
     }
 
@@ -679,6 +724,36 @@ function exists(path) {
     } catch {
         return false;
     }
+}
+
+/**
+ * The controls in this repository, found the way `pcf-scripts` finds them.
+ *
+ * Mirrors `findControlFolders` in `node_modules/pcf-scripts/buildContext.js`: a
+ * control folder is one containing a `ControlManifest.Input.xml`, and a folder
+ * that is one is not descended into. Deriving it any other way — a top-level
+ * glob, or trusting `pcfhub.json` — is how this script ends up disagreeing with
+ * the build about what the repository contains, and the disagreement would show
+ * up as a control that ships unchecked.
+ */
+function findControlFolders(dir, base = dir, found = []) {
+    if (exists(join(dir, 'ControlManifest.Input.xml'))) {
+        found.push(dir === base ? '.' : dir.slice(base.length + 1).replace(/\\/g, '/'));
+
+        return found;
+    }
+
+    for (const entry of readdirSync(dir).sort()) {
+        if (SKIP_DIRS.has(entry)) {
+            continue;
+        }
+
+        if (statSync(join(dir, entry)).isDirectory()) {
+            findControlFolders(join(dir, entry), base, found);
+        }
+    }
+
+    return found;
 }
 
 function fail(message) {

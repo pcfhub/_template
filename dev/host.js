@@ -158,6 +158,24 @@
         maxLength: 100,
 
         /**
+         * What the platform hands `init()` as its third argument.
+         *
+         * `null` is the honest default and means "nothing was saved" — a first
+         * mount, or a host that does not persist. Set it to whatever a previous
+         * mount passed to `mode.setControlState` to reproduce the return half of
+         * a form tab switch.
+         */
+        state: null,
+
+        /**
+         * Whether `mode.setControlState` succeeds.
+         *
+         * `false` is a host that took the call and saved nothing, which is the
+         * state a control cannot see except by reading the return value.
+         */
+        stateWritable: true,
+
+        /**
          * The control's own input properties, merged into `parameters`.
          *
          * The scaffolded control has only `placeholder`, and every real one
@@ -418,6 +436,35 @@
                 setFullScreen: function (value) {
                     log('setFullScreen', value);
                 },
+
+                /*
+                 * `mode.setControlState` — the only way a control keeps anything
+                 * of its own across a remount.
+                 *
+                 * The remount people forget is a **form tab switch**: moving to
+                 * another tab and back destroys the control and inits a new one,
+                 * so an unsaved edit, a scroll position or an expanded section
+                 * is gone unless it was handed to the platform here. It comes
+                 * back as `init`'s third argument, which is the parameter almost
+                 * every control names `_state` and ignores.
+                 *
+                 * **It returns a boolean and the boolean is not decoration.**
+                 * The platform refuses when it has nowhere to put the state, and
+                 * a control that assumes success renders a restored view that
+                 * was never saved. `stateWritable: false` reproduces the refusal.
+                 *
+                 * Recorded rather than stored: what regresses is *what the
+                 * control chose to persist*, and the round trip is the suite's
+                 * to make — mount, read the call, mount again with `state` set
+                 * to what it saved. Keeping a bag here would hide the half of
+                 * that contract the control is actually responsible for.
+                 */
+                setControlState: function (state) {
+                    log('setControlState', state);
+
+                    return o.stateWritable !== false;
+                },
+
                 allocatedWidth: o.width,
                 allocatedHeight: o.height,
 

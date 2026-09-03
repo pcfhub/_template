@@ -182,9 +182,16 @@ function mount(options) {
 
     let notifications = 0;
 
+    /*
+     * The third argument is the state a previous mount handed to
+     * `mode.setControlState`, and it was hard-coded to `{}` here — which made
+     * the *return* half of that API unreachable from a suite. Pass `state` in
+     * `options` to mount a control the way the platform remounts one after a
+     * form tab switch. `{}` remains the default, because that is a first mount.
+     */
     instance.init(context, () => {
         notifications += 1;
-    }, {}, container);
+    }, options.state || {}, container);
 
     // A standard control returns nothing and has written into `container`; a
     // virtual one returns the element it wants rendered and was handed no

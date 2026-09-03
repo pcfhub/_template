@@ -24,7 +24,14 @@ on:
   workflow_call:
     inputs:
       control-dir:
-        description: 'The control directory, containing ControlManifest.Input.xml.'
+        description: >-
+          The control directory, containing ControlManifest.Input.xml.
+
+          In a repository holding more than one control this names the one the
+          hub publishes — the constructor in its manifest picks the bundle.js
+          attached as the demo asset. Every control's manifest is version-checked
+          against the tag and every bundle is size-checked regardless; this input
+          only decides which single bundle the hub gets.
         required: true
         type: string
       solution-dir:
@@ -102,14 +109,35 @@ jobs:
       #
       # Checked before anything is installed or built, so a mismatch costs
       # seconds rather than a whole Windows pack.
+      # **Every** control manifest, not just the one `control-dir` names.
+      #
+      # A repository may hold more than one control — `pcf-scripts` builds every
+      # directory containing a ControlManifest.Input.xml — and they all ship in
+      # the one solution under the one tag. Checking a single manifest meant a
+      # sibling's version could drift from the tag silently, which is precisely
+      # the failure this step exists to prevent, reintroduced by the shape it did
+      # not know about.
       - name: Check the tag matches the manifests
         shell: pwsh
         run: |
           $tag = "${{ inputs.tag || github.ref_name }}" -replace '^v', ''
 
-          $control = ([xml](Get-Content "${{ inputs.control-dir }}/ControlManifest.Input.xml")).manifest.control.version
-          if ($tag -ne $control) {
-            throw "Tag $tag does not match ControlManifest version $control."
+          $manifests = Get-ChildItem -Recurse -Filter ControlManifest.Input.xml |
+            Where-Object { $_.FullName -notmatch '[\\/](node_modules|out|obj|bin)[\\/]' }
+
+          if (-not $manifests) {
+            throw "No ControlManifest.Input.xml anywhere in the repository."
+          }
+
+          foreach ($manifest in $manifests) {
+            $relative = Resolve-Path -Relative $manifest.FullName
+            $version = ([xml](Get-Content $manifest.FullName)).manifest.control.version
+
+            if ($tag -ne $version) {
+              throw "Tag $tag does not match $relative version $version."
+            }
+
+            Write-Host "$relative is $version"
           }
 
           $solution = ([xml](Get-Content "${{ inputs.solution-dir }}/src/Other/Solution.xml")).ImportExportXml.SolutionManifest.Version
@@ -126,8 +154,22 @@ jobs:
         run: npm run build
 
       # /restore is only needed on a cold checkout, which every CI run is.
+      #
+      # **PcfAlwaysNpmRunBuild is not optional, and leaving it off shipped
+      # development bundles.** `_PcfNpmRunBuild` in
+      # Microsoft.PowerApps.MSBuild.Pcf.targets is incremental, with
+      # `$(PcfOutputPath)\**\bundle.js` as its Outputs — and the `npm run build`
+      # step above writes exactly those files, in development mode, immediately
+      # beforehand. They are then newer than every input, so msbuild skips the
+      # production build and packs what is already there.
+      #
+      # Nothing fails when that happens, which is why it survived: the zip packs,
+      # the size check passes (a development bundle is larger, not smaller), and
+      # the release attaches unminified code carrying `eval` devtool comments.
+      # Measured on a two-control repository: 33,843 and 22,700 bytes without
+      # this flag, 7,192 and 5,048 with it.
       - name: Pack the solution
-        run: msbuild /t:build /restore /p:configuration=Release
+        run: msbuild /t:build /restore /p:configuration=Release /p:PcfAlwaysNpmRunBuild=true
         working-directory: ${{ inputs.solution-dir }}
 
       # Found by glob rather than by name, so renaming the solution does not
@@ -178,15 +220,40 @@ jobs:
           # by default, and attaching it costs nothing even while
           # demo.fidelity is still "none": the hub only shows the demo once
           # fidelity says to.
-          $bundle = Get-ChildItem out/controls -Filter bundle.js -Recurse | Select-Object -First 1
-          if (-not $bundle) { throw "No bundle.js under out/controls after the pack." }
+          $bundles = Get-ChildItem out/controls -Filter bundle.js -Recurse
+          if (-not $bundles) { throw "No bundle.js under out/controls after the pack." }
 
           # Repeated from build.yml on purpose: this is the artifact people
           # actually install, and a tag can be cut from a commit that never went
           # through build.yml at all.
+          #
+          # Every bundle, because a repository may hold more than one control and
+          # each is served as its own web resource — so the ceiling applies to
+          # each of them separately. This used to take `Select-Object -First 1`,
+          # which in a two-control repository checked whichever directory sorted
+          # first and let the other ship unmeasured.
           $limit = [int]$env:BUNDLE_MAX_BYTES
-          if ($bundle.Length -gt $limit) {
-            throw "bundle.js is $($bundle.Length) bytes, over the $limit byte Dataverse web resource limit."
+          foreach ($each in $bundles) {
+            $name = Split-Path (Split-Path $each.FullName -Parent) -Leaf
+            Write-Host "$name/bundle.js is $($each.Length) bytes (limit $limit)"
+
+            if ($each.Length -gt $limit) {
+              throw "$name/bundle.js is $($each.Length) bytes, over the $limit byte Dataverse web resource limit."
+            }
+          }
+
+          # The demo bundle is one file, because the hub publishes one component
+          # per repository — one pcfhub.json, one slug, one `control`. So when a
+          # repository holds several controls, `control-dir` is what says which
+          # of them the hub is showing. It is read from the manifest's own
+          # constructor rather than from the directory name, because
+          # out/controls/<Constructor>/ is named by the constructor and nothing
+          # requires the two to match.
+          $demo = ([xml](Get-Content "${{ inputs.control-dir }}/ControlManifest.Input.xml")).manifest.control.constructor
+          $bundle = $bundles | Where-Object { (Split-Path (Split-Path $_.FullName -Parent) -Leaf) -eq $demo } | Select-Object -First 1
+
+          if (-not $bundle) {
+            throw "No out/controls/$demo/bundle.js, which is the control ${{ inputs.control-dir }} declares."
           }
 
           # A ceiling with no runway is a ceiling you hit without warning, and

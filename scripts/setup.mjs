@@ -297,6 +297,20 @@ rmSync(join(root, 'docs', 'migration.md'), { force: true });
 rmSync(join(root, 'scripts', 'adopt.mjs'), { force: true });
 
 /*
+ * `add-control.mjs` adds a *second* control to a repository that has already
+ * been adopted, and it runs from the template for the reason its own header
+ * gives: the sibling's sources come out of `variants/`, which the removal
+ * above has taken. A copy sitting in an adopted repository would have nothing
+ * left to copy from, and would carry placeholder tokens that this script's own
+ * leftover-token check then fails on.
+ *
+ * So it stays a template-side tool, exactly like `adopt.mjs`. Reach it as
+ * `node ../_template/scripts/add-control.mjs --into .` from the repository that
+ * is gaining the control.
+ */
+rmSync(join(root, 'scripts', 'add-control.mjs'), { force: true });
+
+/*
  * `verify-adoption.mjs` tests *this script*, by adopting the template into a
  * scratch directory and asserting what comes out. An adopted repository is the
  * output, not the subject, so it has no use for it — and carrying it would ship
