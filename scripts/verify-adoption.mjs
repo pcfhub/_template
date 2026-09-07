@@ -236,13 +236,39 @@ function verifyOtherShapes() {
 
     try {
         check(
-            'the browser harness is removed for a React control',
-            !react.has('dev/harness.html') && !react.has('dev/harness.js'),
-            'Fluent 9 ships no UMD build, so there is nothing to put in a script tag.',
+            'the browser harness survives for a React control',
+            react.has('dev/harness.html') && react.has('dev/harness.js'),
+            'Fluent 9 ships no UMD build, so dev/fluent-stub.js stands in for it.',
+        );
+        check(
+            'and the two files that make that possible land beside it',
+            react.has('dev/fluent-stub.js') && react.has('dev/virtual-bundle.js'),
         );
         check(
             'and the rest of the rig stays, because npm run smoke still works',
             react.has('dev/smoke.js') && react.has('dev/host.js') && react.has('dev/fixture.js'),
+        );
+
+        /*
+         * The dataset rig's seam is in `mount` and `pump`, not in `render`.
+         * `host.drive` owns the loop and already hands back the element the last
+         * pass returned; what the patch adds is putting it on the page — and
+         * dropping the `innerHTML = ''` that would leave React reconciling
+         * against nodes it no longer owns.
+         */
+        const datasetRig = react.read('dev/harness.js');
+        check(
+            'the dataset rig renders what drive() returned',
+            datasetRig.includes('ReactDOM.render(driven.element, container)'),
+        );
+        check(
+            'and stops emptying the container by hand',
+            !datasetRig.includes("container.innerHTML = ''")
+            && datasetRig.includes('ReactDOM.unmountComponentAtNode(container)'),
+        );
+        check(
+            'and inits without a container, which a virtual control never gets',
+            datasetRig.includes('instance.init(handle.context, function () {});'),
         );
         check('the React entry point lands', react.has(`${ANSWERS.control}/index.ts`));
         check(
@@ -275,6 +301,99 @@ function verifyOtherShapes() {
         );
     } finally {
         rmSync(react.scratch, { recursive: true, force: true });
+    }
+
+    /*
+     * The fourth combination, which had no pass of its own until the browser
+     * rig started surviving `--framework react`.
+     *
+     * It needed none while the react branch only *deleted* files: whatever it
+     * did to a dataset repository it did to a field one. Now the two rigs are
+     * patched in different places — the field one in `render` and in
+     * `__harnessStart`, the dataset one in `mount` and `pump` — and every one of
+     * those patches throws if the template moves under it. A throw is a failed
+     * adoption, so this pass is what turns "setup.mjs still runs" into an
+     * assertion for the shape most React controls actually are.
+     */
+    console.log('\nAdopting as a React (virtual) field control…\n');
+
+    const virtual = adoptWith(['--framework', 'react']);
+
+    try {
+        check(
+            'the browser harness survives here too',
+            virtual.has('dev/harness.html')
+            && virtual.has('dev/harness.js')
+            && virtual.has('dev/fluent-stub.js')
+            && virtual.has('dev/virtual-bundle.js'),
+        );
+
+        const page = virtual.read('dev/harness.html');
+        check(
+            'the page loads React and the Fluent stand-in',
+            page.includes('react/umd/react.development.js')
+            && page.includes('react-dom/umd/react-dom.development.js')
+            && page.includes('src="fluent-stub.js"'),
+        );
+        /*
+         * The bundle tag has to be *gone*, not merely joined by the loader. A
+         * `<script src>` runs the bundle before any global is defined, and the
+         * first import throws a ReferenceError naming `Reactv16` — a string
+         * that appears nowhere in the repository.
+         */
+        check(
+            'and no longer loads the bundle with a script tag',
+            !page.includes(`out/controls/${ANSWERS.control}/bundle.js"></script>`)
+            && page.includes('src="virtual-bundle.js"'),
+            'A script tag runs the bundle before the globals it imports exist.',
+        );
+
+        const loader = virtual.read('dev/virtual-bundle.js');
+        check(
+            'the loader points at this control\'s bundle',
+            loader.includes(`../out/controls/${ANSWERS.control}/bundle.js`),
+        );
+        check(
+            'and reads the version-encoded globals out of it rather than naming them',
+            loader.includes('Reactv') && loader.includes('FluentUIReact')
+            && !loader.includes('window.Reactv16 ='),
+        );
+
+        const rig = virtual.read('dev/harness.js');
+        check(
+            'the field rig renders what updateView returned',
+            rig.includes('ReactDOM.render(instance.updateView(context), container)')
+            && rig.includes('ReactDOM.render(returned, container)'),
+        );
+        check(
+            'and inits without a container',
+            rig.includes('instance.init(context, notifyOutputChanged, {});'),
+        );
+        /*
+         * The bail inverts rather than disappearing: this page now refuses a
+         * control whose `updateView` returned *nothing*, which is a standard
+         * control on a virtual page. Left pointing the old way it would refuse
+         * every control the page can actually render.
+         */
+        check(
+            'and the shape guard now points the other way',
+            rig.includes('if (returned === undefined) {') && !rig.includes('if (returned !== undefined) {'),
+        );
+
+        const stub = virtual.read('dev/fluent-stub.js');
+        check(
+            'the stub says what it is less capable than the real Fluent at',
+            stub.includes('Nothing is portalled')
+            && stub.includes('No focus trap and no Escape'),
+            'A stub that quietly does more than the real thing certifies a control that does not work.',
+        );
+
+        check(
+            'setup removes the shared patch module it imported',
+            !virtual.has('scripts/virtual-harness.mjs'),
+        );
+    } finally {
+        rmSync(virtual.scratch, { recursive: true, force: true });
     }
 }
 

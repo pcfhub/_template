@@ -37,6 +37,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, r
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
+import { patchHarnessHtml, patchHarnessJs } from './virtual-harness.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -318,6 +319,14 @@ rmSync(join(root, 'scripts', 'add-control.mjs'), { force: true });
  * check would then flag.
  */
 rmSync(join(root, 'scripts', 'verify-adoption.mjs'), { force: true });
+
+/*
+ * `virtual-harness.mjs` is the react patch for the browser rig, shared with
+ * add-control.mjs. It is an adoption-time tool like the three above — the
+ * patched files are on disk by now — and the ESM import at the top of this file
+ * resolved before any of this ran, so removing it here is safe.
+ */
+rmSync(join(root, 'scripts', 'virtual-harness.mjs'), { force: true });
 
 /*
  * `release-reusable.yml` is the shared pipeline, and it lives *here*. Every
@@ -630,24 +639,39 @@ function applyFramework(control) {
     }
 
     /*
-     * The browser half of the dev rig goes, and `dev/smoke.js` stays.
+     * The browser half of the dev rig **stays**, patched for this shape.
      *
-     * `dev/harness.html` loads the built bundle in a plain page, and a virtual
-     * control's bundle expects the platform's React *and* Fluent under the
-     * globals its `<platform-library>` entries compile them out to.
+     * It used to be deleted, and the reasoning was sound as far as it went: a
+     * virtual bundle expects React and Fluent under the globals its
+     * `<platform-library>` entries compile them out to, and
      * `@fluentui/react-components` ships no UMD build — there is no file to put
      * in a `<script src>`, and adding a bundler to produce one would make the
-     * page the thing that needs building. (Grid customizers keep their harness
-     * because Fluent 8 does ship one.)
+     * page the thing that needs building.
      *
-     * Nothing is lost that matters: unlike a customizer, a virtual field or
-     * dataset control renders perfectly well under `npm start`. What `npm start`
-     * cannot do is *assert*, and `dev/smoke.js` works on this shape unchanged —
-     * `updateView` returns an element tree, Fluent is stubbed component by
-     * component, and the props the control passed survive for inspection.
+     * What that missed is that the page does not need the *real* Fluent. It
+     * needs something under that global, and `dev/fluent-stub.js` is eighty
+     * lines of stand-in whose header spells out the three ways it is less
+     * capable than the real thing. `pcf-date-range-picker` built it and got
+     * from it the things `npm start` has never offered: a control driven
+     * through denied-read, platform-error, no-theme, dark, RTL and each shipped
+     * locale by flipping a switch, and screenshots taken from the strings the
+     * solution actually ships.
+     *
+     * Two files land, and `dev/harness.js` and `dev/harness.html` are patched
+     * in five places — see scripts/virtual-harness.mjs, which states what each
+     * one is for and throws rather than silently no-op'ing.
      */
-    rmSync(join(root, 'dev', 'harness.html'), { force: true });
-    rmSync(join(root, 'dev', 'harness.js'), { force: true });
+    cpSync(
+        join(root, 'variants', 'react', 'dev', 'fluent-stub.js'),
+        join(root, 'dev', 'fluent-stub.js'),
+    );
+    cpSync(
+        join(root, 'variants', 'react', 'dev', 'virtual-bundle.js'),
+        join(root, 'dev', 'virtual-bundle.js'),
+    );
+
+    edit(join('dev', 'harness.html'), (text) => patchHarnessHtml(text, control));
+    edit(join('dev', 'harness.js'), (text) => patchHarnessJs(text, type));
 
     // The dataset variant carries its own React sources: a dataset control's
     // entry point shares no code with a bound-column one beyond the class

@@ -83,6 +83,7 @@ import { randomUUID } from 'node:crypto';
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { patchHarnessHtml, patchHarnessJs } from './virtual-harness.mjs';
 
 const template = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -174,9 +175,12 @@ if (!['standard', 'react'].includes(framework)) {
  * copy that drifts — the exact thing setup.mjs's dataset branch avoids by
  * overlaying its rig rather than replacing it.
  *
- * A react sibling gets no `harness.html` or `harness.js`, for the reason
- * setup.mjs gives: a virtual bundle expects Fluent under a global, and
- * `@fluentui/react-components` ships no UMD build to put in a `<script src>`.
+ * A react sibling gets the same rig as any other shape, plus the two files
+ * that make a virtual bundle loadable in a plain page: `fluent-stub.js` stands
+ * in for the Fluent the platform would supply, and `virtual-bundle.js` reads the
+ * version-encoded globals out of the bundle and defines them before evaluating
+ * it. `harness.html` and `harness.js` are then patched by `rewriteDevPath`,
+ * from the same module setup.mjs uses.
  */
 const DONORS = {
     'field:standard': {
@@ -188,7 +192,8 @@ const DONORS = {
         sources: '__CONTROL__',
         react: join('variants', 'react'),
         dev: 'dev',
-        devFiles: ['host.js', 'smoke.js'],
+        devFiles: ['harness.html', 'harness.js', 'host.js', 'smoke.js'],
+        virtualDev: join('variants', 'react', 'dev'),
     },
     'dataset:standard': {
         sources: join('variants', 'dataset'),
@@ -199,7 +204,8 @@ const DONORS = {
         sources: join('variants', 'dataset'),
         react: join('variants', 'dataset', 'react'),
         dev: join('variants', 'dataset', 'dev'),
-        devFiles: ['fixture.js', 'host.js', 'smoke.js'],
+        devFiles: ['fixture.js', 'harness.html', 'harness.js', 'host.js', 'smoke.js'],
+        virtualDev: join('variants', 'react', 'dev'),
     },
 };
 
@@ -334,6 +340,19 @@ if (donor.react) {
  */
 for (const file of donor.devFiles) {
     copyFile(join(donor.dev, file), join('dev', control, file), { rewrite: rewriteDevPath });
+}
+
+/*
+ * The two files a virtual control's page needs and a standard one does not.
+ *
+ * They come from `variants/react/dev/` for both types: neither knows anything
+ * about what the control binds. `rewriteDevPath` moves the bundle path inside
+ * `virtual-bundle.js` down a directory, the same way it does for smoke.js.
+ */
+if (donor.virtualDev) {
+    for (const file of ['fluent-stub.js', 'virtual-bundle.js']) {
+        copyFile(join(donor.virtualDev, file), join('dev', control, file), { rewrite: rewriteDevPath });
+    }
 }
 
 /*
@@ -784,6 +803,18 @@ function copyTree(from, to) {
  * travel with the rig into the same directory.
  */
 function rewriteDevPath(text, file) {
+    // Not a path at all — the react seam, applied here because this is the one
+    // hook `copyFile` gives for touching a dev file on its way across.
+    if (framework === 'react' && file === 'harness.js') {
+        return patchHarnessJs(text, type);
+    }
+
+    // A virtual control's bundle path lives in the loader rather than in a
+    // script tag, so it is this file that has to move down a directory.
+    if (file === 'virtual-bundle.js') {
+        return text.replace("'../out/controls/", "'../../out/controls/");
+    }
+
     if (file === 'smoke.js') {
         return text
             .replace("const root = path.join(__dirname, '..');", "const root = path.join(__dirname, '..', '..');")
@@ -792,12 +823,19 @@ function rewriteDevPath(text, file) {
     }
 
     if (file === 'harness.html') {
+        // The react patch runs first, because it decides which paths are left:
+        // it deletes the `<script src="../out/…/bundle.js">` tag outright, so
+        // the bundle rewrite below finds nothing on that shape and adds the
+        // node_modules hop that only that shape has.
+        const page = framework === 'react' ? patchHarnessHtml(text, control) : text;
+
         // The stylesheet is two hops away and then inside the project folder:
         // dev/<C>/harness.html -> ../../<C>/<C>/css/<C>.css. The bundle is not,
         // because every control still builds into one out/ at the root.
-        return text
+        return page
             .replace(`href="../${control}/css/`, `href="../../${control}/${control}/css/`)
-            .replace('src="../out/controls/', 'src="../../out/controls/');
+            .replace('src="../out/controls/', 'src="../../out/controls/')
+            .split('src="../node_modules/').join('src="../../node_modules/');
     }
 
     return text;

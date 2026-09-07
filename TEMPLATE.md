@@ -311,32 +311,58 @@ Three things to know before editing any of it:
 `npm run build` writes the development bundle over whatever the last msbuild
 pack left, so locally the rig tests whichever bundle is on disk.
 
-### What it deliberately does not do
+### The virtual control's page, and the ruling it overturned
 
-`--framework react` **deletes `dev/harness.html` and `dev/harness.js`** and
-keeps `smoke.js`. A virtual control's bundle expects Fluent under the global its
-`<platform-library>` entry compiles it out to, and
-`@fluentui/react-components` ships no UMD build — there is no file to put in a
-`<script src>`, and adding a bundler to produce one would make the harness the
-thing that needs building. Nothing is lost: unlike a customizer, a virtual field
-or dataset control renders perfectly well under `npm start`, and `smoke.js`
-works on it unchanged by reading the props it passed down instead of the DOM it
-wrote. Grid customizers keep their harness because Fluent 8 does ship a UMD
-build.
+`--framework react` **keeps `dev/harness.html` and `dev/harness.js`** and adds
+two files beside them. It did not always: for most of this template's life the
+react branch deleted both, on reasoning worth keeping because it was right about
+everything except its conclusion.
 
-**Treat that as settled rather than as a gap to work around.** The question has
-come up once per virtual control — build a Fluent 9 harness, or go `standard` so
-the page survives — and going `standard` to keep a browser rig is choosing the
-control's framework on the strength of a development tool, which is the wrong
-way round. The ruling: **for a `react_virtual` control, `npm start` is the
-browser and `npm run smoke` is the assertion.** `smoke.js` reads the props the
-control passed down rather than the DOM it wrote, so it loses nothing on this
-shape; what is genuinely gone is switch-flipping a host state and *looking* at
-the result, and `npm start` cannot do that either. What would reopen it is
-Fluent 9 shipping a UMD build, or a control whose bug can only be seen and not
-asserted — neither has happened yet. `pcf-sparkline` went `standard`, and its
-`SPEC.md` says the rig was one reason; that is a legitimate choice for a chart,
-and it is not a precedent for making it because the harness is missing.
+A virtual control's bundle expects Fluent under the global its
+`<platform-library>` entry compiles it out to, and `@fluentui/react-components`
+**ships no UMD build**. There is no file to put in a `<script src>`, and adding
+a bundler to produce one would make the harness the thing that needs building.
+All of that is still true. What it missed is that the page never needed the
+*real* Fluent — it needed *something* under that global, and a stand-in is a
+file, not a build step.
+
+So two files land:
+
+| | |
+| --- | --- |
+| `dev/fluent-stub.js` | The Fluent components the control imports, stood in for. Eighty lines. |
+| `dev/virtual-bundle.js` | Fetches the bundle, reads the version-encoded globals out of it, defines them, evaluates it. |
+
+and `harness.html` and `harness.js` are patched in five places by
+`scripts/virtual-harness.mjs` — the same module `add-control.mjs` uses, so a
+react sibling gets the same page. Each patch throws rather than silently doing
+nothing, because a page that loaded the bundle without defining its globals
+fails with a `ReferenceError` naming a global that appears nowhere in the
+repository.
+
+**The stub is deliberately less capable than Fluent, and its header is the price
+of admission.** Nothing is portalled — the real `PopoverSurface` mounts near the
+end of `document.body`, so a stylesheet rule scoped through the control's own
+root works on this page and matches nothing on a form. There is no focus trap
+and no Escape handling. `FluentProvider` publishes no design tokens unless the
+theme carries them, which is the branch a canvas app and PCFHub's demo harness
+actually get. A stub that quietly did *more* than the thing it stands in for
+would certify a control that does not work; every one of these does less, which
+is the safe direction.
+
+**What changed the ruling.** It had been settled for a reason — the question came
+up once per virtual control, and going `standard` to keep a browser rig is
+choosing the framework on the strength of a development tool, which is the wrong
+way round. What reopened it was named in the ruling itself: *a control whose bug
+can only be seen and not asserted*. `pcf-date-range-picker` is a two-month
+calendar in a popover, and `npm start` cannot put it into denied-read, a
+platform error, no theme, dark, RTL, or any of its five shipped locales — those
+are switches, and switches live on this page. It built the stub, and the stub
+turned out to be eighty lines rather than a project.
+
+`pcf-sparkline` went `standard` and its `SPEC.md` says the rig was one reason.
+That is still a legitimate choice for a chart, and it is still not a reason to
+choose `standard` — but the cost it was avoiding no longer exists.
 
 Nothing here proves the control works. Every value the rig supplies comes from
 the rig. It cannot tell you that a real form hands down what these fixtures hand

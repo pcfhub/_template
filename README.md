@@ -109,8 +109,9 @@ of `dev/smoke.js`.
 open the file: over `file://` a dataset fixture cannot be fetched and a module
 script is refused, and both arrive as an empty control with a CORS error. It
 takes `--port` and `--no-open`, and needs no dependency — `dev/serve.js` is
-`node:http`. A React (virtual) control has no harness page, and the script says
-so rather than serving a 404.
+`node:http`. A React (virtual) control gets one too: `dev/fluent-stub.js` stands
+in for the Fluent the platform would supply, and its header says exactly where
+the stand-in is less capable than the real thing.
 
 Run `npm run refreshTypes` after every manifest edit — until you do,
 `context.parameters` is typed from the old manifest and `tsc` will accept code that
