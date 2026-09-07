@@ -271,6 +271,28 @@
             </label>
 
             <label class="is-switch">
+                <input type="checkbox" id="harness-privilege" checked />
+                hasEntityPrivilege answers yes
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-navigation" checked />
+                context.navigation exists
+            </label>
+
+            <label>
+                Platform dialogs
+                <select id="harness-dialogs">
+                    <option value="confirmed">Confirmed</option>
+                    <option value="cancelled">Cancelled (resolves, not rejects)</option>
+                    <option value="rejected">Refused (rejects)</option>
+                    <option value="absent">Absent (canvas)</option>
+                </select>
+                <span>A cancel arrives through <code>then</code>, carrying
+                <code>confirmed: false</code>.</span>
+            </label>
+
+            <label class="is-switch">
                 <input type="checkbox" id="harness-offline" />
                 Offline
             </label>

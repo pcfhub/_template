@@ -309,6 +309,56 @@
         entitySetName: 'accounts',
 
         /**
+         * What `utils.hasEntityPrivilege` answers.
+         *
+         * **Synchronous, and a boolean rather than a promise** — the one member
+         * of `context.utils` that is. It answers about the *user's roles*, not
+         * about the host, so `false` is an ordinary answer and not a failure:
+         * a control that gates an affordance on it has a branch that only a
+         * differently-privileged user ever reaches, which is exactly the branch
+         * nobody tests.
+         *
+         * It lives under `utils`, so `utils: false` removes it along with
+         * everything else — which is the host distinction that matters, since
+         * "the user may not" and "this host cannot say" call for different
+         * behaviour and a control that conflates them hides itself in canvas.
+         */
+        hasPrivilege: true,
+
+        /**
+         * Whether `context.navigation` exists at all.
+         *
+         * Typed non-optional, which is a claim about the type definitions
+         * rather than about the host. A control that reads
+         * `context.navigation.openConfirmDialog` through an unguarded bag
+         * throws a TypeError rather than degrading, and a rig that cannot
+         * remove the bag cannot tell the two apart.
+         */
+        hasNavigation: true,
+
+        /**
+         * What the platform dialogs do, and there are four answers rather than
+         * two.
+         *
+         *   'confirmed' -> `openConfirmDialog` resolves `{ confirmed: true }`
+         *   'cancelled' -> resolves `{ confirmed: false }` — **a resolve, not a
+         *                  reject.** A control that treats a cancel as a
+         *                  failure reports an error the user did not cause,
+         *                  and this is the single easiest thing to get wrong
+         *                  about the dialog API.
+         *   'rejected'  -> the promise rejects, which is what a dialog the host
+         *                  refuses to open does
+         *   'absent'    -> the three dialog methods are **deleted from the
+         *                  bag**, which is what canvas is. Absence is a
+         *                  different state from refusal, and only one of the
+         *                  two is ever a bug in the control.
+         *
+         * The same four answers as the dataset rig's, deliberately: an
+         * assertion about a confirmation should read identically in both.
+         */
+        dialogs: 'confirmed',
+
+        /**
          * `context.mode.contextInfo`, or `null` for a host without it.
          *
          * **`null` is the default, and this member is the reason.** It is
@@ -337,6 +387,144 @@
          */
         resource: null,
     };
+
+    /**
+     * `context.navigation`, assembled method by method.
+     *
+     * **Presence is per method, not per bag**, and that is the whole reason
+     * this is a function rather than an object literal. `openUrl` is there on
+     * every host; `openForm`, `openWebResource` and `openFile` are documented
+     * model-driven only; the three dialogs are a model-driven affordance that
+     * canvas does not have. A control that checks `context.navigation` once and
+     * then calls a method through it passes on the host it was written on and
+     * throws a TypeError on the next one — so each of these is removed
+     * independently here, because each is removed independently in the world.
+     *
+     * The same shape as the dataset rig's, so an assertion reads the same in
+     * both.
+     */
+    function buildNavigation(o, log) {
+        if (!o.hasNavigation) {
+            return undefined;
+        }
+
+        var navigation = {
+            /**
+             * **Returns `void`, not a promise.** The odd one out in this bag,
+             * and `void openUrl(...)` in the type definitions — so `await`ing
+             * it is harmless and `.catch()` on it is a TypeError. There is also
+             * no failure channel: a URL the host refuses to open reports
+             * nothing back, which is why a control has to decide the URL is
+             * acceptable *before* it calls.
+             */
+            openUrl: function (url) {
+                log('navigation.openUrl', url);
+            },
+        };
+
+        /*
+         * `openForm` is deliberately NOT here, and its absence is the rule
+         * rather than an omission.
+         *
+         * It is model-driven only, and no field control in the catalogue opens
+         * a form — the ones that do are dataset controls, whose rig has it. A
+         * stub for a method nothing calls is a stub nobody maintains, and it
+         * would sit here reading as though the field rig models a capability it
+         * has never been asked to model. Add it *with* the control that needs
+         * it, behind its own switch, the way the dataset rig has `openFile`.
+         */
+
+        /*
+         * 'absent' removes the three rather than making them fail, because
+         * those are different states and only one of them is a bug in the
+         * control. This is the state canvas is in.
+         */
+        if (o.dialogs === 'absent') {
+            return navigation;
+        }
+
+        var refused = function () {
+            return Promise.reject({
+                errorCode: 2147746581,
+                message: 'The dialog could not be opened.',
+            });
+        };
+
+        navigation.openAlertDialog = function (alertStrings) {
+            log('navigation.openAlertDialog', (alertStrings || {}).text);
+            return o.dialogs === 'rejected' ? refused() : Promise.resolve();
+        };
+
+        /**
+         * The one that matters, and the one everybody gets wrong.
+         *
+         * **Cancel is a resolve.** `{ confirmed: false }` comes back through the
+         * success path, not through `catch` — so a control that puts its action
+         * inside `.then()` without reading `confirmed` does the thing the user
+         * just declined, and a control that treats the cancel as a failure
+         * shows an error for something the user did on purpose. Both are one
+         * line away from correct and neither shows up without this switch.
+         */
+        navigation.openConfirmDialog = function (confirmStrings) {
+            log('navigation.openConfirmDialog', (confirmStrings || {}).text);
+
+            return o.dialogs === 'rejected'
+                ? refused()
+                : Promise.resolve({ confirmed: o.dialogs === 'confirmed' });
+        };
+
+        navigation.openErrorDialog = function (errorOptions) {
+            /*
+             * `details` is logged, and that is not tidiness.
+             *
+             * The control writes its own sentence into `message` and the
+             * *platform's* explanation into `details`, so an assertion that
+             * reads only `message` is reading a slot the platform never filled
+             * — it passes whether or not the rejection was ever decoded, which
+             * makes "and NOT [object Object]" a claim about nothing. Both
+             * halves are recorded so both can be asserted.
+             */
+            log('navigation.openErrorDialog', {
+                message: (errorOptions || {}).message,
+                details: (errorOptions || {}).details,
+                errorCode: (errorOptions || {}).errorCode,
+            });
+
+            return o.dialogs === 'rejected' ? refused() : Promise.resolve();
+        };
+
+        return navigation;
+    }
+
+    /**
+     * `context.events`, from either an array of names or an object of handlers.
+     *
+     * See the comment at the `events:` member for why both shapes exist. A
+     * handler that throws is **not** caught here: the platform does not promise
+     * to catch a maker's handler either, and a control that raises an event
+     * without a `try` around it should fail this rig rather than production.
+     */
+    function buildEvents(events, log) {
+        if (events === null || events === undefined) {
+            return undefined;
+        }
+
+        var names = Array.isArray(events) ? events : Object.keys(events);
+
+        return names.reduce(function (bag, name) {
+            var handler = Array.isArray(events) ? undefined : events[name];
+
+            bag[name] = function (payload) {
+                log('events.' + name, payload);
+
+                if (typeof handler === 'function') {
+                    handler(payload);
+                }
+            };
+
+            return bag;
+        }, {});
+    }
 
     /**
      * Build a `context` for a field control.
@@ -677,20 +865,13 @@
                 : undefined,
 
             /*
-             * Navigation. `context.navigation` itself is present on every host
-             * — it is the individual methods that are not — so this is an object
-             * rather than a switch, and `openUrl` is the one method that works
-             * in canvas and model-driven alike.
+             * Navigation, assembled method by method — see `buildNavigation`.
              *
              * Recorded rather than performed: there is nowhere to navigate to
-             * here, and what regresses is the URL the control built, not the
-             * platform's ability to open it.
+             * here, and what regresses is what the control *handed over*, not
+             * the platform's ability to act on it.
              */
-            navigation: {
-                openUrl: function (url) {
-                    log('navigation.openUrl', url);
-                },
-            },
+            navigation: buildNavigation(o, log),
 
             /*
              * `context.utils`, absent on a host without the `Utility` feature.
@@ -734,6 +915,32 @@
 
                         return Promise.resolve(new Metadata());
                     },
+
+                    /**
+                     * **Synchronous, and returns a boolean.** The only member
+                     * of this bag that is not a promise, which is easy to miss
+                     * beside `getEntityMetadata` and produces a control that
+                     * gates on a truthy `Promise` and therefore never gates at
+                     * all.
+                     *
+                     * The arguments are numeric enums, not strings:
+                     * `PrivilegeType` is 0 None, 1 Create, 2 Read, 3 Write,
+                     * 4 Delete, 5 Assign, 6 Share, 7 Append, 8 AppendTo;
+                     * `PrivilegeDepth` is -1 None, 0 Basic, 1 Local, 2 Deep,
+                     * 3 Global. Both are logged so an assertion can be about
+                     * which privilege the control actually asked for — passing
+                     * Read where Write was meant is invisible otherwise,
+                     * because almost every user has Read.
+                     */
+                    hasEntityPrivilege: function (entityTypeName, privilegeType, privilegeDepth) {
+                        log('utils.hasEntityPrivilege', {
+                            entityTypeName: entityTypeName,
+                            privilegeType: privilegeType,
+                            privilegeDepth: privilegeDepth,
+                        });
+
+                        return Boolean(o.hasPrivilege);
+                    },
                 }
                 : undefined,
 
@@ -742,20 +949,26 @@
              *
              * `undefined` is a real host: the platform types promise this
              * member unconditionally, and neither the manifest nor the
-             * generated types are evidence that a name declared as a
-             * `<common-event>` arrives here as a callable. A control that
-             * feature-detects passes both ways; one that does not fails on the
-             * host it was never run on.
+             * generated types are evidence that a name declared in the manifest
+             * arrives here as a callable. A control that feature-detects passes
+             * both ways; one that does not fails on the host it was never run
+             * on.
+             *
+             * **Two shapes, and the second one is the point.** An array of
+             * names binds each to a logger, which is all a canvas-shaped event
+             * needs — there is no Power Fx here to run. An object of
+             * `name -> function` binds the caller's own handler *as well as*
+             * the logger, which is what a model-driven event needs, because
+             * `addEventHandler` hands the handler a payload and the payload can
+             * carry callbacks the handler calls straight back into the control.
+             * A rig that could only log could never exercise the half of that
+             * contract the control implements.
+             *
+             * The handler runs **after** the log entry, so `calls` records the
+             * raise in the order it happened even when the handler re-enters
+             * the control.
              */
-            events: o.events === null || o.events === undefined
-                ? undefined
-                : o.events.reduce(function (bag, name) {
-                    bag[name] = function (payload) {
-                        log('events.' + name, payload);
-                    };
-
-                    return bag;
-                }, {}),
+            events: buildEvents(o.events, log),
 
             /*
              * Absent on a host that publishes no theme, which is what the

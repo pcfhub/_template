@@ -77,6 +77,9 @@
                     : null,
             webAPI: document.getElementById('harness-webapi').checked,
             utils: document.getElementById('harness-utils').checked,
+            hasPrivilege: document.getElementById('harness-privilege').checked,
+            hasNavigation: document.getElementById('harness-navigation').checked,
+            dialogs: document.getElementById('harness-dialogs').value,
             offline: document.getElementById('harness-offline').checked,
         };
     }
