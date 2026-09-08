@@ -414,8 +414,9 @@ Next:
   3. npm run build
   4. Fill in docs/*.md. Every file there becomes a page on the hub; the ones you
      do not write simply do not appear.
-  5. Replace media/logo.png — the one here is a placeholder, and nothing in CI
-     checks what it looks like.
+  5. Replace media/logo.svg and media/logo.png — the ones here are the
+     template's placeholder, and nothing in CI checks what they look like.
+     media/README.md has the house style; the mark has to read at 24px.
   6. Add the repository to PCFHub with the slug "${answers.SLUG}", then tag v0.1.0.${type === 'dataset' ? `
   7. Replace demo/records.json with a fixture that looks like your view, then
      set demo.datasetFixture and demo.fidelity in pcfhub.json.` : ''}${type === 'grid-customizer' ? `

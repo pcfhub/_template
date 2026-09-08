@@ -419,7 +419,8 @@ Next:
   1. npm run check — it should pass. If it does not, the message names the gap.
   2. Fill in the docs pages that were copied in; delete the ones that do not
      apply rather than shipping them with placeholder text.
-  3. Replace media/logo.png — the one copied in is the template's placeholder.
+  3. Replace media/logo.svg and media/logo.png — the ones copied in are the
+     template's placeholder. media/README.md has the house style.
   4. Work the "needs a decision" list above.
   5. Add the repository to PCFHub with the slug "${answers.SLUG}".
 `);
