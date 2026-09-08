@@ -144,6 +144,22 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
 
         this.appliedPageSize = wanted;
         dataset.paging.setPageSize(wanted);
+
+        /*
+         * **Repaginating makes "page 4" mean something else**, so the reader
+         * goes back to the first page — the same move `sortBy` makes below, and
+         * for the same reason. Any change to the *shape* of the result set —
+         * a sort, a filter, a page size — resets the page and calls
+         * `paging.reset()`.
+         *
+         * Easy to leave out here and hard to notice, because a page size that
+         * can only come from a property changes once at configuration time,
+         * almost always while the reader is on page 1. It becomes reachable the
+         * moment a control offers a rows-per-page picker, and then it asks for
+         * page 3 of a result set that has been recut underneath it.
+         */
+        this.page = 1;
+        dataset.paging.reset();
         dataset.refresh();
     }
 
