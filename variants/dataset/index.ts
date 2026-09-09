@@ -187,24 +187,33 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
             return;
         }
 
+        const previous = this.appliedPageSize;
+
         this.appliedPageSize = wanted;
         dataset.paging.setPageSize(wanted);
 
         /*
          * **Repaginating makes "page 4" mean something else**, so the reader
-         * goes back to the first page — the same move `sortBy` makes below, and
-         * for the same reason. Any change to the *shape* of the result set —
-         * a sort, a filter, a page size — resets the page and calls
-         * `paging.reset()`.
+         * goes back to the first page — the same move `sortBy` makes, and for
+         * the same reason. Any change to the shape of the result set — a sort,
+         * a filter, a page size — resets the page.
          *
-         * Easy to leave out here and hard to notice, because a page size that
-         * can only come from a property changes once at configuration time,
-         * almost always while the reader is on page 1. It becomes reachable the
-         * moment a control offers a rows-per-page picker, and then it asks for
-         * page 3 of a result set that has been recut underneath it.
+         * **Only when it changed, though.** `previous` is 0 until a size has
+         * been applied, and at mount the platform is already on page one, so
+         * resetting there is a round trip bought for nothing: `reset()` is a
+         * fetch in its own right and the `refresh()` below is a second one.
+         *
+         * Left out entirely at first, and close to unfalsifiable while the size
+         * comes only from a manifest property: a property changes once, at
+         * configuration time, almost always while the reader is on page one.
+         * `pcf-data-table` 0.2.0 made it reachable with a rows-per-page picker,
+         * and asked for page 3 of a result set that had just been recut.
          */
-        this.page = 1;
-        dataset.paging.reset();
+        if (previous > 0) {
+            this.page = 1;
+            dataset.paging.reset();
+        }
+
         dataset.refresh();
     }
 
