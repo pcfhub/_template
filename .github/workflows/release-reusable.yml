@@ -273,7 +273,75 @@ jobs:
 
           Get-ChildItem artifacts | ForEach-Object { Write-Host "attaching $($_.Name) ($($_.Length) bytes)" }
 
-      # `generate_release_notes` only when this is a *new* tag.
+      # The release notes are the annotated tag's message.
+      #
+      # GitHub's generated notes are a list of merged pull requests plus a
+      # compare link. These repositories push commits directly, so the list is
+      # empty and every release body is one line — "Full Changelog: …" — which
+      # is exactly what every component page on the hub showed, for every
+      # version, until this step. The hub imports the release body into the
+      # component's changelog verbatim, so the body has to carry the words.
+      #
+      # An annotated tag is the right place for them: it is written at the
+      # moment of release, travels with the tag, and needs no file in the tree
+      # to fall out of date. Tag with `git tag -a vX.Y.Z -F notes.md` and the
+      # message becomes the body, Markdown and all. A lightweight tag, or an
+      # annotated one with an empty body, falls back to GitHub's generated
+      # notes rather than to nothing — but the check below says so out loud,
+      # because a release with no notes is the mistake this step exists to
+      # stop, not a state to pass quietly.
+      #
+      # `%(contents)` is the whole message; `%(contents:subject)` alone would be
+      # a title, and the subject line of a tag is conventionally the version.
+      - name: Read the release notes off the tag
+        id: notes
+        shell: pwsh
+        run: |
+          $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
+
+          # A re-dispatch checks out the tag by name and may hold only the
+          # commit it points at; the annotation is a separate object.
+          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}" 2>$null
+
+          $type = (git cat-file -t "refs/tags/$tag").Trim()
+          $body = ''
+
+          if ($type -eq 'tag') {
+            $body = ((git tag -l --format='%(contents)' $tag) -join "`n").Trim()
+
+            # A first line that is only the version — "v0.2.6", "Release 0.2.6",
+            # "Row Commands 0.1.6" — is the tag naming itself, and the release
+            # already carries that name as its title. Drop it so the body
+            # starts with the words; keep a first line that says anything more.
+            $lines = $body -split "`n"
+            if ($lines.Count -gt 0 -and $lines[0] -match '^([a-z ]+\s)?(v|release\s+)?\d+\.\d+\.\d+\s*$') {
+              $body = (($lines | Select-Object -Skip 1) -join "`n").Trim()
+            }
+          }
+
+          if ($body -eq '') {
+            Write-Host "::warning::Tag $tag carries no message, so the release gets GitHub's generated notes — which, for a repository without pull requests, is one compare link. Annotate the tag: git tag -a $tag -F notes.md"
+            "has=false" >> $env:GITHUB_OUTPUT
+          } else {
+            # The compare link GitHub's generator would have added, kept for
+            # the reader who wants the commits. Against the previous tag when
+            # there is one, else the commit list up to this tag.
+            git fetch --tags --force origin 2>$null
+            $previous = (git describe --tags --abbrev=0 "$tag^" 2>$null)
+            $link = if ($previous) {
+              "https://github.com/${{ github.repository }}/compare/${previous}...${tag}"
+            } else {
+              "https://github.com/${{ github.repository }}/commits/${tag}"
+            }
+            $body = "$body`n`n**Full Changelog**: $link"
+
+            Write-Host "release notes from tag ${tag}: $($body.Split("`n").Count) line(s)"
+            "has=true" >> $env:GITHUB_OUTPUT
+            Set-Content -Path release-notes.md -Value $body -NoNewline
+          }
+
+      # `generate_release_notes` only when there is no tag message *and* this
+      # is a new tag.
       #
       # Re-dispatching an existing tag re-runs the build against a release that
       # already has notes, and asking GitHub to generate them again appends a
@@ -284,12 +352,15 @@ jobs:
       # here is a duplicate on the published page.
       #
       # `inputs.tag` is set only by workflow_dispatch, so its emptiness is
-      # exactly the "first time this tag has been released" signal.
+      # exactly the "first time this tag has been released" signal. With a tag
+      # message the body is replaced outright on either path, which is what
+      # makes re-dispatching a tag after fixing its message do the right thing.
       - name: Publish the release
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ inputs.tag || github.ref_name }}
-          generate_release_notes: ${{ inputs.tag == '' }}
+          body_path: ${{ steps.notes.outputs.has == 'true' && 'release-notes.md' || '' }}
+          generate_release_notes: ${{ steps.notes.outputs.has != 'true' && inputs.tag == '' }}
           append_body: false
           files: artifacts/*
 

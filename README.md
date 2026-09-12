@@ -138,7 +138,14 @@ it.
    - `__CONTROL__/ControlManifest.Input.xml` → `<control version="…">`
    - `Solution/src/Other/Solution.xml` → `<Version>`
    - `package.json` → `"version"`
-2. Tag it: `git tag v1.2.3 && git push --tags`
+2. Write the release notes — what changed for the user, what was fixed, what
+   they must do — in a Markdown file.
+3. Tag with them: `git tag -a v1.2.3 -F notes.md && git push origin v1.2.3`
+
+**The tag message is the release body, and the release body is the changelog
+on the hub.** A lightweight tag gets GitHub's generated notes instead, which
+for a repository without pull requests is a single compare link — and the
+workflow warns when that is about to happen.
 
 The release workflow builds, packs both solution types, and attaches them to a
 GitHub Release. PCFHub picks the release up from its webhook within seconds, or
