@@ -671,6 +671,198 @@ check(
     rig.state.calls.join(' '),
 );
 
+/* ------------------------------------------- the surfaces 0.4.0 taught it */
+
+/*
+ * Checks on the rig rather than on the scaffolded control, because the control
+ * scaffolded here touches none of these — and the first one that does has to
+ * be able to trust them. Each models something measured on a real
+ * model-driven subgrid on 2026-09-11 by `pcf-data-table` 0.4.0, which is where
+ * every shape below was learnt; `_template` carries them so the next dataset
+ * control does not learn them again on a form.
+ */
+
+/*
+ * The date operators, by calendar day. Before these cases existed the switch
+ * passed every unmodelled operator through, so a control sending `On` (25)
+ * narrowed nothing here and read as working to any assertion that counted rows.
+ */
+const dated = host.createHost(fixture, { pageSize: 50 });
+
+const daysMatching = (operator) => {
+    dated.dataset.filtering.setFilter({
+        filterOperator: host.AND,
+        conditions: [{ attributeName: 'modifiedon', conditionOperator: operator, value: '2026-03-01' }],
+    });
+    dated.dataset.refresh();
+
+    return dated.dataset.sortedRecordIds.length;
+};
+
+check(
+    'the rig models On, OnOrAfter and OnOrBefore by calendar day',
+    daysMatching(host.OPERATOR.On) === 1
+        && daysMatching(host.OPERATOR.OnOrAfter) === 4
+        && daysMatching(host.OPERATOR.OnOrBefore) === 9,
+    `On ${daysMatching(host.OPERATOR.On)}, OnOrAfter ${daysMatching(host.OPERATOR.OnOrAfter)}, OnOrBefore ${daysMatching(host.OPERATOR.OnOrBefore)} of 12`,
+);
+
+/*
+ * `Equal` on a choice takes the integer as a string — what
+ * `ConditionExpression.value` is typed as, and what the server accepted
+ * alongside the number. Three rows hold `3`.
+ */
+dated.dataset.filtering.setFilter({
+    filterOperator: host.AND,
+    conditions: [{ attributeName: 'industrycode', conditionOperator: host.OPERATOR.Equal, value: '3' }],
+});
+dated.dataset.refresh();
+
+check(
+    'Equal on a choice column takes the integer as a string',
+    dated.dataset.sortedRecordIds.join(',') === 'a02,a05,a11',
+    dated.dataset.sortedRecordIds.join(','),
+);
+
+/*
+ * The shapes a record hands over. A choice reads back as a **string** and
+ * displays as its label; a lookup reads back as an `EntityReference` and
+ * displays as its name. `String(value)` for either is the bug this catches.
+ */
+const shaped = host.createHost(fixture, { pageSize: 50 });
+const first = shaped.dataset.records.a01;
+
+check(
+    'a choice reads back as a string and displays as its label',
+    first.getValue('statecode') === '0' && first.getFormattedValue('statecode') === 'Active',
+    `getValue ${JSON.stringify(first.getValue('statecode'))}, formatted ${JSON.stringify(first.getFormattedValue('statecode'))}`,
+);
+
+check(
+    'a lookup reads back as an EntityReference and displays as its name',
+    first.getValue('ownerid').etn === 'systemuser'
+        && first.getValue('ownerid').id.guid === 'b3f1a0c2-0000-4000-8000-000000000001'
+        && first.getFormattedValue('ownerid') === 'Sam Vaziri',
+    `formatted ${JSON.stringify(first.getFormattedValue('ownerid'))}`,
+);
+
+/*
+ * The write half. `setValue` returns `undefined`, `save` resolves without
+ * applying, and `reread()` is what makes the value visible — the window an
+ * optimistic control has to hold its own value across.
+ */
+const staged = first.setValue('industrycode', 4);
+
+check('setValue returns undefined, because the platform does', staged === undefined, String(staged));
+
+/*
+ * The metadata node, in both measured shapes, behind a prototype getter.
+ * `Object.keys(metadata)` sees only the private fields — a reader that walks
+ * keys instead of reading `Attributes` by name gets nothing.
+ */
+const metadataChecks = async () => {
+    await first.save();
+
+    check(
+        'a resolved save is not a re-read',
+        shaped.stored('a01', 'industrycode') === 2 && first.getValue('industrycode') === '2',
+        `stored ${shaped.stored('a01', 'industrycode')} before reread`,
+    );
+
+    shaped.reread();
+
+    check(
+        'and reread() is what carries the written integer',
+        shaped.stored('a01', 'industrycode') === 4
+            && shaped.dataset.records.a01.getValue('industrycode') === '4'
+            && shaped.dataset.records.a01.getFormattedValue('industrycode') === 'Technology',
+        `stored ${shaped.stored('a01', 'industrycode')} after reread`,
+    );
+
+    const readOnly = await first.isEditable('statecode');
+    const writable = await first.isEditable('industrycode');
+
+    check(
+        'isEditable is a promise, false for state and true for a choice',
+        readOnly === false && writable === true,
+        `statecode ${readOnly}, industrycode ${writable}`,
+    );
+
+    const metadata = await shaped.context.utils.getEntityMetadata('account', ['industrycode']);
+    const mapNode = metadata.Attributes.get('industrycode');
+    const descriptorNode = metadata.Attributes.get('statecode');
+
+    check(
+        'getEntityMetadata hides Attributes behind the prototype',
+        Object.keys(metadata).every((key) => key.startsWith('_')) && typeof metadata.Attributes.get === 'function',
+        Object.keys(metadata).join(' '),
+    );
+
+    check(
+        'a choice node carries its options as a value-keyed map, not an Options array',
+        mapNode.OptionSet[3].text === 'Services'
+            && mapNode.OptionSet.Options === undefined
+            && mapNode.attributeDescriptor.OptionSet === undefined,
+        JSON.stringify(mapNode.OptionSet),
+    );
+
+    check(
+        'or as attributeDescriptor.OptionSet in the maker\'s order',
+        Array.isArray(descriptorNode.attributeDescriptor.OptionSet)
+            && descriptorNode.attributeDescriptor.OptionSet[1].Label === 'Inactive'
+            && descriptorNode.OptionSet === undefined,
+        JSON.stringify(descriptorNode.attributeDescriptor.OptionSet),
+    );
+
+    check(
+        'and a lookup node carries Targets',
+        JSON.stringify(metadata.Attributes.get('ownerid').Targets) === '["systemuser"]'
+            && metadata.Attributes.get('name') === undefined,
+        JSON.stringify(metadata.Attributes.get('ownerid').Targets),
+    );
+
+    /*
+     * `openForm` resolves the dismissal by default — `{ savedEntityReference:
+     * null }`, measured — and whatever `openFormReturns` says otherwise; the
+     * options are logged whole. `contextInfo` is the parent, or absent.
+     */
+    const dismissed = await shaped.context.navigation.openForm({ entityName: 'account', useQuickCreateForm: true });
+    const withParent = host.createHost(fixture, {
+        contextInfo: { entityTypeName: 'account', entityId: '85f67958-7637-f111-88b5-7ced8d3b545a' },
+        openFormReturns: { savedEntityReference: [{ id: '{436E09A8-1111-4222-8333-444444444444}', entityType: 'account', name: 'x' }] },
+    });
+    const saved = await withParent.context.navigation.openForm({ entityName: 'account' });
+
+    check(
+        'openForm resolves the measured dismissal by default, and the saved shape on request',
+        dismissed.savedEntityReference === null
+            && saved.savedEntityReference[0].id === '{436E09A8-1111-4222-8333-444444444444}'
+            && shaped.state.calls.includes('navigation.openForm({"entityName":"account","useQuickCreateForm":true})'),
+        `${JSON.stringify(dismissed)} / ${JSON.stringify(saved)}`,
+    );
+
+    check(
+        'contextInfo is the parent record when the host has one, and absent when it does not',
+        withParent.context.mode.contextInfo.entityId === '85f67958-7637-f111-88b5-7ced8d3b545a'
+            && shaped.context.mode.contextInfo === undefined,
+        JSON.stringify(withParent.context.mode.contextInfo),
+    );
+
+    /*
+     * Canvas has neither. `utils` and `openForm` go together on that host,
+     * whatever the options say — the rule a control has to follow is "detect
+     * the method", and this is the rig refusing to hand it one.
+     */
+    const canvas = host.createHost(fixture, { host: 'canvas', utils: true });
+
+    check(
+        'canvas has no utils and no openForm, whatever the options say',
+        canvas.context.utils === undefined && canvas.context.navigation.openForm === undefined,
+        `utils ${typeof canvas.context.utils}, openForm ${typeof canvas.context.navigation.openForm}`,
+    );
+};
+
+
 /* ------------------------------------------------------------ the counters */
 
 /*
@@ -803,7 +995,10 @@ check('and re-rendering does not add another one', time.pending() === afterFirst
 
 disposeAll();
 
-report();
+metadataChecks().then(report, (error) => {
+    check('the asynchronous rig checks ran at all', false, String((error && error.stack) || error));
+    report();
+});
 
 function report() {
     const failed = results.filter((result) => !result.ok);

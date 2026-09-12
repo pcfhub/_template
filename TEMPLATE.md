@@ -239,13 +239,64 @@ avoid, so the rig reproduces the trap rather than papering over it. There is a
 `filteringAbsent` switch beside `sortingAbsent` for the host that supplies no
 `filtering` object at all.
 
+**Every operator a control sends has to be in `holds()`, or the rig is more
+generous than the platform.** An unmodelled operator passes every row through
+— the deliberate default, so an assertion reads "no filtering happened" rather
+than "everything vanished" — and that default certified a date filter that
+filtered nothing for a whole build of `pcf-data-table`. The rig now models
+`On`, `OnOrBefore` and `OnOrAfter` by calendar day in the local zone,
+which is what a model-driven server was measured doing (2026-09-11: the day is
+compared in the *user's* zone, not UTC), and `Equal` on a choice column with
+the integer as a string. The fixture carries a hidden date column and two
+Choice columns so those cases have rows to narrow.
+
+**The fixture holds what the platform hands over, not labels.** A choice is
+its integer, a lookup is an `EntityReference` — `{ id: { guid }, etn, name }`,
+GUID unbraced and lower-case — and the record shapes them the way a live one
+does: `getValue` on a choice returns the **string** `"3"`, `getFormattedValue`
+returns the label or the name. Until 0.4.0 of `pcf-data-table` both columns
+held strings, which is why no scaffolded control had ever seen the shapes a
+form sends.
+
+**The record writes, on the surface the typings do not declare.** `setValue`
+(returns `undefined`, stages), `save()` (resolves without applying — the
+record still reads the old value until `handle.reread()`, which is the
+window an optimistic control has to hold its own value across), `isDirty`
+and `isEditable` (a Promise, `false` for `readOnlyColumns`, which default to
+`statecode` because that is what the platform answered). `editableAbsent`
+removes the four; `saveRejects` refuses. It stages a Lookup write like any
+other, and that is the one place it is knowingly more generous than the host
+it was measured against: five shapes were refused there. A control that writes
+lookups this way has to prove it on a form.
+
+**`context.utils.getEntityMetadata` is there, and its answer is shaped as
+measured rather than as documented.** A class instance whose `Attributes` is
+a prototype getter — `Object.keys` sees only private fields — with
+`.get(column)` returning a node whose option list is **a value-keyed map**
+at `OptionSet` (`{ 3: { text, value } }`, no `Options` array, no
+`GlobalOptionSet`) or an array at `attributeDescriptor.OptionSet`; the
+fixture serves one shape per column so a parser reading only one route is
+caught. `Targets` sits at the top of a `Lookup.Simple` node and under
+`attributeDescriptor` only for a `Lookup.Customer`. `utils: false` and
+`quirks.metadataRejects` are the switches, and canvas removes the bag
+whatever the option says.
+
 **Navigation, the platform dialogs and `webAPI` are switches too, and each is
 its own.** `context.navigation` is typed non-optional, which is a claim about
 the type definitions rather than about the host, so `hasNavigation: false`
-removes the bag outright. Inside it, presence is *per method*: `openForm` and
-`openUrl` are everywhere, `openFile` is model-driven only, and the three dialogs
-are a model-driven affordance canvas does not have — so `openFile` and
-`dialogs: 'absent'` remove those independently. A control that checks the bag
+removes the bag outright. Inside it, presence is *per method*: `openUrl` is
+everywhere, `openForm` and `openFile` are model-driven only, and the three
+dialogs are a model-driven affordance canvas does not have — so `host:
+'canvas'`, `openFile` and `dialogs: 'absent'` remove those independently.
+
+`openForm` logs its options whole — whether `useQuickCreateForm` was set,
+whether `createFromEntity` named the parent — and resolves `openFormReturns`,
+whose default is the measured **dismissal, `{ savedEntityReference: null }`**:
+not `[]`, not a rejection, and the branch a control forgets. A saved quick
+create form resolves an array carrying a **braced, upper-case** GUID, unlike
+anything `getValue` returns. `contextInfo` is the subgrid's parent record —
+`mode.contextInfo`, untyped on the platform — and `undefined` when unset, as a
+main grid is expected to leave it. A control that checks the bag
 once and then calls four methods through it passes on the host it was written on
 and throws on the next one, and only a rig that can remove them one at a time
 will say so.

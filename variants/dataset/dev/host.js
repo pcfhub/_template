@@ -105,6 +105,15 @@
      * the both-host list, which is worse than an omission: an unhonoured
      * operator *passes* by the rule below, so a `>=` filter looked filtered
      * while filtering nothing.
+     *
+     * `On` (25), `OnOrBefore` (26) and `OnOrAfter` (27) are past the
+     * both-host set and are here because `pcf-data-table` 0.4.0 sends them.
+     * Measured on a model-driven subgrid 2026-09-11 with `value:
+     * 'yyyy-MM-dd'`: all three narrow, `dataset.error` stays false, and the
+     * day is compared in the **user's** zone, not UTC — a record stamped
+     * 04:30Z came back for `On` the previous day, because that is 11:30 PM
+     * where the user sits. `holds()` models exactly that. Canvas has not
+     * been asked; a control sending these there is choosing a host.
      */
     var OPERATOR = {
         Equal: 0,
@@ -115,6 +124,9 @@
         LessEqual: 5,
         Like: 6,
         Null: 12,
+        On: 25,
+        OnOrBefore: 26,
+        OnOrAfter: 27,
     };
 
     var STRINGS = {
@@ -227,6 +239,43 @@
          * remove the bag cannot tell the two apart.
          */
         hasNavigation: true,
+
+        /**
+         * What `navigation.openForm` resolves with.
+         *
+         * Measured 2026-09-11 on a quick create form opened with
+         * `useQuickCreateForm: true`: **Save** resolves `{
+         * savedEntityReference: [{ id: "{436E09A8-…}", entityType, name }] }`
+         * — the GUID braced and upper-case, unlike anything `getValue` or
+         * `contextInfo` return — and **dismissing the form resolves `{
+         * savedEntityReference: null }`**, not `[]` and not a rejection. The
+         * dismissal is the default here because it is the branch a control
+         * forgets, and `null` rather than `[]` because a reader written as
+         * `saved[0]` throws on it. An ordinary (non-quick-create) form
+         * resolves with an empty array.
+         */
+        openFormReturns: { savedEntityReference: null },
+
+        /**
+         * `mode.contextInfo` — the record a form subgrid sits on, or `null`
+         * for a main grid, which has none. Untyped on the platform; measured
+         * on a form subgrid 2026-09-11 as `{ entityTypeName: 'account',
+         * entityId: '85f6…', entityRecordName: '…' }`, the GUID unbraced. A
+         * control passes it to `openForm` as `createFromEntity` so a
+         * quick-created row lands in the subgrid it was asked for from.
+         */
+        contextInfo: null,
+
+        /**
+         * Whether `context.utils` exists at all.
+         *
+         * It does not on canvas, whatever the manifest declares, and a
+         * model-driven host may leave it out when the `Utility` feature is
+         * declared `required="false"`. Forced absent under `host: 'canvas'`
+         * however this is set, so a control cannot be told it is on canvas
+         * and then handed a metadata call canvas does not have.
+         */
+        utils: true,
 
         /**
          * Whether `webAPI.deleteRecord` rejects.
@@ -352,6 +401,38 @@
              * Off by default, because a real form supplies it.
              */
             filteringAbsent: false,
+
+            /**
+             * Whether the record carries the write half of `EntityRecord` at
+             * all — `setValue`, `save`, `isDirty`, `isEditable`.
+             *
+             * Off by default, because a real model-driven subgrid has them:
+             * measured 2026-09-09, and again 2026-09-11 for a Choice column.
+             * On, it models the host that does not, which a control has to
+             * survive by offering no editors rather than by offering ones
+             * that discard what is typed. None of these methods is in the
+             * typings, so "the host has them" is a claim about a measurement
+             * rather than about a contract.
+             */
+            editableAbsent: false,
+
+            /** `save()` rejects. The path a rollback exists for. */
+            saveRejects: false,
+
+            /**
+             * Columns `isEditable` answers `false` for.
+             *
+             * Not hypothetical: on the measured subgrid `statecode` and
+             * `statuscode` came back `false` while a Choice column on the
+             * same row came back `true` — and all three report the same
+             * `dataType`, `OptionSet`. Editability is per column *and* per
+             * record, invisible on `Column`, and a control that inferred it
+             * from the type would offer an editor over exactly this case.
+             */
+            readOnlyColumns: ['statecode'],
+
+            /** `utils.getEntityMetadata` rejects — a table the user cannot read, a network fault. */
+            metadataRejects: false,
         },
     };
 
@@ -374,6 +455,26 @@
 
         var allRecords = o.records || fixture.records;
         var columns = (o.columns || fixture.columns).slice();
+
+        /*
+         * By logical name, because `getValue` and `getFormattedValue` shape
+         * a value by its column's type — a choice's integer becomes a string
+         * on read and a label on display. Read from the live `columns` so a
+         * column `addColumn` brings in later is typed too.
+         */
+        var types = {};
+
+        function typeOf(name) {
+            if (!Object.prototype.hasOwnProperty.call(types, name)) {
+                var column = columns.filter(function (candidate) {
+                    return candidate.name === name;
+                })[0];
+
+                types[name] = column ? column.dataType || '' : '';
+            }
+
+            return types[name];
+        }
 
         /**
          * Logical names handed to `addColumn` and not yet fetched.
@@ -484,6 +585,18 @@
                     return actual === null || actual === undefined || actual === '';
                 case OPERATOR.Like:
                     return likePattern(right).test(left);
+                /*
+                 * Whole days, compared as `yyyy-MM-dd` in the *local* zone —
+                 * the platform's behaviour with the user's zone standing in
+                 * for the machine's. An empty cell matches nothing under any
+                 * of the three, as it does on the server.
+                 */
+                case OPERATOR.On:
+                    return dayOf(actual) !== null && dayOf(actual) === dayOf(condition.value);
+                case OPERATOR.OnOrBefore:
+                    return dayOf(actual) !== null && dayOf(actual) <= dayOf(condition.value);
+                case OPERATOR.OnOrAfter:
+                    return dayOf(actual) !== null && dayOf(actual) >= dayOf(condition.value);
                 default:
                     /*
                      * Unhonoured operators pass rather than fail, so an
@@ -491,9 +604,50 @@
                      * "no filtering happened" instead of "everything vanished".
                      * The second is indistinguishable from a control that
                      * filtered its own rows away.
+                     *
+                     * **That default is also how a filter that filtered
+                     * nothing got certified.** Before the three date operators
+                     * were modelled above, a control sending them passed every
+                     * row through here and read as "working" to any assertion
+                     * that counted rows. An operator a control sends has to be
+                     * in this switch, or the rig is more generous than the
+                     * platform — the failure this whole file exists to prevent.
                      */
                     return true;
             }
+        }
+
+        /**
+         * A value's calendar day as `yyyy-MM-dd`, or `null` for no value.
+         *
+         * A date-only string is already a day and is taken as one — parsing
+         * it through `Date` would make it UTC midnight and shift it west of
+         * Greenwich, the bug `pcf-date-range-picker` paid for three times.
+         * Anything else is a timestamp, and its day is the local one.
+         */
+        function dayOf(value) {
+            if (value === null || value === undefined || value === '') {
+                return null;
+            }
+
+            var text = String(value);
+
+            // A bare day, or a day at UTC midnight — which is how a DateOnly
+            // column hands its day over. Either is the day as written.
+            if (/^\d{4}-\d{2}-\d{2}(T00:00:00(\.000)?Z)?$/.test(text)) {
+                return text.slice(0, 10);
+            }
+
+            var date = value instanceof Date ? value : new Date(text);
+
+            if (isNaN(date.getTime())) {
+                return null;
+            }
+
+            var month = String(date.getMonth() + 1);
+            var day = String(date.getDate());
+
+            return date.getFullYear() + '-' + (month.length < 2 ? '0' + month : month) + '-' + (day.length < 2 ? '0' + day : day);
         }
 
         function escapeForRegExp(part) {
@@ -620,13 +774,93 @@
             });
         }
 
+        /**
+         * One attribute's metadata node, in the shape measured 2026-09-11.
+         *
+         * A real node carries a Choice's option list twice —
+         * `attributeDescriptor.OptionSet` as an array of `{ Label, Value,
+         * IsHidden }` in the maker's order, and `OptionSet` as a **map keyed
+         * by value** of `{ text, value }` — with no `Options` array anywhere
+         * and no `GlobalOptionSet`. That is not the shape the reference page
+         * describes, and not the one `pcf-kanban-board` documented. The
+         * fixture asks for one shape per column so that a control reading only
+         * one route is caught by the column carrying the other. Labels are
+         * plain strings on both.
+         *
+         * A lookup carries `Targets` at the top of the node for a
+         * `Lookup.Simple`, and only under `attributeDescriptor` for a
+         * `Lookup.Customer`; both are served so a reader has to try both.
+         */
+        function attributeNode(name) {
+            var entry = (fixture.metadata || {})[name];
+
+            if (!entry) {
+                return undefined;
+            }
+
+            var node = {
+                LogicalName: name,
+                AttributeTypeName: typeOf(name),
+                attributeDescriptor: { LogicalName: name },
+            };
+
+            if (entry.targets) {
+                node.attributeDescriptor.Targets = entry.targets.slice();
+
+                if (entry.shape !== 'customer') {
+                    node.Targets = entry.targets.slice();
+                }
+            }
+
+            if (entry.options && entry.shape === 'descriptor') {
+                node.attributeDescriptor.OptionSet = entry.options.map(function (option) {
+                    return { Label: option.label, Value: option.value, IsHidden: false };
+                });
+            }
+
+            if (entry.options && entry.shape === 'map') {
+                node.OptionSet = {};
+                entry.options.forEach(function (option) {
+                    node.OptionSet[option.value] = { text: option.label, value: option.value };
+                });
+            }
+
+            return node;
+        }
+
+        /** The label a Choice's integer renders as, from `fixture.metadata`. */
+        function optionLabel(name, value) {
+            var options = ((fixture.metadata || {})[name] || {}).options || [];
+            var match = options.filter(function (option) {
+                return String(option.value) === String(value);
+            })[0];
+
+            return match ? match.label : String(value);
+        }
+
         function recordFor(row) {
-            return {
+            var record = {
                 getRecordId: function () {
                     return row.id;
                 },
+                /*
+                 * **A choice reads back as a string.** `getValue` on an
+                 * `OptionSet` column returned `"3"` on the measured subgrid,
+                 * not `3`, while `setValue` wants the integer — so a control
+                 * comparing what it wrote with what it reads has to coerce,
+                 * and a rig that handed back the fixture's number would let
+                 * one that does not pass. A lookup reads back as the
+                 * `EntityReference` the fixture holds: `{ id: { guid }, etn,
+                 * name }`, GUID unbraced and lower-case.
+                 */
                 getValue: function (name) {
-                    return row.values[name];
+                    var value = row.values[name];
+
+                    if (typeof value === 'number' && typeOf(name) === 'OptionSet') {
+                        return String(value);
+                    }
+
+                    return value;
                 },
                 getFormattedValue: function (name) {
                     /*
@@ -641,12 +875,102 @@
                         return row.formatted[name];
                     }
 
-                    return formatted(row.values[name]);
+                    var value = row.values[name];
+                    var type = typeOf(name);
+
+                    // The platform never shows a choice as its integer or a
+                    // lookup as its object; `String({ id: … })` is
+                    // `[object Object]` in a cell.
+                    if (value !== null && value !== undefined && type === 'OptionSet') {
+                        return optionLabel(name, value);
+                    }
+
+                    if (value && typeof value === 'object' && type.indexOf('Lookup') === 0) {
+                        return formatted(value.name);
+                    }
+
+                    return formatted(value);
                 },
                 getNamedReference: function () {
                     return { id: row.id, name: formatted(row.values.name), etn: fixture.targetEntityType };
                 },
             };
+
+            /*
+             * **The write half of `EntityRecord`, which the type definitions
+             * do not declare.** Measured on a real model-driven subgrid: a
+             * live record carries twenty-three methods where the typings
+             * declare four, and `setValue` + `save` committed a value that
+             * survived a reload — a text cell 2026-09-09, a Choice integer
+             * 2026-09-11. It is worth a control reaching past the typings for,
+             * because the alternative, `webAPI.updateRecord`, needs
+             * `<uses-feature name="WebAPI" />` and does nothing in canvas.
+             *
+             * **It does not stage a Lookup.** Five value shapes were tried on
+             * a `Lookup.Simple` column and every `save()` was refused with
+             * "Invalid snapshot"; the stored value never moved. This rig
+             * accepts a lookup write like any other, which is the one place it
+             * is more generous than the platform — deliberately, because
+             * refusing it here would be modelling one host's failure as a
+             * contract. A control that writes lookups through `setValue` has
+             * to prove it on a form.
+             */
+            if (quirks.editableAbsent) {
+                return record;
+            }
+
+            // Staged, not applied: `setValue` on the platform does not commit.
+            row.staged = row.staged || {};
+
+            /*
+             * **Returns `undefined`, because the platform does.** Microsoft's
+             * reference page types it `Promise`; a rig that returned one let
+             * `pcf-data-table` chain `.then` off it for three releases and
+             * ship a write that could never work.
+             */
+            record.setValue = function (name, value) {
+                log('record.setValue', name);
+                row.staged[name] = value;
+
+                return undefined;
+            };
+
+            record.save = function () {
+                log('record.save', row.id);
+
+                if (quirks.saveRejects) {
+                    row.staged = {};
+
+                    return Promise.reject(new Error('The platform refused this write.'));
+                }
+
+                /*
+                 * **Resolving is not applying.** A resolved `save()` is
+                 * Dataverse accepting the write; the dataset re-reads on a
+                 * separate fetch, and until `handle.reread()` the record
+                 * still reports the old value — which is the window an
+                 * optimistic control has to hold its own value across.
+                 */
+                row.committed = Object.assign(row.committed || {}, row.staged);
+                row.staged = {};
+
+                return Promise.resolve();
+            };
+
+            record.isDirty = function () {
+                return Promise.resolve(Object.keys(row.staged).length > 0);
+            };
+
+            /*
+             * **A Promise, because the platform's is.** An unawaited call is a
+             * truthy Promise, so `if (record.isEditable(name))` is true for
+             * every column; returning a bare boolean here would let that pass.
+             */
+            record.isEditable = function (name) {
+                return Promise.resolve(quirks.readOnlyColumns.indexOf(name) === -1);
+            };
+
+            return record;
         }
 
         var filtering = {
@@ -922,8 +1246,8 @@
          * `context.navigation`, assembled method by method.
          *
          * **Presence is per method, not per bag**, and that is the whole reason
-         * this is a function rather than an object literal. `openForm` and
-         * `openUrl` are there on every host; `openFile` is documented
+         * this is a function rather than an object literal. `openUrl` is
+         * there on every host; `openForm` and `openFile` are documented
          * model-driven only; the three dialogs are a model-driven affordance
          * that canvas does not have. A control that checks `context.navigation`
          * once and then calls four methods through it passes on the host it was
@@ -942,22 +1266,6 @@
 
             var navigation = {
                 /**
-                 * Resolves with an `OpenFormSuccessResponse`, whose
-                 * `savedEntityReference` is populated only when a *quick create*
-                 * form saved something — an ordinary form opening resolves with
-                 * an empty array, and a control that waits for a reference from
-                 * one waits forever.
-                 */
-                openForm: function (formOptions) {
-                    log('navigation.openForm', {
-                        entityName: (formOptions || {}).entityName,
-                        entityId: (formOptions || {}).entityId,
-                    });
-
-                    return Promise.resolve({ savedEntityReference: [] });
-                },
-
-                /**
                  * **Returns `void`, not a promise.** The odd one out in this
                  * bag, and `void openUrl(...)` in the type definitions — so
                  * `await`ing it is harmless and `.catch()` on it is a
@@ -969,6 +1277,22 @@
                     log('navigation.openUrl', url);
                 },
             };
+
+            // Model-driven only, on the same rule as `openFile` below.
+            if (o.host !== 'canvas') {
+                /**
+                 * Logged in full, because the options *are* the behaviour:
+                 * whether `useQuickCreateForm` was set, whether
+                 * `createFromEntity` named the parent, whether `entityId`
+                 * was left out for a create. Resolves `o.openFormReturns` —
+                 * see DEFAULTS for the three measured shapes.
+                 */
+                navigation.openForm = function (formOptions) {
+                    log('navigation.openForm', formOptions);
+
+                    return Promise.resolve(o.openFormReturns);
+                };
+            }
 
             if (o.openFile) {
                 navigation.openFile = function (file, fileOptions) {
@@ -1112,7 +1436,62 @@
                     // Pinned at -1 under `heightUnmeasured`, whatever `height`
                     // says — a main grid answers the width and never this.
                     allocatedHeight: quirks.heightUnmeasured ? -1 : o.height,
+                    // The parent record of a form subgrid, `undefined` on a
+                    // main grid. See DEFAULTS.
+                    contextInfo: o.contextInfo
+                        ? {
+                            entityTypeName: o.contextInfo.entityTypeName,
+                            entityId: o.contextInfo.entityId,
+                            entityRecordName: o.contextInfo.entityRecordName,
+                        }
+                        : undefined,
                 },
+
+                /**
+                 * `context.utils`, absent on canvas and under `utils: false`.
+                 *
+                 * **`getEntityMetadata` resolves with a class instance, not a
+                 * plain object**, and this reproduces that rather than
+                 * flattening it: the own enumerable properties are private
+                 * fields and the public members are getters on the prototype,
+                 * so code that walks `Object.keys` sees `_entityDescriptor`
+                 * and concludes there is nothing there, while reading
+                 * `metadata.Attributes` by name works. A flat object here
+                 * would let that code pass locally and fail on a form.
+                 *
+                 * `Attributes.get(column)` returns the node `attributeNode`
+                 * builds from `fixture.metadata`, and `undefined` for a
+                 * column the fixture says nothing about — what a real node
+                 * does for a column that is not a choice or a lookup.
+                 */
+                utils: o.utils && o.host !== 'canvas'
+                    ? {
+                        getEntityMetadata: function (entityName, attributes) {
+                            log('utils.getEntityMetadata', { entity: entityName, attributes: attributes });
+
+                            if (quirks.metadataRejects) {
+                                return Promise.reject(new Error('Metadata for ' + entityName + ' could not be read.'));
+                            }
+
+                            function Metadata() {
+                                this._entityDescriptor = { EntityLogicalName: entityName };
+                                this._attributes = attributes || [];
+                            }
+
+                            Object.defineProperty(Metadata.prototype, 'Attributes', {
+                                get: function () {
+                                    return {
+                                        get: function (name) {
+                                            return attributeNode(name);
+                                        },
+                                    };
+                                },
+                            });
+
+                            return Promise.resolve(new Metadata());
+                        },
+                    }
+                    : undefined,
 
                 /*
                  * The Web API, with its refusals modelled first.
@@ -1281,6 +1660,43 @@
             },
             settled: function () {
                 state.renderOwed = false;
+            },
+            /**
+             * The host re-reading after a write — a separate fetch from the
+             * `save()` that resolved.
+             *
+             * Values committed by `record.save()` become visible on the
+             * records only here. Until it is called, a control's own override
+             * is the only thing holding the new value on screen, which is the
+             * state a control that retires its override too early gets wrong:
+             * on a form the cell visibly jumps back and then forward.
+             */
+            reread: function () {
+                allRecords.forEach(function (row) {
+                    if (!row.committed) {
+                        return;
+                    }
+
+                    Object.keys(row.committed).forEach(function (name) {
+                        row.values[name] = row.committed[name];
+                    });
+                    row.committed = null;
+                });
+
+                state.renderOwed = true;
+            },
+            /**
+             * What the server holds for one cell, untouched by `getValue`'s
+             * shaping. `getValue` on a choice hands back a string, as the
+             * platform does, so it cannot say whether the control *wrote* the
+             * integer `setValue` wants — this can.
+             */
+            stored: function (id, name) {
+                var row = allRecords.filter(function (candidate) {
+                    return candidate.id === id;
+                })[0];
+
+                return row ? row.values[name] : undefined;
             },
         };
     }
