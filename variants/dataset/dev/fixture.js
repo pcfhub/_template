@@ -79,6 +79,42 @@
             ownerid: { targets: ['systemuser'] },
         },
 
+        /**
+         * What `EntityDefinitions(...)/ManyToOneRelationships` returns for the
+         * bound table, reduced to the three fields a lookup write needs — the
+         * rig serves it through a same-origin `fetch`, because that is the
+         * only route a control has: `context.webAPI` cannot address
+         * `EntityDefinitions`.
+         *
+         * **The navigation property is not derivable, which is why this is a
+         * table.** Measured 2026-09-13 (`pcf-data-table` 0.5.0): a custom
+         * lookup's was its logical name, not the schema-cased spelling, and a
+         * `Lookup.Customer` has **two**, one per target — `<column>_account`
+         * and `<column>_contact`. A control that builds the `@odata.bind` key
+         * from the column name is refused as an undeclared property. Add one
+         * row per column per target for the lookups your control writes.
+         */
+        relationships: [
+            { column: 'ownerid', target: 'systemuser', navigationProperty: 'ownerid' },
+        ],
+
+        /**
+         * The tables a lookup can point at: the entity set name — the plural
+         * the `@odata.bind` value is spelled with, off
+         * `getEntityMetadata(table).EntitySetName` — and the rows a pick can
+         * land on. A bind to a GUID not listed here is refused the way the
+         * platform refused one: "The requested record was not found."
+         */
+        related: {
+            systemuser: {
+                entitySet: 'systemusers',
+                rows: [
+                    { id: 'b3f1a0c2-0000-4000-8000-000000000001', name: 'Sam Vaziri' },
+                    { id: 'b3f1a0c2-0000-4000-8000-000000000002', name: 'Jo Park' },
+                ],
+            },
+        },
+
         /*
          * `order` is not the array order, on purpose: a view's columns arrive
          * in whatever order the platform hands them over and carry their

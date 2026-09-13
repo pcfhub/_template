@@ -289,6 +289,32 @@
         webApiFails: false,
 
         /**
+         * Whether `context.page` exists. Its `getClientUrl()` is how a control
+         * finds the organisation for a same-origin metadata `fetch` — the only
+         * way to reach `EntityDefinitions`, which `context.webAPI` cannot
+         * address. Not in the typings; absent on canvas and here under `false`.
+         */
+        page: true,
+
+        /**
+         * Whether `utils.lookupObjects` exists while `utils` itself does. A
+         * host can withhold the dialog on its own, so a control detects the
+         * method and not the bag.
+         */
+        lookupObjects: true,
+
+        /**
+         * What `utils.lookupObjects` resolves with. Measured 2026-09-11: a
+         * pick is `[{ id: "{8FE84297-…}", entityType, name }]` — an array,
+         * GUID **braced and upper-case**, the opposite of what `getValue`
+         * reports — and a **cancel resolves `[]`**, not `undefined` and not a
+         * rejection. The default is the cancel, because that is the branch a
+         * control forgets. Pass `{ id, entityType, name }` for a pick; the rig
+         * braces and upper-cases the id itself.
+         */
+        lookupPick: null,
+
+        /**
          * What the platform dialogs do, and there are four answers rather than
          * two.
          *
@@ -433,8 +459,48 @@
 
             /** `utils.getEntityMetadata` rejects — a table the user cannot read, a network fault. */
             metadataRejects: false,
+
+            /** `getEntityMetadata(table).EntitySetName` answers `undefined` — a table the fixture does not know. */
+            entitySetAbsent: false,
+
+            /** The HTTP status the relationships `fetch` answers with; anything but 200 is a refusal. */
+            relationshipsStatus: 200,
         },
     };
+
+    /** The organisation `page.getClientUrl()` answers. A host, not a path. */
+    var CLIENT_URL = 'https://rig.crm.invalid';
+
+    /**
+     * The `message` of a payload fault, verbatim from a probe (`pcf-data-table`
+     * 0.4.2, 2026-09-13) up to the first line of the stack trace — the shape a
+     * control has to find one readable sentence in. The useful part sits
+     * after the second `InnerException :` and before `\r\n`.
+     */
+    var PAYLOAD_FAULT =
+        "Error identified in Payload provided by the user for Entity :'', For more information on "
+        + 'this error please follow this help link https://go.microsoft.com/fwlink/?linkid=%5BPlaceholderString-22%5D'
+        + '  ---->  InnerException : Microsoft.OData.ODataException: An undeclared property '
+        + "'cll_PrimaryContact' which only has property annotations in the payload but no property "
+        + 'value was found in the payload. In OData, only declared navigation properties and declared '
+        + 'named streams can be represented as properties without values.\r\n   at '
+        + 'Microsoft.OData.JsonLight.ODataJsonLightResourceDeserializer.ReadUndeclaredProperty(…)';
+
+    /**
+     * A `webAPI` rejection in the measured shape: `{ errorCode, message,
+     * code, title, raw }`, a plain object and **not an `Error`**. `title` is
+     * `''` on a payload fault and a phrase on a server fault ("Record Is
+     * Unavailable").
+     */
+    function webApiFault(code, title, message) {
+        return {
+            errorCode: code,
+            message: message,
+            code: code,
+            title: title,
+            raw: JSON.stringify({ errorCode: code, message: message, title: title }),
+        };
+    }
 
     function formatted(value) {
         return value === null || value === undefined ? '' : String(value);
@@ -553,6 +619,56 @@
         function log(name, argument) {
             state.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
         }
+
+        /*
+         * **The metadata read a control cannot make through `context.webAPI`.**
+         * `EntityDefinitions` is reachable only by a same-origin `fetch` of the
+         * organisation URL, so the rig answers that URL — with
+         * `fixture.relationships` — and delegates every other one to whatever
+         * `fetch` was there before. Installed per host rather than once, so
+         * `relationshipsStatus` is the quirk of the host under test.
+         */
+        (function installFetch() {
+            var scope = typeof globalThis !== 'undefined' ? globalThis : root;
+            var previous = scope.fetch;
+            var prefix = CLIENT_URL + "/api/data/v9.2/EntityDefinitions(LogicalName='";
+
+            scope.fetch = function (url, init) {
+                var address = String(url);
+
+                if (address.indexOf(prefix) !== 0) {
+                    return previous
+                        ? previous.call(scope, url, init)
+                        : Promise.reject(new Error('No fetch for ' + address));
+                }
+
+                log('fetch', address.slice(CLIENT_URL.length));
+
+                var status = quirks.relationshipsStatus;
+                var body = status === 200
+                    ? {
+                        value: (fixture.relationships || []).map(function (row) {
+                            return {
+                                ReferencingAttribute: row.column,
+                                ReferencedEntity: row.target,
+                                ReferencingEntityNavigationPropertyName: row.navigationProperty,
+                            };
+                        }),
+                    }
+                    : { error: { code: '0x80040220', message: 'Refused by the rig.' } };
+
+                return Promise.resolve({
+                    ok: status >= 200 && status < 300,
+                    status: status,
+                    json: function () {
+                        return Promise.resolve(body);
+                    },
+                    text: function () {
+                        return Promise.resolve(JSON.stringify(body));
+                    },
+                });
+            };
+        })();
 
         /**
          * One `ConditionExpression` against one row.
@@ -1488,7 +1604,75 @@
                                 },
                             });
 
+                            /*
+                             * `EntitySetName` — the plural an `@odata.bind`
+                             * value is spelled with — and `PrimaryNameAttribute`,
+                             * as getters on the prototype like the rest.
+                             * Measured 2026-09-13: `contacts` / `fullname`,
+                             * `accounts` / `name`. A table the fixture does
+                             * not know answers `undefined`, which a control
+                             * refuses rather than guessing `${table}s` from.
+                             */
+                            Object.defineProperty(Metadata.prototype, 'EntitySetName', {
+                                get: function () {
+                                    if (quirks.entitySetAbsent) {
+                                        return undefined;
+                                    }
+
+                                    if (entityName === fixture.targetEntityType) {
+                                        return fixture.entitySetName || fixture.targetEntityType + 's';
+                                    }
+
+                                    var related = (fixture.related || {})[entityName];
+
+                                    return related ? related.entitySet : undefined;
+                                },
+                            });
+
+                            Object.defineProperty(Metadata.prototype, 'PrimaryNameAttribute', {
+                                get: function () {
+                                    return entityName === 'contact' ? 'fullname' : 'name';
+                                },
+                            });
+
                             return Promise.resolve(new Metadata());
+                        },
+
+                        /**
+                         * The platform's lookup dialog. Logged in full — the
+                         * `entityTypes` offered are the decision — and resolved
+                         * from `o.lookupPick`, braced and upper-cased the way
+                         * the platform hands a pick over; `[]` for a cancel,
+                         * which is the default. Absent under
+                         * `lookupObjects: false` while `utils` stays.
+                         */
+                        lookupObjects: o.lookupObjects
+                            ? function (lookupOptions) {
+                                log('utils.lookupObjects', lookupOptions);
+
+                                var pick = o.lookupPick;
+
+                                return Promise.resolve(pick
+                                    ? [{
+                                        id: '{' + String(pick.id).toUpperCase() + '}',
+                                        entityType: pick.entityType,
+                                        name: pick.name,
+                                    }]
+                                    : []);
+                            }
+                            : undefined,
+                    }
+                    : undefined,
+
+                /**
+                 * `context.page`, which is not in the typings. Its
+                 * `getClientUrl` is how a control finds the organisation for a
+                 * metadata `fetch`; absent on canvas and under `page: false`.
+                 */
+                page: o.page && o.host !== 'canvas'
+                    ? {
+                        getClientUrl: function () {
+                            return CLIENT_URL;
                         },
                     }
                     : undefined,
@@ -1516,6 +1700,110 @@
                  */
                 webAPI: o.webAPI
                     ? {
+                        /**
+                         * **Applies a bind the way the server did, and refuses
+                         * the way it did** — the only write a dataset record
+                         * cannot make itself is a Lookup (see `record.setValue`
+                         * above), and this is its route. A key is
+                         * `<navigationProperty>@odata.bind`; the property is
+                         * looked up in `fixture.relationships` to find the
+                         * column and target it stands for, and the value
+                         * `/<set>(<id>)` is checked against `fixture.related`.
+                         * An unknown property is refused as the platform
+                         * refused `cll_PrimaryContact` — "undeclared property"
+                         * — and an unknown id as it refused a zero GUID. Both
+                         * are the measured `{ errorCode, message, title, code,
+                         * raw }` shape. `null` clears. Any other key is written
+                         * as a plain attribute value.
+                         *
+                         * Resolves `{ id, entityType }` and **no `name`**,
+                         * measured 2026-09-13 — so a control's pending label
+                         * has to come from the pick. Committed values wait for
+                         * `handle.reread()` like `save()`'s do: a resolved
+                         * write is not a re-read.
+                         */
+                        updateRecord: function (entityType, id, data) {
+                            log('webAPI.updateRecord', { entity: entityType, id: id, data: data });
+
+                            if (o.webApiFails) {
+                                return Promise.reject(webApiFault(2147781913, '', PAYLOAD_FAULT));
+                            }
+
+                            var row = allRecords.filter(function (candidate) {
+                                return candidate.id === id;
+                            })[0];
+
+                            if (!row) {
+                                return Promise.reject(webApiFault(
+                                    2147746327,
+                                    'Record Is Unavailable',
+                                    'The requested record was not found.',
+                                ));
+                            }
+
+                            var failure = null;
+
+                            row.committed = row.committed || {};
+
+                            Object.keys(data || {}).forEach(function (key) {
+                                if (failure) {
+                                    return;
+                                }
+
+                                var bind = key.match(/^(.+)@odata\.bind$/);
+
+                                if (!bind) {
+                                    row.committed[key] = data[key];
+
+                                    return;
+                                }
+
+                                var relationship = (fixture.relationships || []).filter(function (candidate) {
+                                    return candidate.navigationProperty === bind[1];
+                                })[0];
+
+                                if (!relationship) {
+                                    failure = webApiFault(2147781913, '', PAYLOAD_FAULT.replace('cll_PrimaryContact', bind[1]));
+
+                                    return;
+                                }
+
+                                if (data[key] === null) {
+                                    row.committed[relationship.column] = null;
+
+                                    return;
+                                }
+
+                                var reference = String(data[key]).match(/^\/([^(]+)\(([^)]+)\)$/);
+                                var related = (fixture.related || {})[relationship.target];
+                                var target = reference && related && related.entitySet === reference[1]
+                                    ? related.rows.filter(function (candidate) {
+                                        return candidate.id === reference[2];
+                                    })[0]
+                                    : null;
+
+                                if (!target) {
+                                    failure = webApiFault(
+                                        2147746327,
+                                        'Record Is Unavailable',
+                                        'The requested record was not found.',
+                                    );
+
+                                    return;
+                                }
+
+                                row.committed[relationship.column] = {
+                                    id: { guid: target.id },
+                                    etn: relationship.target,
+                                    name: target.name,
+                                };
+                            });
+
+                            return failure
+                                ? Promise.reject(failure)
+                                : Promise.resolve({ id: id, entityType: entityType });
+                        },
+
                         retrieveRecord: function (entityType, id, options) {
                             log('webAPI.retrieveRecord', entityType + ' ' + id + ' ' + (options || ''));
 
