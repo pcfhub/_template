@@ -297,11 +297,18 @@ jobs:
         id: notes
         shell: pwsh
         run: |
+          # GitHub runs pwsh steps with $ErrorActionPreference = 'Stop' and
+          # exits with the last native command's code. git reports a fetch on
+          # stderr even when it succeeds, and under 'Stop' that alone failed
+          # this step on its first run — after it had read the notes. Nothing
+          # below is fatal: every git call has a fallback, and the step decides
+          # its own outcome at the end.
+          $ErrorActionPreference = 'Continue'
           $tag = if ('${{ inputs.tag }}') { '${{ inputs.tag }}' } else { '${{ github.ref_name }}' }
 
           # A re-dispatch checks out the tag by name and may hold only the
           # commit it points at; the annotation is a separate object.
-          git fetch --force origin "refs/tags/${tag}:refs/tags/${tag}" 2>$null
+          git fetch --quiet --force origin "refs/tags/${tag}:refs/tags/${tag}" 2>$null
 
           $type = (git cat-file -t "refs/tags/$tag").Trim()
           $body = ''
@@ -326,7 +333,12 @@ jobs:
             # The compare link GitHub's generator would have added, kept for
             # the reader who wants the commits. Against the previous tag when
             # there is one, else the commit list up to this tag.
-            git fetch --tags --force origin 2>$null
+            # The checkout is shallow, so the previous tag is not in it until
+            # fetched, and the parent commit may not be either — in which case
+            # describe fails and the link is the commit list, which is right
+            # for a first release and merely less specific for any other.
+            git fetch --quiet --tags --force origin 2>$null
+            if (Test-Path .git/shallow) { git fetch --quiet --unshallow origin 2>$null }
             $previous = (git describe --tags --abbrev=0 "$tag^" 2>$null)
             $link = if ($previous) {
               "https://github.com/${{ github.repository }}/compare/${previous}...${tag}"
@@ -339,6 +351,8 @@ jobs:
             "has=true" >> $env:GITHUB_OUTPUT
             Set-Content -Path release-notes.md -Value $body -NoNewline
           }
+
+          exit 0
 
       # `generate_release_notes` only when there is no tag message *and* this
       # is a new tag.
