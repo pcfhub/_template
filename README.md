@@ -140,7 +140,7 @@ it.
    - `package.json` → `"version"`
 2. Write the release notes — what changed for the user, what was fixed, what
    they must do — in a Markdown file.
-3. Tag with them: `git tag -a v1.2.3 -F notes.md && git push origin v1.2.3`
+3. Tag with them: `git tag -a --cleanup=verbatim v1.2.3 -F notes.md && git push origin v1.2.3` — without `--cleanup=verbatim`, git drops every `## Heading` in the notes as a comment, silently
 
 **The tag message is the release body, and the release body is the changelog
 on the hub.** A lightweight tag gets GitHub's generated notes instead, which
