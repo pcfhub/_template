@@ -539,7 +539,26 @@
         var quirks = Object.assign({}, DEFAULTS.quirks, (options || {}).quirks);
         var hostKind = HOSTS[o.host] || HOSTS['model-driven'];
 
-        var allRecords = o.records || fixture.records;
+        /*
+         * **Each host gets its own row objects, not just its own array.**
+         * `concat` below keeps the fixture's *array* unmutated across binds,
+         * and for a long time that looked like enough. It is not:
+         * `record.save()` commits into the row and `reread()` writes the
+         * commit into `row.values` — the same object every later host reads
+         * its records from. `pcf-kanban-board` found it the hard way: one
+         * suite moved a card to lane 3, and every host created after it
+         * started with that card already in lane 3, so "move it to 3" became
+         * a no-op that passed as "a refused write put it back". Seven
+         * assertions failed in a pattern that pointed at the control.
+         *
+         * Copied one level deep, which is as deep as a fixture row goes.
+         * `staged` and `committed` are reset for the same reason: a row
+         * that arrives mid-save from another host is a host that never
+         * existed.
+         */
+        var allRecords = (o.records || fixture.records).map(function (row) {
+            return Object.assign({}, row, { values: Object.assign({}, row.values), staged: null, committed: null });
+        });
         var columns = (o.columns || fixture.columns).slice();
 
         /*
@@ -1492,14 +1511,21 @@
             // Model-driven only, on the same rule as `openFile` below.
             if (o.host !== 'canvas') {
                 /**
-                 * Logged in full, because the options *are* the behaviour:
-                 * whether `useQuickCreateForm` was set, whether
-                 * `createFromEntity` named the parent, whether `entityId`
-                 * was left out for a create. Resolves `o.openFormReturns` —
-                 * see DEFAULTS for the three measured shapes.
+                 * Logged in full, **both arguments**, because the options
+                 * *are* the behaviour: whether `useQuickCreateForm` was set,
+                 * whether `createFromEntity` named the parent, whether
+                 * `entityId` was left out for a create — and what the second
+                 * argument carried. `openForm(options, parameters)` takes a
+                 * `{ [column]: string }` of field values the form opens
+                 * with, and it is how a quick create arrives with a column
+                 * already set (`pcf-kanban-board`'s "+" passes the lane).
+                 * A stub that logged the options alone would certify a
+                 * button that opens a blank form. Logged as one object so a
+                 * suite can `JSON.parse` the call. Resolves
+                 * `o.openFormReturns` — see DEFAULTS for the measured shapes.
                  */
-                navigation.openForm = function (formOptions) {
-                    log('navigation.openForm', formOptions);
+                navigation.openForm = function (formOptions, parameters) {
+                    log('navigation.openForm', { options: formOptions, parameters: parameters });
 
                     return Promise.resolve(o.openFormReturns);
                 };

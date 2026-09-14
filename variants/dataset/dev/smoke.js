@@ -779,6 +779,21 @@ const metadataChecks = async () => {
         `stored ${shaped.stored('a01', 'industrycode')} after reread`,
     );
 
+    /*
+     * **And only for this host.** The rows are the fixture's, and a host
+     * that wrote into them would hand the write to every host created after
+     * it — a suite whose later binds start from a value an earlier test
+     * committed, failing in a pattern that points at the control.
+     * `pcf-kanban-board` lost an afternoon to exactly that.
+     */
+    const fresh = host.createHost(fixture, {});
+
+    check(
+        'a write committed on one host is invisible to the next: rows are copied per host',
+        fresh.stored('a01', 'industrycode') === 2,
+        `a01.industrycode is ${fresh.stored('a01', 'industrycode')} on a fresh host`,
+    );
+
     const readOnly = await first.isEditable('statecode');
     const writable = await first.isEditable('industrycode');
 
@@ -824,9 +839,11 @@ const metadataChecks = async () => {
     /*
      * `openForm` resolves the dismissal by default — `{ savedEntityReference:
      * null }`, measured — and whatever `openFormReturns` says otherwise; the
-     * options are logged whole. `contextInfo` is the parent, or absent.
+     * options are logged whole, **and so is the second argument**, the field
+     * values the form opens with — a stub that dropped it would certify a
+     * create that opens blank. `contextInfo` is the parent, or absent.
      */
-    const dismissed = await shaped.context.navigation.openForm({ entityName: 'account', useQuickCreateForm: true });
+    const dismissed = await shaped.context.navigation.openForm({ entityName: 'account', useQuickCreateForm: true }, { statuscode: '2' });
     const withParent = host.createHost(fixture, {
         contextInfo: { entityTypeName: 'account', entityId: '85f67958-7637-f111-88b5-7ced8d3b545a' },
         openFormReturns: { savedEntityReference: [{ id: '{436E09A8-1111-4222-8333-444444444444}', entityType: 'account', name: 'x' }] },
@@ -837,7 +854,7 @@ const metadataChecks = async () => {
         'openForm resolves the measured dismissal by default, and the saved shape on request',
         dismissed.savedEntityReference === null
             && saved.savedEntityReference[0].id === '{436E09A8-1111-4222-8333-444444444444}'
-            && shaped.state.calls.includes('navigation.openForm({"entityName":"account","useQuickCreateForm":true})'),
+            && shaped.state.calls.includes('navigation.openForm({"options":{"entityName":"account","useQuickCreateForm":true},"parameters":{"statuscode":"2"}})'),
         `${JSON.stringify(dismissed)} / ${JSON.stringify(saved)}`,
     );
 
