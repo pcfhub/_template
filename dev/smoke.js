@@ -286,6 +286,19 @@ if (plain.element !== undefined) {
     );
 
     /*
+     * A column with no profile arrives as an *object* with `secured: false` on
+     * a real form (measured 2026-09-13), and `undefined` on other hosts. A read
+     * of `security.readable` as a boolean is right on both — and wrong on the
+     * third shape, an unmapped optional bound property's `{}`. Only an
+     * explicit `false` is a denial.
+     */
+    check(
+        'an unsecured column reported as an object, not undefined, is readable and editable',
+        mount({ security: 'unsecured' }).props().readable === true
+            && mount({ security: 'unsecured' }).props().disabled === false,
+    );
+
+    /*
      * The platform's own validation. A failing business rule is silent inside a
      * code component unless the control passes it on.
      */
@@ -387,6 +400,13 @@ if (plain.element !== undefined) {
     check(
         'a read-only column disables the input on an editable form',
         mount({ security: 'read-only' }).find('input').disabled === true,
+    );
+
+    // The same three shapes — see the virtual half above.
+    check(
+        'an unsecured column reported as an object, not undefined, renders the field enabled',
+        mount({ security: 'unsecured' }).find('.__CONTROL__-field').hidden === false
+            && mount({ security: 'unsecured' }).find('input').disabled === false,
     );
 
     check(

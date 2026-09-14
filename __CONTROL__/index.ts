@@ -91,9 +91,16 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         // access gets `raw === null` — indistinguishable from "empty" unless
         // `security.readable` is checked, so an unchecked control renders
         // "no value" where the truth is "not allowed to see it".
+        //
+        // Compared against `false`, never read as a boolean. A column with no
+        // profile arrives as `undefined` on some hosts and as
+        // `{ secured: false, editable: true, readable: true }` on a real
+        // Accounts form (measured 2026-09-13) — and an optional bound property
+        // the maker never mapped arrives as `{}`, where `security.readable`
+        // is undefined and a truthiness read would call it denied.
         const security = parameter.security;
 
-        if (security !== undefined && !security.readable) {
+        if (security?.readable === false) {
             // The surface goes, not just the input inside it — otherwise the
             // form is left with an empty filled box above the message.
             this.field.hidden = true;
@@ -119,7 +126,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         // Two independent reasons to be read-only. `isControlDisabled` is the
         // form's; `security.editable` is the column's.
         this.input.disabled =
-            context.mode.isControlDisabled || (security !== undefined && !security.editable);
+            context.mode.isControlDisabled || security?.editable === false;
 
         // The class is what the fill, the border and the underline key off.
         // Fluent's disabled field is a different surface rather than a dimmer

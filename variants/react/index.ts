@@ -60,12 +60,14 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
             value: this.value,
             placeholder: context.parameters.placeholder.raw ?? '',
             visible: context.mode.isVisible,
-            readable: security === undefined || security.readable,
+            // Compared against `false`, never read as a boolean: a column with
+            // no profile is `undefined` on some hosts and an object with
+            // `secured: false` on a real form, and an unmapped optional bound
+            // property is `{}` — which `security.readable` reads as denied.
+            readable: security?.readable !== false,
             // Two independent reasons to be read-only: the form's, and the
             // column's.
-            disabled:
-                context.mode.isControlDisabled
-                || (security !== undefined && !security.editable),
+            disabled: context.mode.isControlDisabled || security?.editable === false,
             // The platform's own validation. Without somewhere to put it, a
             // failing business rule is silent inside a code component.
             errorMessage: parameter.error ? parameter.errorMessage : null,

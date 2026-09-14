@@ -103,6 +103,15 @@
      */
     var SECURITY = {
         none: undefined,
+        /*
+         * What a real Accounts form handed down for a column with no profile
+         * (2026-09-13): an object with `secured: false`, not `undefined`. Both
+         * shapes are hosts, so both are here; a control reads either as
+         * writable by comparing against `false`, never by reading the flag as
+         * a boolean — and an optional bound property the maker never mapped
+         * arrives as `{}`, which the same comparison reads correctly.
+         */
+        unsecured: { editable: true, readable: true, secured: false },
         'read-only': { editable: false, readable: true, secured: true },
         'no-access': { editable: false, readable: false, secured: true },
     };
