@@ -326,6 +326,26 @@ nothing. And the deleted row leaves the *fetch*, not the call: a control that
 deletes and forgets `dataset.refresh()` sees the row still on screen, which is
 what a real form does.
 
+`webAPI.createRecord` is its mirror image: the call resolves `{ entityType,
+id }` and the row is held until the next fetch, so a control that creates and
+forgets the refresh draws a list one row short. A row lands in the bound
+dataset only when created on the bound table; `@odata.bind` keys resolve
+through `fixture.relationships` and are refused the way `updateRecord` refuses
+them; `fixture.computed(data)` supplies what the server would (`createdon`, an
+attachment's `filesize`), and `fixture.bodyColumn` lifts a body onto the row so
+`retrieveRecord` hands it back. `retrieveMultipleRecords` answers from
+`fixture.tables`, for the other table a control reads once. The `fetch` stub
+answers `EntityDefinitions(LogicalName='x')?$select=EntitySetName` from
+`fixture.entitySets` beside the relationships read — and **routes by origin**:
+each host answers a client URL of its own, because a stub installed per host
+onto the one global belonged to the last host a suite created, which is how a
+create can succeed while the assertion that two fetches were made finds none.
+`pcf-attachment-list` 0.2.0 is the worked example for all of it.
+
+A canvas host withholds `webAPI` and `navigation.openFile` however the switches
+are set, on the same rule as `utils` and `page`. A rig that can be told "canvas,
+with a Web API" passes a control that works nowhere.
+
 **Seed your input properties.** The rig builds `context.parameters` from the
 `inputs` bag it is handed and nothing else, so a property with a manifest
 `default-value` arrives as `undefined` here and as a value on a form — and

@@ -278,13 +278,17 @@
         utils: true,
 
         /**
-         * Whether `webAPI.deleteRecord` rejects.
+         * Whether the writes — `webAPI.createRecord`, `updateRecord`,
+         * `deleteRecord` — and `retrieveMultipleRecords` reject.
          *
-         * A destructive call is the one place a rejection is not an edge case:
-         * a delete fails on a cascade restriction, a missing privilege, or a
-         * record somebody else already removed, and all three are ordinary.
-         * The rejection is a plain object carrying `errorCode` and `message`,
-         * never an `Error` — see the note on `retrieveRecord` below.
+         * A write is the one place a rejection is not an edge case: a delete
+         * fails on a cascade restriction, a create on a missing privilege or
+         * an attachment over the organisation's ceiling, and all of those are
+         * ordinary. The rejection is a plain object carrying `errorCode` and
+         * `message`, never an `Error` — see the note on `retrieveRecord`
+         * below. One switch for all of them, because a suite that needs the
+         * delete to succeed while the create fails is a suite for two
+         * controls.
          */
         webApiFails: false,
 
@@ -468,8 +472,23 @@
         },
     };
 
-    /** The organisation `page.getClientUrl()` answers. A host, not a path. */
-    var CLIENT_URL = 'https://rig.crm.invalid';
+    /**
+     * The organisation `page.getClientUrl()` answers — **one per host**, so
+     * the single global `fetch` can route a metadata read to the host whose
+     * context made it. A host, not a path.
+     *
+     * Installed per host, the stub belonged to whichever host a suite created
+     * *last*: it answered another host's read from the wrong fixture and
+     * logged it on the wrong call list. Found by a suite that bound five views
+     * and then dropped a file on the first — the create succeeded and the
+     * assertion that two fetches had been made found none.
+     */
+    var hostsByUrl = {};
+    var hostCount = 0;
+
+    function clientUrlFor(index) {
+        return 'https://rig' + (index === 1 ? '' : index) + '.crm.invalid';
+    }
 
     /**
      * The `message` of a payload fault, verbatim from a probe (`pcf-data-table`
@@ -516,6 +535,7 @@
      */
     function createHost(fixture, options) {
         var o = Object.assign({}, DEFAULTS, options || {});
+        var CLIENT_URL = clientUrlFor((hostCount += 1));
         var quirks = Object.assign({}, DEFAULTS.quirks, (options || {}).quirks);
         var hostKind = HOSTS[o.host] || HOSTS['model-driven'];
 
@@ -562,6 +582,8 @@
             pageSize: o.pageSize,
             requestedPageSize: o.pageSize,
             refreshes: 0,
+            /** Every row `webAPI.createRecord` made, fetched or not, in order. */
+            created: [],
             renderOwed: false,
             /** Every mutator the control called, in order, with its argument. */
             calls: [],
@@ -616,6 +638,19 @@
         var removedPending = [];
         var removed = [];
 
+        /**
+         * Records created on the server and not yet fetched — the same split
+         * as `removedPending`, from the other direction. `createRecord`
+         * resolves with the new id, and the row is *not* in the dataset until
+         * `fetched()` moves it across, so a control that creates and forgets
+         * `dataset.refresh()` sees a list one row short — which is what a real
+         * form does. Only rows created on the bound table arrive at all: a
+         * Note created from a control bound to something else lands in a
+         * different subgrid.
+         */
+        var createdPending = [];
+        var createdCount = 0;
+
         function log(name, argument) {
             state.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
         }
@@ -623,26 +658,68 @@
         /*
          * **The metadata read a control cannot make through `context.webAPI`.**
          * `EntityDefinitions` is reachable only by a same-origin `fetch` of the
-         * organisation URL, so the rig answers that URL — with
-         * `fixture.relationships` — and delegates every other one to whatever
-         * `fetch` was there before. Installed per host rather than once, so
-         * `relationshipsStatus` is the quirk of the host under test.
+         * organisation URL, so the rig answers that URL and delegates every
+         * other one to whatever `fetch` was there before. Installed per host
+         * rather than once, so `relationshipsStatus` is the quirk of the host
+         * under test. Two shapes are answered:
+         *
+         *   `EntityDefinitions(LogicalName='x')/ManyToOneRelationships` — from
+         *   `fixture.relationships`, the way `pcf-data-table` reads a lookup's
+         *   navigation property.
+         *
+         *   `EntityDefinitions(LogicalName='x')?$select=EntitySetName` — from
+         *   `fixture.entitySets` (`{ account: 'accounts' }`), which is how a
+         *   control builds a `/<set>(<id>)` bind value **without declaring
+         *   the `Utility` feature** for `getEntityMetadata`. A table the
+         *   fixture does not know answers 404, the way the server answers an
+         *   unknown logical name; `entitySetAbsent` answers 200 with the
+         *   property missing, the same shape `getEntityMetadata` gives under
+         *   that quirk.
          */
         (function installFetch() {
             var scope = typeof globalThis !== 'undefined' ? globalThis : root;
-            var previous = scope.fetch;
             var prefix = CLIENT_URL + "/api/data/v9.2/EntityDefinitions(LogicalName='";
 
-            scope.fetch = function (url, init) {
+            function reply(status, body) {
+                return Promise.resolve({
+                    ok: status >= 200 && status < 300,
+                    status: status,
+                    json: function () {
+                        return Promise.resolve(body);
+                    },
+                    text: function () {
+                        return Promise.resolve(JSON.stringify(body));
+                    },
+                });
+            }
+
+            hostsByUrl[CLIENT_URL] = function (url, init) {
                 var address = String(url);
 
                 if (address.indexOf(prefix) !== 0) {
-                    return previous
-                        ? previous.call(scope, url, init)
-                        : Promise.reject(new Error('No fetch for ' + address));
+                    return Promise.reject(new Error('No fetch for ' + address));
                 }
 
                 log('fetch', address.slice(CLIENT_URL.length));
+
+                var definition = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)(\?\$select=EntitySetName)?$/i);
+
+                if (definition) {
+                    var set = (fixture.entitySets || {})[definition[1]];
+
+                    if (set === undefined) {
+                        return reply(404, {
+                            error: {
+                                code: '0x80060888',
+                                message: "Could not find a property named '" + definition[1] + "'.",
+                            },
+                        });
+                    }
+
+                    return reply(200, quirks.entitySetAbsent
+                        ? { LogicalName: definition[1] }
+                        : { LogicalName: definition[1], EntitySetName: set });
+                }
 
                 var status = quirks.relationshipsStatus;
                 var body = status === 200
@@ -657,17 +734,28 @@
                     }
                     : { error: { code: '0x80040220', message: 'Refused by the rig.' } };
 
-                return Promise.resolve({
-                    ok: status >= 200 && status < 300,
-                    status: status,
-                    json: function () {
-                        return Promise.resolve(body);
-                    },
-                    text: function () {
-                        return Promise.resolve(JSON.stringify(body));
-                    },
-                });
+                return reply(status, body);
             };
+
+            if (!scope.__pcfHostFetch) {
+                var previous = scope.fetch;
+
+                scope.__pcfHostFetch = function (url, init) {
+                    var address = String(url);
+                    var origin = Object.keys(hostsByUrl).filter(function (candidate) {
+                        return address.indexOf(candidate + '/') === 0;
+                    })[0];
+
+                    if (origin) {
+                        return hostsByUrl[origin](url, init);
+                    }
+
+                    return previous
+                        ? previous.call(scope, url, init)
+                        : Promise.reject(new Error('No fetch for ' + address));
+                };
+                scope.fetch = scope.__pcfHostFetch;
+            }
         })();
 
         /**
@@ -1352,6 +1440,13 @@
             removed = removed.concat(removedPending);
             removedPending = [];
 
+            // Creates likewise. `concat` rather than `push`, so the fixture's
+            // own array is never mutated across binds.
+            if (createdPending.length > 0) {
+                allRecords = allRecords.concat(createdPending);
+                createdPending = [];
+            }
+
             state.pageSize = state.requestedPageSize;
             filter = requestedFilter;
             state.refreshes += 1;
@@ -1410,7 +1505,10 @@
                 };
             }
 
-            if (o.openFile) {
+            // Documented model-driven apps only, and a canvas host has no
+            // switch to say otherwise — `openFile: true` under `host: 'canvas'`
+            // would be a host that does not exist.
+            if (o.openFile && o.host !== 'canvas') {
                 navigation.openFile = function (file, fileOptions) {
                     log('navigation.openFile', {
                         fileName: (file || {}).fileName,
@@ -1698,8 +1796,186 @@
                  * an `Error` would pass a control that renders the string
                  * "[object Object]" where the platform's explanation belongs.
                  */
-                webAPI: o.webAPI
+                // Forced absent on canvas however the switch is set, on the
+                // same rule as `utils` and `page`: WebAPI is Dataverse-dependent
+                // and is not available in canvas apps, whatever the manifest
+                // declares. A rig that could be told "canvas, with a Web API"
+                // would pass a control that works nowhere.
+                webAPI: o.webAPI && o.host !== 'canvas'
                     ? {
+                        /**
+                         * **The row arrives on the next fetch, not on the
+                         * call.** `createRecord` resolves with the new id and
+                         * nothing else changes until `fetched()` moves the row
+                         * across — so a control that creates and forgets
+                         * `dataset.refresh()` draws a list one row short here,
+                         * which is exactly what a real form does. A stub that
+                         * pushed straight into the dataset would pass it.
+                         *
+                         * A row lands in *this* dataset only when it was
+                         * created on the bound table (`fixture.targetEntityType`)
+                         * — a Note created from a control bound to Contacts is
+                         * in somebody else's subgrid. Its values are what the
+                         * control wrote, with `@odata.bind` keys resolved
+                         * through `fixture.relationships` into the lookup they
+                         * stand for and refused the way `updateRecord` refuses
+                         * them, plus whatever `fixture.computed(data)` adds —
+                         * the server's own columns (`createdon`, an
+                         * attachment's `filesize`) are the table's business,
+                         * and the fixture is where the table lives. `body`
+                         * comes from the column `fixture.bodyColumn` names, so
+                         * `retrieveRecord` can hand the bytes back the way the
+                         * download half reads them.
+                         *
+                         * Resolves `{ entityType, id }` — the typings say
+                         * `LookupValue`, so `name` may also be there on a real
+                         * host; this stub leaves it out so a control does not
+                         * come to rely on it. **Not yet measured on a form.**
+                         */
+                        createRecord: function (entityType, data) {
+                            // The body is logged as a length: a dropped file in
+                            // the browser harness is megabytes of base64, and the
+                            // call log is read by people. `state.created` keeps it.
+                            var logged = Object.assign({}, data);
+
+                            if (fixture.bodyColumn && typeof logged[fixture.bodyColumn] === 'string') {
+                                logged[fixture.bodyColumn] = '<' + logged[fixture.bodyColumn].length + ' base64 chars>';
+                            }
+
+                            log('webAPI.createRecord', { entity: entityType, data: logged });
+
+                            if (o.webApiFails) {
+                                return Promise.reject(webApiFault(
+                                    2147746581,
+                                    '',
+                                    'The record could not be created.',
+                                ));
+                            }
+
+                            var id = 'created-' + (createdCount += 1);
+                            var values = {};
+                            var failure = null;
+                            var body;
+
+                            Object.keys(data || {}).forEach(function (key) {
+                                if (failure) {
+                                    return;
+                                }
+
+                                var bind = key.match(/^(.+)@odata\.bind$/);
+
+                                if (!bind) {
+                                    if (key === fixture.bodyColumn) {
+                                        body = data[key];
+                                    } else {
+                                        values[key] = data[key];
+                                    }
+
+                                    return;
+                                }
+
+                                var relationship = (fixture.relationships || []).filter(function (candidate) {
+                                    return candidate.navigationProperty === bind[1];
+                                })[0];
+
+                                if (!relationship) {
+                                    failure = webApiFault(2147781913, '', PAYLOAD_FAULT.replace('cll_PrimaryContact', bind[1]));
+
+                                    return;
+                                }
+
+                                var reference = String(data[key]).match(/^\/([^(]+)\(([^)]+)\)$/);
+                                var related = (fixture.related || {})[relationship.target];
+                                var target = reference && related && related.entitySet === reference[1]
+                                    ? related.rows.filter(function (candidate) {
+                                        return candidate.id === reference[2];
+                                    })[0]
+                                    : null;
+
+                                if (!target) {
+                                    failure = webApiFault(
+                                        2147746327,
+                                        'Record Is Unavailable',
+                                        'The requested record was not found.',
+                                    );
+
+                                    return;
+                                }
+
+                                values[relationship.column] = {
+                                    id: { guid: target.id },
+                                    etn: relationship.target,
+                                    name: target.name,
+                                };
+                            });
+
+                            if (failure) {
+                                return Promise.reject(failure);
+                            }
+
+                            if (typeof fixture.computed === 'function') {
+                                Object.assign(values, fixture.computed(data) || {});
+                            }
+
+                            var row = { id: id, values: values, created: true };
+
+                            if (body !== undefined) {
+                                row.body = body;
+                            }
+
+                            state.created.push(row);
+
+                            if (entityType === fixture.targetEntityType) {
+                                createdPending.push(row);
+                            }
+
+                            return Promise.resolve({ entityType: entityType, id: id });
+                        },
+
+                        /**
+                         * A query, answered from `fixture.tables[entity]` —
+                         * rows keyed by logical name — with the `$select` and
+                         * `$top` honoured and everything else ignored. Not the
+                         * bound view, which is `dataset`; this is for the
+                         * *other* table a control reads once, the way an
+                         * uploader reads `organization.maxuploadfilesize` to
+                         * refuse a file before encoding it. An unknown table
+                         * answers no rows rather than refusing, because that
+                         * is what a `$filter` matching nothing looks like and
+                         * the control has to handle it either way.
+                         */
+                        retrieveMultipleRecords: function (entityType, options) {
+                            log('webAPI.retrieveMultipleRecords', entityType + ' ' + (options || ''));
+
+                            if (o.webApiFails) {
+                                return Promise.reject(webApiFault(
+                                    2147746581,
+                                    '',
+                                    'The records could not be retrieved.',
+                                ));
+                            }
+
+                            var query = String(options || '');
+                            var top = query.match(/\$top=(\d+)/);
+                            var select = query.match(/\$select=([^&]+)/);
+                            var wanted = select ? select[1].split(',') : null;
+                            var rows = ((fixture.tables || {})[entityType] || []).slice(0, top ? Number(top[1]) : undefined);
+
+                            return Promise.resolve({
+                                entities: rows.map(function (source) {
+                                    var entity = {};
+
+                                    Object.keys(source).forEach(function (key) {
+                                        if (!wanted || wanted.indexOf(key) !== -1) {
+                                            entity[key] = source[key];
+                                        }
+                                    });
+
+                                    return entity;
+                                }),
+                            });
+                        },
+
                         /**
                          * **Applies a bind the way the server did, and refuses
                          * the way it did** — the only write a dataset record
@@ -1809,7 +2085,7 @@
 
                             var match = null;
 
-                            (fixture.records || []).forEach(function (row) {
+                            (fixture.records || []).concat(state.created).forEach(function (row) {
                                 if (row.id === id) {
                                     match = row;
                                 }
