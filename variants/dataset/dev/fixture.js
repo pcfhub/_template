@@ -63,10 +63,20 @@
             statecode: {
                 shape: 'descriptor',
                 options: [
-                    { value: 0, label: 'Active' },
+                    // `color` becomes `Color` on the descriptor array only —
+                    // never on the map — and an option without one has no key.
+                    { value: 0, label: 'Active', color: '#107C10' },
                     { value: 1, label: 'Inactive' },
                 ],
             },
+            /*
+             * The two date columns: `Behavior` (1 User Local, 2 Date Only,
+             * 3 Time Zone Independent) and `Format` on the node itself. This
+             * is the only way a control can tell a Date Only *behaviour* from a
+             * Date Only *format* on a User Local column.
+             */
+            modifiedon: { behavior: 2, format: 'date' },
+            createdon: { behavior: 1, format: 'dateandtime' },
             industrycode: {
                 shape: 'map',
                 options: [
@@ -206,6 +216,22 @@
                 visualSizeFactor: 110,
                 isHidden: true,
             },
+            /*
+             * A User Local instant, hidden for the same reason. The value is
+             * the true instant, so which calendar day it falls on depends on
+             * the user's zone — 04:30Z on 1 March is the evening of 28
+             * February for a user at UTC-5, and the rig's `On` agrees with
+             * that user once `userTimeZoneOffset` is set.
+             */
+            {
+                name: 'createdon',
+                displayName: 'Created on',
+                dataType: 'DateAndTime.DateAndTime',
+                alias: 'createdon',
+                order: 7,
+                visualSizeFactor: 130,
+                isHidden: true,
+            },
         ],
 
         /*
@@ -218,7 +244,7 @@
          */
 
         records: [
-            { id: 'a01', values: { name: 'Fabrikam Manufacturing', accountnumber: 'ACC-1042', primarycontactname: 'Dana Whitfield', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-01-14T00:00:00.000Z' } },
+            { id: 'a01', values: { name: 'Fabrikam Manufacturing', accountnumber: 'ACC-1042', primarycontactname: 'Dana Whitfield', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-01-14T00:00:00.000Z', createdon: '2026-03-01T04:30:00Z' } },
             { id: 'a02', values: { name: 'Contoso Logistics', accountnumber: 'ACC-1087', primarycontactname: 'Ravi Menon', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 3, modifiedon: '2026-02-03T00:00:00.000Z' } },
             { id: 'a03', values: { name: 'Northwind Traders', accountnumber: 'ACC-1103', primarycontactname: 'Erin Boyle', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 1, modifiedon: '2025-11-22T00:00:00.000Z' } },
             { id: 'a04', values: { name: 'Adventure Works Cycles', accountnumber: 'ACC-1155', primarycontactname: 'Marcus Feld', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 2, modifiedon: '2026-03-18T00:00:00.000Z' } },

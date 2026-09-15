@@ -115,7 +115,51 @@ if (reactGlobals.length > 0) {
  * inspection. These assertions are about the control's decisions, not about how
  * Fluent renders them — and Fluent 9 ships no UMD build to load anyway.
  */
-const fluent = new Proxy({}, { get: (_target, name) => (typeof name === 'string' ? name : undefined) });
+/*
+ * **A stand-in component per name, not the name as the element type.** React
+ * lower-cases an unknown element, so `MenuItem` became `<menuitem>` — which
+ * HTML treats as a void element, and `renderToStaticMarkup` throws rather
+ * than give it children. Every capitalised export is therefore a function
+ * component rendering a `<div data-fluent="Name">` with the string, number
+ * and boolean props the control passed — className, aria-*, title, disabled
+ * — so `renderDeep` can look for them; a lower-case export (`webLightTheme`,
+ * `tokens`) is a plain object. Found by `pcf-calendar-view`, whose move menu
+ * was the first `MenuItem` a suite tried to render.
+ */
+const standIns = new Map();
+
+function fluentStandIn(name) {
+    if (!standIns.has(name)) {
+        const StandIn = (props) => {
+            const passed = { 'data-fluent': name };
+
+            Object.keys(props || {}).forEach((key) => {
+                const value = props[key];
+
+                if (key !== 'children' && ['string', 'number', 'boolean'].includes(typeof value)) {
+                    passed[key] = value;
+                }
+            });
+
+            return React.createElement('div', passed, props.children);
+        };
+
+        StandIn.displayName = name;
+        standIns.set(name, StandIn);
+    }
+
+    return standIns.get(name);
+}
+
+const fluent = new Proxy({}, {
+    get: (_target, name) => {
+        if (typeof name !== 'string') {
+            return undefined;
+        }
+
+        return /^[A-Z]/.test(name) ? fluentStandIn(name) : {};
+    },
+});
 
 fluentGlobals.forEach((name) => {
     global[name] = fluent;
@@ -708,6 +752,50 @@ check(
 );
 
 /*
+ * The same operator, in the user's zone. `createdon` on a01 is 04:30Z on
+ * 1 March — the evening of 28 February for a user at UTC-5 — and the platform
+ * compares by *that* day (measured, `pcf-data-table` 2026-09-11). The rig
+ * does the same once a zone is set, and only then; without one the day is
+ * the machine's, which is what a host whose user sits where the browser does
+ * looks like.
+ */
+const west = host.createHost(fixture, { pageSize: 50, userTimeZoneOffset: -300 });
+
+west.dataset.filtering.setFilter({
+    filterOperator: host.AND,
+    conditions: [{ attributeName: 'createdon', conditionOperator: host.OPERATOR.On, value: '2026-02-28' }],
+});
+west.dataset.refresh();
+
+check(
+    'and compares an instant by the calendar day in the user\'s zone, not the machine\'s',
+    west.dataset.sortedRecordIds.length === 1 && west.dataset.sortedRecordIds[0] === 'a01',
+    west.dataset.sortedRecordIds.join(','),
+);
+
+/*
+ * `getTimeZoneOffsetMinutes` in the platform's sign, and **the bare call
+ * answers the standard offset** — `-360` on a day the dated call answered
+ * `-300` (measured, `pcf-date-range-picker`). A control that drops the
+ * argument is an hour out for half the year, and the rig makes that an hour
+ * out always so it cannot pass by season.
+ */
+check(
+    'getTimeZoneOffsetMinutes(date) answers the zone and the bare call the standard offset',
+    west.context.userSettings.getTimeZoneOffsetMinutes(new Date(2026, 6, 1)) === -300
+        && west.context.userSettings.getTimeZoneOffsetMinutes() === -360
+        && west.context.userSettings.dateFormattingInfo.firstDayOfWeek === 0,
+    `${west.context.userSettings.getTimeZoneOffsetMinutes(new Date(2026, 6, 1))} / ${west.context.userSettings.getTimeZoneOffsetMinutes()}`,
+);
+
+check(
+    'dateFormattingInfo can be overridden or withheld',
+    host.createHost(fixture, { dateFormattingInfo: { firstDayOfWeek: 1 } }).context.userSettings.dateFormattingInfo.firstDayOfWeek === 1
+        && host.createHost(fixture, { dateFormattingInfo: false }).context.userSettings.dateFormattingInfo === undefined,
+    '',
+);
+
+/*
  * `Equal` on a choice takes the integer as a string — what
  * `ConditionExpression.value` is typed as, and what the server accepted
  * alongside the number. Three rows hold `3`.
@@ -826,6 +914,22 @@ const metadataChecks = async () => {
         Array.isArray(descriptorNode.attributeDescriptor.OptionSet)
             && descriptorNode.attributeDescriptor.OptionSet[1].Label === 'Inactive'
             && descriptorNode.OptionSet === undefined,
+        JSON.stringify(descriptorNode.attributeDescriptor.OptionSet),
+    );
+
+    const dateNode = metadata.Attributes.get('createdon');
+
+    check(
+        'a datetime node carries Behavior and Format on the node itself',
+        dateNode.Behavior === 1 && dateNode.Format === 'dateandtime' && dateNode.AttributeType === 2
+            && metadata.Attributes.get('modifiedon').Behavior === 2,
+        JSON.stringify({ Behavior: dateNode.Behavior, Format: dateNode.Format, AttributeType: dateNode.AttributeType }),
+    );
+
+    check(
+        'and an option\'s Color is on the descriptor array only, absent where the option has none',
+        descriptorNode.attributeDescriptor.OptionSet[0].Color === '#107C10'
+            && !('Color' in descriptorNode.attributeDescriptor.OptionSet[1]),
         JSON.stringify(descriptorNode.attributeDescriptor.OptionSet),
     );
 

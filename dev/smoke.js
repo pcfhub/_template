@@ -124,7 +124,51 @@ if (reactGlobals.length > 0) {
  * the control's decisions, not about how Fluent renders them — and Fluent 9
  * ships no UMD build, so there is nothing to load in a browser either.
  */
-const fluent = new Proxy({}, { get: (_target, name) => (typeof name === 'string' ? name : undefined) });
+/*
+ * **A stand-in component per name, not the name as the element type.** React
+ * lower-cases an unknown element, so `MenuItem` became `<menuitem>` — which
+ * HTML treats as a void element, and `renderToStaticMarkup` throws rather
+ * than give it children. Every capitalised export is therefore a function
+ * component rendering a `<div data-fluent="Name">` with the string, number
+ * and boolean props the control passed — className, aria-*, title, disabled
+ * — so `renderDeep` can look for them; a lower-case export (`webLightTheme`,
+ * `tokens`) is a plain object. Found by `pcf-calendar-view`, whose move menu
+ * was the first `MenuItem` a suite tried to render.
+ */
+const standIns = new Map();
+
+function fluentStandIn(name) {
+    if (!standIns.has(name)) {
+        const StandIn = (props) => {
+            const passed = { 'data-fluent': name };
+
+            Object.keys(props || {}).forEach((key) => {
+                const value = props[key];
+
+                if (key !== 'children' && ['string', 'number', 'boolean'].includes(typeof value)) {
+                    passed[key] = value;
+                }
+            });
+
+            return React.createElement('div', passed, props.children);
+        };
+
+        StandIn.displayName = name;
+        standIns.set(name, StandIn);
+    }
+
+    return standIns.get(name);
+}
+
+const fluent = new Proxy({}, {
+    get: (_target, name) => {
+        if (typeof name !== 'string') {
+            return undefined;
+        }
+
+        return /^[A-Z]/.test(name) ? fluentStandIn(name) : {};
+    },
+});
 
 fluentGlobals.forEach((name) => {
     global[name] = fluent;

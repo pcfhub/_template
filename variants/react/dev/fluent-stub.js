@@ -38,6 +38,12 @@
  *     stylesheet — the branch a canvas app and PCFHub's demo harness actually
  *     get. `webDarkTheme` below carries a small set to exercise the other.
  *
+ *   - **`Menu` closes only on a choice.** The real one also closes on an
+ *     outside click and on Escape; this one stays open until an item is
+ *     picked or the trigger pressed again, so a screenshot can show it.
+ *   - **`Button` is a `<button>`** with its appearance as a class and no
+ *     icon slot; `disableButtonEnhancement` is swallowed.
+ *
  * ---
  *
  * **Adding a component.** Stub the ones your control imports and no more. A
@@ -74,7 +80,16 @@
     var DARK_TOKENS = {
         colorNeutralBackground1: '#292929',
         colorNeutralBackground1Hover: '#383838',
+        colorNeutralBackground2: '#1f1f1f',
         colorNeutralBackground3: '#141414',
+        colorNeutralBackground5: '#000000',
+        colorNeutralForeground3: '#adadad',
+        colorBrandBackground: '#115ea3',
+        colorBrandBackground2: '#082338',
+        colorBrandStroke1: '#479ef5',
+        colorStrokeFocus2: '#ffffff',
+        colorPaletteRedForeground1: '#e37d80',
+        colorPaletteRedBackground1: '#3f1011',
         colorNeutralForeground1: '#ffffff',
         colorNeutralForeground2: '#d6d6d6',
         colorNeutralForeground4: '#999999',
@@ -207,11 +222,143 @@
         );
     }
 
+    /*
+     * `Button`: a real `<button>` carrying its appearance as a class, so a
+     * stylesheet can be checked against the same element a form would have.
+     * Hover and pressed states are the browser's. `disableButtonEnhancement`
+     * is swallowed — it is a Fluent-internal hint, not an attribute.
+     */
+    function Button(props) {
+        var attributes = {};
+
+        Object.keys(props).forEach(function (key) {
+            if (key !== 'children' && key !== 'appearance' && key !== 'size' && key !== 'disableButtonEnhancement' && key !== 'icon') {
+                attributes[key] = props[key];
+            }
+        });
+
+        attributes.type = attributes.type || 'button';
+        attributes.className = ['stub-button', 'stub-button--' + (props.appearance || 'secondary'), props.className]
+            .filter(Boolean)
+            .join(' ');
+
+        return React.createElement('button', attributes, props.children);
+    }
+
+    /*
+     * The `Menu` family, compound like `Popover`: `Menu` finds its trigger and
+     * popover among its children, holds open/closed in state, and draws the
+     * popover **inline under the trigger** when open. The real one portals to
+     * the body, traps focus and closes on Escape and on an outside click;
+     * this one does none of that, which is the safe direction — a rule scoped
+     * through the control's root matches the menu here and nothing on a form.
+     * The trigger's child is cloned to take the click, as the real one does.
+     */
+    function MenuTrigger(props) {
+        return props.children;
+    }
+
+    MenuTrigger.__harnessRole = 'trigger';
+
+    function MenuPopover(props) {
+        return React.createElement(
+            'div',
+            {
+                role: 'menu',
+                className: 'stub-menu',
+                style: {
+                    position: 'absolute',
+                    zIndex: 1,
+                    marginTop: '4px',
+                    minWidth: '160px',
+                    padding: '4px',
+                    background: 'var(--colorNeutralBackground1, #ffffff)',
+                    borderRadius: '4px',
+                    boxShadow: '0 8px 16px rgba(0,0,0,.14), 0 0 2px rgba(0,0,0,.12)',
+                },
+            },
+            props.children,
+        );
+    }
+
+    MenuPopover.__harnessRole = 'surface';
+
+    function MenuList(props) {
+        return props.children;
+    }
+
+    function MenuItem(props) {
+        return React.createElement(
+            'button',
+            {
+                type: 'button',
+                role: 'menuitem',
+                className: 'stub-menuitem',
+                disabled: props.disabled,
+                onClick: props.onClick,
+                style: { display: 'block', width: '100%', textAlign: 'start', font: 'inherit', background: 'none', border: 0, padding: '6px 12px', borderRadius: '4px', cursor: 'pointer' },
+            },
+            props.children,
+        );
+    }
+
+    function Menu(props) {
+        var state = React.useState(false);
+        var open = state[0];
+        var setOpen = state[1];
+        var trigger = null;
+        var surface = null;
+
+        React.Children.forEach(props.children, function (child) {
+            if (!child || !child.type) {
+                return;
+            }
+
+            if (child.type.__harnessRole === 'trigger') {
+                trigger = child;
+            } else if (child.type.__harnessRole === 'surface') {
+                surface = child;
+            }
+        });
+
+        var child = trigger && trigger.props.children;
+        var cloned = child
+            ? React.cloneElement(child, {
+                onClick: function () {
+                    setOpen(!open);
+                },
+                'aria-haspopup': 'menu',
+                'aria-expanded': open ? 'true' : 'false',
+            })
+            : null;
+
+        return React.createElement(
+            'div',
+            {
+                style: { position: 'relative', display: 'inline-block' },
+                // A choice closes the menu, as it does on a form.
+                onClickCapture: function (event) {
+                    if (open && event.target && event.target.getAttribute && event.target.getAttribute('role') === 'menuitem') {
+                        setOpen(false);
+                    }
+                },
+            },
+            cloned,
+            open ? surface : null,
+        );
+    }
+
     global.__harnessFluent = {
         FluentProvider: FluentProvider,
         Popover: Popover,
         PopoverTrigger: PopoverTrigger,
         PopoverSurface: PopoverSurface,
+        Button: Button,
+        Menu: Menu,
+        MenuTrigger: MenuTrigger,
+        MenuPopover: MenuPopover,
+        MenuList: MenuList,
+        MenuItem: MenuItem,
         webLightTheme: webLightTheme,
         webDarkTheme: webDarkTheme,
     };

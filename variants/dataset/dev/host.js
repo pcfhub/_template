@@ -129,6 +129,65 @@
         OnOrAfter: 27,
     };
 
+    /**
+     * `dateFormattingInfo` as an en-US tenant publishes it. Every key is
+     * present on a real tenant under both Pascal and camel spellings; the
+     * camel ones are what the typings name and what a control should read.
+     */
+    var DATE_FORMATTING = {
+        amDesignator: 'AM',
+        pmDesignator: 'PM',
+        dayNames: ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+        abbreviatedDayNames: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+        shortestDayNames: ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'],
+        monthNames: ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December', ''],
+        abbreviatedMonthNames: ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', ''],
+        firstDayOfWeek: 0,
+        shortDatePattern: 'M/d/yyyy',
+        longDatePattern: 'dddd, MMMM d, yyyy',
+        shortTimePattern: 'h:mm tt',
+        longTimePattern: 'h:mm:ss tt',
+        dateSeparator: '/',
+        timeSeparator: ':',
+    };
+
+    /**
+     * `context.userSettings`, with the two members a date control reads.
+     *
+     * **`getTimeZoneOffsetMinutes()` without a date answers the *standard*
+     * offset**, measured on a form (`pcf-date-range-picker`, 2026-09): `-360`
+     * on a day the dated call answered `-300`. The rig reproduces that with an
+     * hour's difference whenever a zone is set — and with the browser zone's
+     * own standard offset when none is — so a control that drops the argument
+     * is caught by any day in daylight time, which is most of them.
+     */
+    function buildUserSettings(o) {
+        var zone = o.userTimeZoneOffset;
+
+        return {
+            isRTL: o.rtl,
+            languageId: 1033,
+            getTimeZoneOffsetMinutes: function (date) {
+                if (typeof zone === 'number') {
+                    return date instanceof Date ? zone : zone - 60;
+                }
+
+                if (date instanceof Date) {
+                    return -date.getTimezoneOffset();
+                }
+
+                // The standard offset is the one further from UTC across the year.
+                var year = new Date().getFullYear();
+
+                return -Math.max(new Date(year, 0, 1).getTimezoneOffset(), new Date(year, 6, 1).getTimezoneOffset());
+            },
+            dateFormattingInfo: o.dateFormattingInfo === false
+                ? undefined
+                : Object.assign({}, DATE_FORMATTING, o.dateFormattingInfo || {}),
+            numberFormattingInfo: { numberDecimalSeparator: '.', numberGroupSeparator: ',' },
+        };
+    }
+
     var STRINGS = {
         __CONTROL___Name: '__TITLE__',
         __CONTROL___Empty: 'No records.',
@@ -186,7 +245,37 @@
         /** `mode.isControlDisabled` — a read-only form, or a canvas DisplayMode. */
         disabled: false,
         dark: undefined,
+        /**
+         * `fluentDesignLanguage.tokenTheme` — the Fluent theme object a
+         * model-driven host hands a virtual control to put on its own
+         * `FluentProvider`. Undefined by default, which is what the hub's
+         * demo harness and `npm start` publish; a page that wants the
+         * control drawn in a theme passes one (the harness passes
+         * `fluent-stub.js`'s `webDarkTheme` under `?dark=1`).
+         */
+        tokenTheme: undefined,
         rtl: false,
+        /**
+         * The Dataverse user's time zone, as `userSettings.getTimeZoneOffsetMinutes`
+         * answers it: minutes *ahead* of UTC in the platform's sign — `-300`
+         * for UTC-5, the opposite of `Date.prototype.getTimezoneOffset`.
+         *
+         * `null` is the browser's own zone, which is what nearly every host
+         * has: the user set their personal options where they sit. A number
+         * is the state only this rig reaches — a user whose Dataverse zone is
+         * not the machine's. A calendar shows one day per event, and a
+         * control reading the browser's zone puts an evening appointment on
+         * the wrong day for that user without anything failing.
+         */
+        userTimeZoneOffset: null,
+        /**
+         * `userSettings.dateFormattingInfo` — the names and patterns a date
+         * control draws from. `{}` is the en-US shape below; an object here is
+         * merged over it (`{ firstDayOfWeek: 1, shortTimePattern: 'HH:mm' }`
+         * is a European user); `false` withholds the bag entirely, which is
+         * what the hub's demo harness does.
+         */
+        dateFormattingInfo: {},
         /** No records yet, which is the state of the first `updateView`. */
         loading: false,
         error: false,
@@ -867,6 +956,22 @@
                 return null;
             }
 
+            /*
+             * The platform compares an instant by the calendar day in the
+             * **user's** zone (measured, `pcf-data-table` 2026-09-11: a record
+             * at 04:30Z matched `On` the previous day for a UTC-5 user). So
+             * when the rig has a user zone the day is read there, and only
+             * otherwise in the machine's — which is the same thing on every
+             * host whose user sits where the browser does.
+             */
+            if (typeof o.userTimeZoneOffset === 'number') {
+                var shifted = new Date(date.getTime() + o.userTimeZoneOffset * 60000);
+                var uMonth = String(shifted.getUTCMonth() + 1);
+                var uDay = String(shifted.getUTCDate());
+
+                return shifted.getUTCFullYear() + '-' + (uMonth.length < 2 ? '0' + uMonth : uMonth) + '-' + (uDay.length < 2 ? '0' + uDay : uDay);
+            }
+
             var month = String(date.getMonth() + 1);
             var day = String(date.getDate());
 
@@ -1037,8 +1142,38 @@
 
             if (entry.options && entry.shape === 'descriptor') {
                 node.attributeDescriptor.OptionSet = entry.options.map(function (option) {
-                    return { Label: option.label, Value: option.value, IsHidden: false };
+                    var described = { Label: option.label, Value: option.value, IsHidden: false };
+
+                    /*
+                     * **`Color` is on the descriptor array only, never on the
+                     * value-keyed map** — measured 2026-09-14 on
+                     * `pcf-kanban-board`'s lane column, where the map had none
+                     * and the array carried `#0078D4`-style strings. A fixture
+                     * option with no `color` has no key at all, which is what a
+                     * column whose options were never coloured looks like.
+                     */
+                    if (typeof option.color === 'string') {
+                        described.Color = option.color;
+                    }
+
+                    return described;
                 });
+            }
+
+            /*
+             * A datetime node. `Behavior` (1 User Local, 2 Date Only, 3 Time
+             * Zone Independent) and `Format` ('date' | 'dateandtime') are on
+             * the node itself, beside `AttributeType: 2` — measured on a form
+             * (`pcf-date-range-picker`; `pcf-data-table` 2026-09-11). They are
+             * the only way to tell a Date Only *behaviour* from a Date Only
+             * *format* on a User Local column, which is the pairing the
+             * platform's own guidance warns against and real tables carry.
+             */
+            if (entry.behavior !== undefined) {
+                node.AttributeType = 2;
+                node.AttributeTypeName = 'DateTimeType';
+                node.Behavior = entry.behavior;
+                node.Format = entry.format || 'dateandtime';
             }
 
             if (entry.options && entry.shape === 'map') {
@@ -1152,7 +1287,8 @@
              * ship a write that could never work.
              */
             record.setValue = function (name, value) {
-                log('record.setValue', name);
+                // The value too, so a suite can assert *what* was written and not only where — a Date serialises as its ISO instant.
+                log('record.setValue', name + '=' + JSON.stringify(value));
                 row.staged[name] = value;
 
                 return undefined;
@@ -2206,9 +2342,11 @@
 
                 // Absent on a host that publishes no theme — canvas, and the
                 // hub's own demo harness.
-                fluentDesignLanguage: hostKind.publishesTheme ? { isDarkTheme: Boolean(o.dark) } : undefined,
+                fluentDesignLanguage: hostKind.publishesTheme
+                    ? { isDarkTheme: Boolean(o.dark), tokenTheme: o.tokenTheme }
+                    : undefined,
 
-                userSettings: { isRTL: o.rtl, languageId: 1033 },
+                userSettings: buildUserSettings(o),
 
                 client: {
                     getClient: function () {
