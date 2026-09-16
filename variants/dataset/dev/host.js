@@ -1171,7 +1171,8 @@
              */
             if (entry.behavior !== undefined) {
                 node.AttributeType = 2;
-                node.AttributeTypeName = 'DateTimeType';
+                // Lower-case on a real form (measured 2026-09-16, cll_event.cll_starts); the SDK's `DateTimeType` casing is not what the client hands over.
+                node.AttributeTypeName = 'datetime';
                 node.Behavior = entry.behavior;
                 node.Format = entry.format || 'dateandtime';
             }
