@@ -161,13 +161,20 @@
      * own standard offset when none is — so a control that drops the argument
      * is caught by any day in daylight time, which is most of them.
      */
-    function buildUserSettings(o) {
+    function buildUserSettings(o, log) {
         var zone = o.userTimeZoneOffset;
 
         return {
             isRTL: o.rtl,
             languageId: 1033,
             getTimeZoneOffsetMinutes: function (date) {
+                // Logged, because the call is not free on every tenant: a zone with no
+                // DST rule on file for the year logs a platform error per call, so a
+                // suite can assert a control asks once per day rather than per event.
+                if (log) {
+                    log('userSettings.getTimeZoneOffsetMinutes', date instanceof Date ? 'dated' : 'bare');
+                }
+
                 if (typeof zone === 'number') {
                     return date instanceof Date ? zone : zone - 60;
                 }
@@ -2347,7 +2354,7 @@
                     ? { isDarkTheme: Boolean(o.dark), tokenTheme: o.tokenTheme }
                     : undefined,
 
-                userSettings: buildUserSettings(o),
+                userSettings: buildUserSettings(o, log),
 
                 client: {
                     getClient: function () {
