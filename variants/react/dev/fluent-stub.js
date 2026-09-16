@@ -223,11 +223,40 @@
     }
 
     /*
-     * `Button`: a real `<button>` carrying its appearance as a class, so a
-     * stylesheet can be checked against the same element a form would have.
-     * Hover and pressed states are the browser's. `disableButtonEnhancement`
+     * `Button`: a real `<button>` carrying its appearance as a class, drawn
+     * the way Fluent 9 draws a small button — 24px, 12px semibold, the three
+     * appearances — from the same tokens the control's own stylesheet reads,
+     * with the light theme as the fallback. Every selector is wrapped in
+     * `:where()` so it has no specificity: a control's own class on the same
+     * element wins here exactly as it wins over Fluent's classes on a form. Without this the harness page
+     * showed the browser's default button chrome beside a control styled to
+     * Fluent, and screenshots taken from it carried that chrome onto the hub.
+     * Hover and pressed states are approximate; `disableButtonEnhancement`
      * is swallowed — it is a Fluent-internal hint, not an attribute.
      */
+    var BUTTON_STYLES = [
+        ':where(.stub-button){box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;',
+        'min-width:64px;height:24px;padding:0 8px;margin:0;font-family:var(--fontFamilyBase,"Segoe UI",system-ui,sans-serif);',
+        'font-size:12px;font-weight:600;line-height:16px;border-radius:4px;cursor:pointer;vertical-align:middle;',
+        'color:var(--colorNeutralForeground1,#242424);background:var(--colorNeutralBackground1,#fff);',
+        'border:1px solid var(--colorNeutralStroke1,#d1d1d1);}',
+        ':where(.stub-button):hover{background:var(--colorNeutralBackground1Hover,#f5f5f5);}',
+        ':where(.stub-button):disabled{color:var(--colorNeutralForegroundDisabled,#bdbdbd);border-color:var(--colorNeutralStrokeDisabled,#e0e0e0);background:var(--colorNeutralBackgroundDisabled,#f0f0f0);cursor:default;}',
+        ':where(.stub-button--primary){color:var(--colorNeutralForegroundOnBrand,#fff);background:var(--colorBrandBackground,#0f6cbd);border-color:transparent;}',
+        ':where(.stub-button--primary):hover{background:var(--colorBrandBackgroundHover,#115ea3);}',
+        ':where(.stub-button--subtle){color:var(--colorNeutralForeground2,#424242);background:transparent;border-color:transparent;min-width:24px;}',
+        ':where(.stub-button--subtle):hover{background:var(--colorSubtleBackgroundHover,#f5f5f5);color:var(--colorNeutralForeground2Hover,#242424);}',
+        ':where(.stub-button):focus-visible{outline:2px solid var(--colorStrokeFocus2,#000);outline-offset:1px;}',
+    ].join('');
+
+    if (global.document && !global.document.getElementById('fluent-stub-styles')) {
+        var styleTag = global.document.createElement('style');
+
+        styleTag.id = 'fluent-stub-styles';
+        styleTag.textContent = BUTTON_STYLES;
+        global.document.head.appendChild(styleTag);
+    }
+
     function Button(props) {
         var attributes = {};
 
