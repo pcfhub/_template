@@ -28,6 +28,15 @@
  * fixtures hand down, or that a save persists anything. Keep the answers to
  * those in SPEC.md under "Not verified".
  *
+ * **If the bundle will not load here at all**, because it carries a browser
+ * application that reads `document` at module scope — a Monaco, a map, a
+ * charting library — do not grow `dom.js` to meet it. Keep the control's
+ * decisions in modules that import nothing of the library, and drive those
+ * instead: `pcf-code-editor`'s `dev/smoke.js` transpiles them with the
+ * TypeScript already in devDependencies and refuses one that imports the
+ * library. The skill has the shape under *When the bundle cannot load in
+ * Node*.
+ *
  * **And a stub must never be more capable than the thing it stands in for.**
  * `dev/host.js` withholds `security`, `attributes` and `fluentDesignLanguage`
  * exactly where the platform withholds them. When you add to it, stub the
