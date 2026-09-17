@@ -255,6 +255,8 @@
         ':where(.stub-button--primary):hover{background:var(--colorBrandBackgroundHover,#115ea3);}',
         ':where(.stub-button--subtle){color:var(--colorNeutralForeground2,#424242);background:transparent;border-color:transparent;min-width:24px;}',
         ':where(.stub-button--subtle):hover{background:var(--colorSubtleBackgroundHover,#f5f5f5);color:var(--colorNeutralForeground2Hover,#242424);}',
+        ':where(.stub-button--transparent){color:var(--colorNeutralForeground2,#424242);background:transparent;border-color:transparent;min-width:0;padding:0 4px;}',
+        ':where(.stub-button--transparent):hover{color:var(--colorNeutralForeground2BrandHover,#0f6cbd);background:transparent;}',
         ':where(.stub-button):focus-visible{outline:2px solid var(--colorStrokeFocus2,#000);outline-offset:1px;}',
     ].join('');
 
