@@ -447,6 +447,36 @@ check(
 );
 
 /*
+ * **An input can change after `init`, and the hub's demo is the host that
+ * changes it.** On a form an input is set at design time and never moves;
+ * the demo switches presets on a *mounted* control, and `pcf-calendar-view`
+ * 0.1.3 shipped a value read once at mount that stayed on the old preset
+ * while the property panel said otherwise. `handle.setInput` is that host:
+ * the next context carries the new `raw` and names the input in
+ * `updatedProperties`. What this proves is that the control reads its inputs
+ * on every pass rather than copying them in `init` — the scaffold's
+ * `applyPageSize` does, and asks for the new size once.
+ */
+overridden.handle.setInput('pageSize', 4);
+overridden.settle();
+
+check(
+    'an input changed after init is read on the next pass, not kept from the first',
+    overridden.calls().filter((call) => call.indexOf('setPageSize(4)') === 0).length === 1,
+    overridden.calls().join(' '),
+);
+
+check(
+    'and the pass that carried it named the input in updatedProperties',
+    overridden.handle.context.updatedProperties.length === 0 && (() => {
+        overridden.handle.setInput('pageSize', 6);
+
+        return overridden.handle.nextContext().updatedProperties.join() === 'pageSize';
+    })(),
+    '',
+);
+
+/*
  * A main grid answers the width and never the height — `-1` for the life of
  * the control, however politely it asks. A control that waits for a positive
  * number waits forever, which is how `pcf-row-commands` ran its rows off the

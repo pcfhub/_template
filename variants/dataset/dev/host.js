@@ -702,6 +702,8 @@
             renderOwed: false,
             /** Every mutator the control called, in order, with its argument. */
             calls: [],
+            /** Inputs `setInput` changed since the last context — what the next `updatedProperties` names. */
+            changedInputs: [],
         };
 
         var sorting = [];
@@ -2368,7 +2370,14 @@
                     },
                 },
 
-                updatedProperties: [],
+                /*
+                 * What changed since the last pass, the way the platform says
+                 * it: the names `setInput` set since the previous context,
+                 * handed over once and then cleared. Empty on every pass a
+                 * caller did not change an input before, which is what the
+                 * first call carries too.
+                 */
+                updatedProperties: state.changedInputs.splice(0),
             };
 
             /*
@@ -2387,6 +2396,30 @@
             context: createContext(),
             /** A fresh context object, as the platform hands down each pass. */
             nextContext: createContext,
+            /**
+             * Change one of the control's inputs on a **mounted** control —
+             * the host the hub's demo is, and neither a form nor this rig
+             * was until 2026-09-17.
+             *
+             * On a form an input is set at design time and never moves. The
+             * hub's demo switches presets on a control that is already
+             * mounted, and `pcf-calendar-view` 0.1.3 found that a value read
+             * into React state once, at mount, stayed on the old preset while
+             * the property panel said otherwise. The next context carries
+             * the new `raw` and names the input in `updatedProperties`; a
+             * control that copied its inputs in `init` and never reads them
+             * again is what an assertion on the props after `settle()`
+             * catches. Whether a component *re-applies* a changed prop to
+             * its own state is React's half, and a static render cannot
+             * hold state between passes — that half is the hub's demo to
+             * verify, and this half is what stops the control from being
+             * the reason it fails.
+             */
+            setInput: function (name, value) {
+                o.inputs[name] = value;
+                state.changedInputs.push(name);
+                state.renderOwed = true;
+            },
             state: state,
             quirks: quirks,
             options: o,

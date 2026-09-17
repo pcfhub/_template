@@ -104,7 +104,8 @@
      * a real form — reusing one across a page-size change would be testing a
      * sequence the platform never produces. Paging and sorting *within* a
      * configuration are driven through the live instance, which is where the
-     * sequence does matter.
+     * sequence does matter — and so, since 2026-09-17, is a change to the
+     * inputs box: see `applyInputs`.
      */
     function mount() {
         if (instance && instance.destroy) {
@@ -153,6 +154,38 @@
                 : 'Nothing yet. Sort a column or turn a page.';
     }
 
+    /**
+     * Push the inputs box into the live control, one `setInput` per key that
+     * changed, then render. A key removed from the box is set to `null`,
+     * which is what an input the maker cleared arrives as.
+     */
+    function applyInputs() {
+        if (!handle || !instance) {
+            mount();
+
+            return;
+        }
+
+        var before = Object.assign({}, lastInputs);
+        var after = inputs();
+        var names = Object.keys(before).concat(Object.keys(after));
+        var changed = false;
+
+        names.forEach(function (name) {
+            var was = Object.prototype.hasOwnProperty.call(before, name) ? before[name] : null;
+            var now = Object.prototype.hasOwnProperty.call(after, name) ? after[name] : null;
+
+            if (JSON.stringify(was) !== JSON.stringify(now)) {
+                handle.setInput(name, now);
+                changed = true;
+            }
+        });
+
+        if (changed) {
+            pump();
+        }
+    }
+
     window.__harnessStart = function () {
         var status = document.getElementById('harness-status');
 
@@ -175,9 +208,16 @@
 
         /*
          * The inputs box is the one control that is not a switch: it is typed
-         * into, and waiting for blur to remount makes it feel broken.
+         * into, and waiting for blur makes it feel broken. And it does not
+         * remount — it changes the inputs on the **mounted** control, which
+         * is what the hub's demo does when a visitor switches preset and
+         * what no form ever does. `pcf-calendar-view` 0.1.3 read a value
+         * into React state once at mount and sat on it; a remounting rig
+         * could not have shown that, and this one does, because
+         * `ReactDOM.render` into the same container keeps the component's
+         * state across the pass.
          */
-        document.getElementById('harness-inputs').addEventListener('input', mount);
+        document.getElementById('harness-inputs').addEventListener('input', applyInputs);
 
         /*
          * The platform's asynchronous re-render, in one line.
