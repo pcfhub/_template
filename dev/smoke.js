@@ -63,6 +63,7 @@ const root = path.join(__dirname, '..');
 const dom = require('./dom.js');
 const host = require('./host.js');
 const clock = require('./clock.js');
+const fixture = require('./fixture.js');
 
 const BUNDLE = path.join(root, 'out', 'controls', '__CONTROL__', 'bundle.js');
 
@@ -226,11 +227,18 @@ function disposeAll() {
 
 function mount(options) {
     const container = dom.createElement('div');
-    const calls = [];
+    /*
+     * What is the *instance's* rather than the render's: the call log, the
+     * organisation URL and the rows behind the Web API. `createContext` runs
+     * per render, so these are decided once here and handed to every context
+     * this mount builds — `update()` included, which used to drop `calls` and
+     * so could not record what a re-render made the control do.
+     */
+    const site = { calls: [], clientUrl: options.clientUrl || host.nextClientUrl(), fixture: options.fixture || fixture };
     // `getString` first, so a single assertion can override it — the marked key
     // proves a string came from the .resx, but it cannot prove a `{0}` was
     // substituted, because a marked key has no `{0}` in it to substitute.
-    const context = host.createContext({ getString: marked, ...options, calls });
+    const context = host.createContext({ getString: marked, ...options, ...site });
     const instance = new registration.ctor();
 
     let notifications = 0;
@@ -258,10 +266,12 @@ function mount(options) {
         props: () => (element && element.props) || {},
         outputs: () => instance.getOutputs(),
         notifications: () => notifications,
-        /** `trackContainerResize` / `setFullScreen` calls the control made. */
-        calls: () => calls,
+        /** Every platform call the control made, on any pass. */
+        calls: () => site.calls,
+        /** The organisation URL this instance's `page.getClientUrl()` answers. */
+        clientUrl: site.clientUrl,
         /** Re-render in a new state, as the platform does on every change. */
-        update: (next) => instance.updateView(host.createContext({ getString: marked, ...options, ...next })),
+        update: (next) => instance.updateView(host.createContext({ getString: marked, ...options, ...site, ...next })),
         /** Unmount, as the platform does when the form closes or navigates. */
         destroy: () => {
             instance.destroy();
@@ -671,7 +681,67 @@ check(
 
 disposeAll();
 
-report();
+/* ======================================================================== *
+ *  THE RIG'S OWN CLAIMS — keep these. They are about `dev/host.js`, not about
+ *  the control, and they exist because a rig that silently answers the wrong
+ *  host's question certifies whatever it is handed. Each one was a real bug in
+ *  a sibling repository's rig before it was an assertion here.
+ * ======================================================================== */
+
+async function rigSelfCheck() {
+    const relationships = (url) => `${url}/api/data/v9.2/EntityDefinitions(LogicalName='account')/OneToManyRelationships`;
+
+    /*
+     * Two hosts, two answers. The fetch stub is one global routed by origin,
+     * and before it was, the stub belonged to whichever host a suite created
+     * last — so a second mount's refusal became every mount's refusal.
+     */
+    const open = mount({});
+    const refused = mount({ relationshipsStatus: 403 });
+    const [a, b] = await Promise.all([fetch(relationships(open.clientUrl)), fetch(relationships(refused.clientUrl))]);
+
+    check('rig: each host answers its own metadata fetch', a.status === 200 && b.status === 403, `${a.status} / ${b.status}`);
+    check(
+        "rig: a fresh host does not inherit an earlier host's answers",
+        (await a.json()).value.some((row) => row.ReferencingAttribute === 'parentaccountid' && row.IsHierarchical === true),
+    );
+
+    let foreign = 'resolved';
+    await fetch('https://nowhere.invalid/api/data/v9.2/x').catch((error) => { foreign = error.constructor.name; });
+    // Whatever `fetch` was there before answers — Node's own, here, which cannot
+    // resolve the name — and the claim is only that the rig did not answer it.
+    check("rig: a URL on no host's origin is refused, not answered", foreign !== 'resolved', foreign);
+
+    const ctx = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
+    const xml = "<fetch><entity name='account'><attribute name='accountid'/><attribute name='name'/><attribute name='accountid' rowaggregate='CountChildren' alias='children'/><filter><condition attribute='accountid' operator='eq-or-above' value='c1'/></filter></entity></fetch>";
+    const chain = await ctx.webAPI.retrieveMultipleRecords('account', `?fetchXml=${encodeURIComponent(xml)}`);
+
+    check(
+        'rig: eq-or-above answers the record and every ancestor, with child counts',
+        chain.entities.map((row) => `${row.accountid}:${row.children}`).sort().join(',') === 'c1:2,p1:2,r1:2',
+        JSON.stringify(chain.entities.map((row) => [row.accountid, row.children])),
+    );
+
+    let fault = null;
+    await host.createContext({ fixture, clientUrl: host.nextClientUrl(), hierarchical: false })
+        .webAPI.retrieveMultipleRecords('account', `?fetchXml=${encodeURIComponent(xml)}`)
+        .catch((error) => { fault = error; });
+    check(
+        'rig: a hierarchical operator on a table that is not hierarchical is refused as a plain object',
+        fault !== null && !(fault instanceof Error) && typeof fault.errorCode === 'number' && typeof fault.message === 'string',
+        fault && fault.constructor.name,
+    );
+
+    const page = await ctx.webAPI.retrieveMultipleRecords('account', "?$select=accountid,name&$filter=_parentaccountid_value eq c1&$orderby=name asc", 1);
+    check('rig: maxPageSize truncates and says there is more', page.entities.length === 1 && typeof page.nextLink === 'string', JSON.stringify(page));
+
+    disposeAll();
+}
+
+rigSelfCheck().then(report, (error) => {
+    check('rig: the self-check ran to the end', false, String(error && error.stack || error));
+    report();
+});
 
 function report() {
     const failed = results.filter((result) => !result.ok);

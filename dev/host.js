@@ -299,11 +299,101 @@
          */
         createRecord: '11111111-2222-3333-4444-555555555555',
 
-        /** What `webAPI.retrieveRecord` resolves with, or `null` to reject. */
-        retrieveRecord: {},
+        /**
+         * What `webAPI.retrieveRecord` resolves with.
+         *
+         * `'fixture'` (the default) answers from `fixture.tables` by id,
+         * honouring `$select`, and refuses an id the fixture does not hold the
+         * way the server does — `Record Is Unavailable`. An object resolves
+         * with that literal, which is the older shape and still the right one
+         * for a control that reads one row it does not care to model. `null`
+         * rejects.
+         */
+        retrieveRecord: 'fixture',
 
         /** Whether `webAPI.updateRecord` resolves. `false` rejects. */
         updateRecord: true,
+
+        /**
+         * Every Web API method rejects with the measured fault shape — a plain
+         * object carrying `errorCode`, `message`, `code`, `title` and `raw`,
+         * not an `Error`. The host that is *present* and *refusing* is a
+         * different state from `webAPI: false`, and a control names them
+         * differently: "not available here" against "could not be read".
+         */
+        webApiFails: false,
+
+        /**
+         * The rows the Web API answers from — `retrieveRecord`,
+         * `retrieveMultipleRecords` — and what the same-origin metadata
+         * `fetch` describes. `null` means no tables: every query answers no
+         * rows, every read refuses, every relationship list is empty. Pass the
+         * object `dev/fixture.js` exports, or your own in that shape:
+         *
+         *   tables:        { account: [ { accountid, name, _parentaccountid_value,
+         *                                 'revenue@OData.Community.Display.V1.FormattedValue', … } ] }
+         *   hierarchy:     { account: { id: 'accountid', parent: 'parentaccountid', name: 'name' } }
+         *   relationships: [ { entity, column, target, navigationProperty, hierarchical } ]
+         *   entitySets:    { account: 'accounts' }
+         *
+         * `hierarchy` is how the rig knows which column is the parent when a
+         * FetchXML query says `above` or `under`; `relationships` is what the
+         * `EntityDefinitions(…)/OneToManyRelationships` fetch lists, with
+         * `IsHierarchical` read off `hierarchical`.
+         */
+        fixture: null,
+
+        /**
+         * Overrides `hierarchical` on **every** fixture relationship when it is
+         * a boolean. `false` is the table nobody flagged as hierarchical — the
+         * common case on a custom table — where a hierarchical operator is
+         * refused and a control has to take the other route.
+         */
+        hierarchical: undefined,
+
+        /**
+         * The organisation URL `page.getClientUrl()` answers with, and the
+         * origin this host's `fetch` stub answers on.
+         *
+         * **One per mount, not one per context.** `createContext` runs on every
+         * render, and a real form's URL does not change between passes — so a
+         * suite's `mount()` takes one from `nextClientUrl()` and hands the same
+         * string to every `createContext` for that instance. Left `null`, each
+         * context takes a fresh one, which is right for a one-shot context and
+         * wrong for anything that caches by URL.
+         */
+        clientUrl: null,
+
+        /**
+         * Whether `context.page` exists. Undocumented and untyped like
+         * `contextInfo`, but present on a model-driven form, where its
+         * `getClientUrl()` is the honest way to reach `/api/data` on an
+         * on-premises organisation whose URL carries the organisation in the
+         * path. Absent on canvas whatever this says.
+         */
+        page: true,
+
+        /**
+         * What the metadata `fetch` of `…/ManyToOneRelationships` and
+         * `…/OneToManyRelationships` answers: the HTTP status, with `200`
+         * listing `fixture.relationships`, any other status a refusal body, and
+         * **`0` a network failure** — the promise rejects with a `TypeError`,
+         * which is what an offline client or a blocked origin does and what a
+         * control's `.catch` has to read as "take the other route", not as an
+         * error to show.
+         */
+        relationshipsStatus: 200,
+
+        /**
+         * What `navigation.openForm` does — model-driven only, so absent on
+         * canvas whatever this says.
+         *
+         *   'resolves' -> resolves `{ savedEntityReference: null }`, which is
+         *                 what a form the user simply navigated to reports
+         *   'rejects'  -> rejects with the fault shape
+         *   'absent'   -> the method is not on the bag
+         */
+        openForm: 'resolves',
 
         /**
          * Whether `context.utils` exists, and the entity set its metadata
@@ -316,6 +406,25 @@
          */
         utils: true,
         entitySetName: 'accounts',
+        /** What `getEntityMetadata(…).PrimaryNameAttribute` answers. */
+        primaryNameAttribute: 'name',
+
+        /**
+         * The bound property's type, and — for a lookup — its target table and
+         * whether the two lookup methods are there.
+         *
+         * A `Lookup.Simple` binding is an array in both directions and carries
+         * `getTargetEntityType()` and `getViewId()`, which no manifest attribute
+         * and no other property type has. `targetMethod` reproduces the three
+         * states a control has to survive: `'present'`, `'absent'` (the hub's
+         * harness builds a bag with no methods on it) and `'throws'`.
+         * `column` is what `attributes.LogicalName` answers — the one thing a
+         * control has to read to filter children on the right column.
+         */
+        valueType: 'SingleLine.Text',
+        column: 'name',
+        target: 'account',
+        targetMethod: 'present',
 
         /**
          * What `utils.hasEntityPrivilege` answers.
@@ -397,6 +506,455 @@
         resource: null,
     };
 
+    /*
+     * One `fetch` stub for every host this file ever builds, routed by origin.
+     *
+     * Installed per host, the stub belonged to whichever host a suite created
+     * *last* — the dataset rig learned that from a suite that bound five views
+     * and dropped a file on the first. So each host registers its origin here
+     * and a single global dispatches on the URL's prefix, falling through to
+     * whatever `fetch` was there before for anything on no rig origin.
+     */
+    var hostsByUrl = {};
+    var hostCount = 0;
+
+    function clientUrlFor(index) {
+        return 'https://rig' + (index === 1 ? '' : index) + '.crm.invalid';
+    }
+
+    /** A fresh organisation URL — one per mount. See `clientUrl` in DEFAULTS. */
+    function nextClientUrl() {
+        return clientUrlFor((hostCount += 1));
+    }
+
+    /**
+     * A `webAPI` rejection in the measured shape: `{ errorCode, message, code,
+     * title, raw }`, a plain object and **not an `Error`**. The same function
+     * as the dataset rig's, so an assertion reads the same in both.
+     */
+    function webApiFault(code, title, message) {
+        return {
+            errorCode: code,
+            message: message,
+            code: code,
+            title: title,
+            raw: JSON.stringify({ errorCode: code, message: message, title: title }),
+        };
+    }
+
+    function reply(status, body) {
+        return Promise.resolve({
+            ok: status >= 200 && status < 300,
+            status: status,
+            json: function () {
+                return Promise.resolve(body);
+            },
+            text: function () {
+                return Promise.resolve(JSON.stringify(body));
+            },
+        });
+    }
+
+    function bareId(value) {
+        return value === null || value === undefined ? value : String(value).replace(/[{}]/g, '').toLowerCase();
+    }
+
+    /**
+     * `fixture.hierarchy[entity]`, or a guess from the table name — `accountid`
+     * — so a fixture that names no hierarchy still answers a plain query.
+     */
+    function hierarchyOf(fixture, entity) {
+        var declared = fixture && fixture.hierarchy ? fixture.hierarchy[entity] : undefined;
+
+        return {
+            id: (declared && declared.id) || entity + 'id',
+            parent: declared ? declared.parent : undefined,
+            name: (declared && declared.name) || 'name',
+        };
+    }
+
+    function parentOf(row, h) {
+        return h.parent ? bareId(row['_' + h.parent + '_value']) : undefined;
+    }
+
+    /**
+     * Whether the table's self-referential relationship is hierarchical —
+     * from the override, else from `fixture.relationships`, else from whether
+     * a `hierarchy` entry exists at all.
+     */
+    function isHierarchical(fixture, entity, o) {
+        if (typeof o.hierarchical === 'boolean') {
+            return o.hierarchical;
+        }
+
+        var rows = (fixture && fixture.relationships) || [];
+        var self = rows.filter(function (row) {
+            return row.entity === entity && row.target === entity;
+        });
+
+        if (self.length > 0) {
+            return self.some(function (row) {
+                return row.hierarchical === true;
+            });
+        }
+
+        return Boolean(fixture && fixture.hierarchy && fixture.hierarchy[entity]);
+    }
+
+    /** Every ancestor of `id`, nearest first, stopping at a cycle. */
+    function ancestorsOf(rows, h, id) {
+        var byId = {};
+        rows.forEach(function (row) {
+            byId[bareId(row[h.id])] = row;
+        });
+
+        var out = [];
+        var seen = {};
+        var current = byId[bareId(id)];
+
+        while (current && parentOf(current, h) && !seen[parentOf(current, h)]) {
+            var parentId = parentOf(current, h);
+            seen[parentId] = true;
+            current = byId[parentId];
+
+            if (current) {
+                out.push(current);
+            }
+        }
+
+        return out;
+    }
+
+    /** Every descendant of `id`, breadth first, stopping at a cycle. */
+    function descendantsOf(rows, h, id) {
+        var out = [];
+        var seen = {};
+        var queue = [bareId(id)];
+
+        while (queue.length > 0) {
+            var parentId = queue.shift();
+
+            rows.forEach(function (row) {
+                var rowId = bareId(row[h.id]);
+
+                if (parentOf(row, h) === parentId && !seen[rowId]) {
+                    seen[rowId] = true;
+                    out.push(row);
+                    queue.push(rowId);
+                }
+            });
+        }
+
+        return out;
+    }
+
+    /**
+     * The subset of FetchXML this rig reads, by regex: the entity, its
+     * attributes (with `alias` and `rowaggregate`), `order`, and the
+     * conditions of the first `filter` — combined with `and`. Anything else in
+     * the query is ignored rather than refused, so a control sending a
+     * `link-entity` gets rows that do not honour it. Say so in the suite.
+     */
+    function parseFetchXml(xml) {
+        var attr = function (tag, name) {
+            var m = tag.match(new RegExp('\\b' + name + "=['\"]([^'\"]*)['\"]"));
+            return m ? m[1] : undefined;
+        };
+        var all = function (pattern) {
+            var out = [];
+            var m;
+            while ((m = pattern.exec(xml)) !== null) {
+                out.push(m[0]);
+            }
+            return out;
+        };
+
+        var entityTag = xml.match(/<entity\b[^>]*>/);
+        var fetchTag = xml.match(/<fetch\b[^>]*>/);
+
+        return {
+            entity: entityTag ? attr(entityTag[0], 'name') : undefined,
+            top: fetchTag && attr(fetchTag[0], 'top') !== undefined ? Number(attr(fetchTag[0], 'top')) : undefined,
+            attributes: all(/<attribute\b[^>]*\/>/g).map(function (tag) {
+                return { name: attr(tag, 'name'), alias: attr(tag, 'alias'), rowaggregate: attr(tag, 'rowaggregate') };
+            }),
+            order: all(/<order\b[^>]*\/>/g).map(function (tag) {
+                return { attribute: attr(tag, 'attribute'), descending: attr(tag, 'descending') === 'true' };
+            }),
+            conditions: all(/<condition\b[^>]*\/>/g).map(function (tag) {
+                return { attribute: attr(tag, 'attribute'), operator: attr(tag, 'operator'), value: attr(tag, 'value') };
+            }),
+        };
+    }
+
+    /** The OData subset: `$select`, `$filter` (`and` of `x eq v`), `$orderby`, `$top`. */
+    function parseOData(query) {
+        var part = function (name) {
+            var m = query.match(new RegExp('[?&]\\' + name + '=([^&]*)'));
+            return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : undefined;
+        };
+        var select = part('$select');
+        var filter = part('$filter');
+        var orderby = part('$orderby');
+        var top = part('$top');
+
+        return {
+            attributes: select ? select.split(',').map(function (name) { return { name: name.trim() }; }) : [],
+            top: top !== undefined ? Number(top) : undefined,
+            order: orderby
+                ? orderby.split(',').map(function (clause) {
+                    var bits = clause.trim().split(/\s+/);
+                    return { attribute: bits[0], descending: bits[1] === 'desc' };
+                })
+                : [],
+            conditions: filter
+                ? filter.split(/\s+and\s+/i).map(function (clause) {
+                    var m = clause.trim().match(/^_?([a-z0-9_]+?)(?:_value)?\s+(eq|ne)\s+(.+)$/i);
+                    if (!m) {
+                        return { attribute: clause, operator: 'unparsed', value: undefined };
+                    }
+                    var raw = m[3].trim();
+                    return {
+                        attribute: m[1],
+                        operator: raw === 'null' ? (m[2] === 'eq' ? 'null' : 'not-null') : m[2] === 'eq' ? 'eq' : 'ne',
+                        value: raw.replace(/^'|'$/g, ''),
+                    };
+                })
+                : [],
+        };
+    }
+
+    /** One row's value for a condition attribute — a lookup by its `_x_value`. */
+    function valueOf(row, attribute) {
+        if (Object.prototype.hasOwnProperty.call(row, attribute)) {
+            return row[attribute];
+        }
+        return row['_' + attribute + '_value'];
+    }
+
+    /**
+     * Answer a `retrieveMultipleRecords` from the fixture: an OData query or a
+     * `?fetchXml=` one, encoded or not. Rejects, in the fault shape, a
+     * hierarchical operator on a table whose relationship is not hierarchical.
+     *
+     * Two things reproduced on purpose because a control that does not expect
+     * them is wrong on a form: **a FetchXML result omits null-valued
+     * properties** (the Web API documents this; an OData result carries them),
+     * and a `rowaggregate='CountChildren'` attribute arrives under its alias.
+     * `maxPageSize` truncates and sets `nextLink`; `top` truncates and does not.
+     */
+    function answerQuery(fixture, entity, options, maxPageSize, o) {
+        var query = String(options || '');
+        var isFetch = /^\?fetchXml=/i.test(query);
+        var rows = ((fixture && fixture.tables) || {})[entity] || [];
+        var h = hierarchyOf(fixture, entity);
+        var q;
+
+        if (isFetch) {
+            var xml = query.slice(query.indexOf('=') + 1);
+            if (xml.charAt(0) !== '<') {
+                xml = decodeURIComponent(xml);
+            }
+            q = parseFetchXml(xml);
+        } else {
+            q = parseOData(query);
+        }
+
+        var HIERARCHICAL = ['above', 'eq-or-above', 'under', 'eq-or-under', 'not-under'];
+        var needsHierarchy = q.conditions.some(function (c) {
+            return HIERARCHICAL.indexOf(c.operator) !== -1;
+        });
+
+        if (needsHierarchy && !isHierarchical(fixture, entity, o)) {
+            /*
+             * The shape is a stand-in until the 0.0.1 probe of
+             * pcf-hierarchy-view records what the server actually says (P4 in
+             * its SPEC.md); the code and the fact that it is a plain object
+             * are what a control depends on, and both are the measured norm.
+             */
+            return Promise.reject(webApiFault(
+                2147746581,
+                '',
+                'The hierarchical condition operator requires a hierarchical relationship on ' + entity + '.',
+            ));
+        }
+
+        var matched = rows.filter(function (row) {
+            return q.conditions.every(function (c) {
+                var actual = valueOf(row, c.attribute);
+                var wanted = c.value;
+                var same = function () {
+                    return bareId(actual) === bareId(wanted) || String(actual) === String(wanted);
+                };
+
+                switch (c.operator) {
+                    case 'eq': return actual !== null && actual !== undefined && same();
+                    case 'ne': case 'neq': return actual === null || actual === undefined || !same();
+                    case 'null': return actual === null || actual === undefined;
+                    case 'not-null': return actual !== null && actual !== undefined;
+                    case 'above': return ancestorsOf(rows, h, wanted).indexOf(row) !== -1;
+                    case 'eq-or-above': return bareId(row[h.id]) === bareId(wanted) || ancestorsOf(rows, h, wanted).indexOf(row) !== -1;
+                    case 'under': return descendantsOf(rows, h, wanted).indexOf(row) !== -1;
+                    case 'eq-or-under': return bareId(row[h.id]) === bareId(wanted) || descendantsOf(rows, h, wanted).indexOf(row) !== -1;
+                    case 'not-under': return bareId(row[h.id]) !== bareId(wanted) && descendantsOf(rows, h, wanted).indexOf(row) === -1;
+                    default: return true;
+                }
+            });
+        });
+
+        q.order.slice().reverse().forEach(function (clause) {
+            matched = matched.slice().sort(function (a, b) {
+                var x = valueOf(a, clause.attribute);
+                var y = valueOf(b, clause.attribute);
+                var r = x === y ? 0 : x === null || x === undefined ? -1 : y === null || y === undefined ? 1 : x < y ? -1 : 1;
+                return clause.descending ? -r : r;
+            });
+        });
+
+        if (q.top !== undefined) {
+            matched = matched.slice(0, q.top);
+        }
+
+        var page = maxPageSize > 0 && matched.length > maxPageSize ? matched.slice(0, maxPageSize) : matched;
+        var wanted = q.attributes.filter(function (a) { return !a.rowaggregate; }).map(function (a) { return a.name; });
+        var counts = q.attributes.filter(function (a) { return a.rowaggregate === 'CountChildren'; });
+
+        var entities = page.map(function (source) {
+            var entity = {};
+
+            Object.keys(source).forEach(function (key) {
+                var column = key.split('@')[0];
+                var keep = wanted.length === 0
+                    || wanted.indexOf(column) !== -1
+                    || (column.charAt(0) === '_' && wanted.indexOf(column.replace(/^_|_value$/g, '')) !== -1)
+                    || column === h.id;
+
+                if (keep && !(isFetch && (source[key] === null || source[key] === undefined))) {
+                    entity[key] = source[key];
+                }
+            });
+
+            counts.forEach(function (a) {
+                var id = bareId(source[h.id]);
+                entity[a.alias || 'children'] = rows.filter(function (row) {
+                    return parentOf(row, h) === id;
+                }).length;
+            });
+
+            return entity;
+        });
+
+        var result = { entities: entities };
+
+        if (page.length < matched.length) {
+            result.nextLink = (o.clientUrl || clientUrlFor(1)) + '/api/data/v9.2/' + entity + 's?$skiptoken=' + page.length;
+            if (isFetch) {
+                result.fetchXmlPagingCookie = '<cookie page="1"><' + h.id + ' last="' + bareId(page[page.length - 1][h.id]) + '" /></cookie>';
+            }
+        }
+
+        return Promise.resolve(result);
+    }
+
+    /**
+     * Register this host's origin with the shared `fetch` stub. Answers only
+     * the metadata a field control has been seen to read — `EntityDefinitions(
+     * LogicalName='x')` for `EntitySetName`, and its `ManyToOneRelationships`
+     * or `OneToManyRelationships` — and refuses everything else on its origin
+     * by rejecting, the way an unknown path would 404 into a `.json()` that
+     * throws.
+     */
+    function installFetch(clientUrl, o, log) {
+        var scope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null);
+        var fixture = o.fixture || {};
+        var prefix = clientUrl + "/api/data/v9.2/EntityDefinitions(LogicalName='";
+
+        if (!scope) {
+            return;
+        }
+
+        hostsByUrl[clientUrl] = function (url) {
+            var address = String(url);
+
+            if (address.indexOf(prefix) !== 0) {
+                return Promise.reject(new Error('No fetch for ' + address));
+            }
+
+            log('fetch', address.slice(clientUrl.length));
+
+            var rest = address.slice(prefix.length);
+            var entity = (rest.match(/^([a-z0-9_]+)'\)/i) || [])[1];
+            var definition = rest.match(/^[a-z0-9_]+'\)(\?\$select=EntitySetName)?$/i);
+
+            if (definition) {
+                var set = (fixture.entitySets || {})[entity];
+
+                if (set === undefined) {
+                    return reply(404, {
+                        error: { code: '0x80060888', message: "Could not find a property named '" + entity + "'." },
+                    });
+                }
+
+                return reply(200, { LogicalName: entity, EntitySetName: set });
+            }
+
+            var direction = /\/OneToManyRelationships/.test(rest) ? 'one' : /\/ManyToOneRelationships/.test(rest) ? 'many' : null;
+
+            if (!direction) {
+                return Promise.reject(new Error('No fetch for ' + address));
+            }
+
+            var status = o.relationshipsStatus;
+
+            if (status === 0) {
+                return Promise.reject(new TypeError('Failed to fetch'));
+            }
+
+            var body = status === 200
+                ? {
+                    value: (fixture.relationships || [])
+                        .filter(function (row) {
+                            return direction === 'one' ? row.target === entity : row.entity === entity;
+                        })
+                        .map(function (row) {
+                            return {
+                                SchemaName: row.schemaName || (row.entity + '_' + row.column),
+                                ReferencingAttribute: row.column,
+                                ReferencingEntity: row.entity,
+                                ReferencedEntity: row.target,
+                                ReferencingEntityNavigationPropertyName: row.navigationProperty,
+                                IsHierarchical: typeof o.hierarchical === 'boolean'
+                                    ? (o.hierarchical && row.entity === row.target)
+                                    : Boolean(row.hierarchical),
+                            };
+                        }),
+                }
+                : { error: { code: '0x80040220', message: 'Refused by the rig.' } };
+
+            return reply(status, body);
+        };
+
+        if (!scope.__pcfHostFetch) {
+            var previous = scope.fetch;
+
+            scope.__pcfHostFetch = function (url, init) {
+                var address = String(url);
+                var origin = Object.keys(hostsByUrl).filter(function (candidate) {
+                    return address.indexOf(candidate + '/') === 0;
+                })[0];
+
+                if (origin) {
+                    return hostsByUrl[origin](url, init);
+                }
+
+                return previous
+                    ? previous.call(scope, url, init)
+                    : Promise.reject(new Error('No fetch for ' + address));
+            };
+            scope.fetch = scope.__pcfHostFetch;
+        }
+    }
+
     /**
      * `context.navigation`, assembled method by method.
      *
@@ -432,16 +990,25 @@
         };
 
         /*
-         * `openForm` is deliberately NOT here, and its absence is the rule
-         * rather than an omission.
+         * `openForm` — model-driven only, so canvas never has it whatever the
+         * switch says. It arrived with the first field control that opens a
+         * record (`pcf-hierarchy-view`, a card click); before that its absence
+         * was the rule, on the grounds that a stub nothing calls is a stub
+         * nobody maintains.
          *
-         * It is model-driven only, and no field control in the catalogue opens
-         * a form — the ones that do are dataset controls, whose rig has it. A
-         * stub for a method nothing calls is a stub nobody maintains, and it
-         * would sit here reading as though the field rig models a capability it
-         * has never been asked to model. Add it *with* the control that needs
-         * it, behind its own switch, the way the dataset rig has `openFile`.
+         * Resolves `{ savedEntityReference: null }` — what a form the user
+         * navigated to and away from reports — so a control that reads the
+         * reference without checking it has that branch under test.
          */
+        if (o.host !== 'canvas' && o.openForm !== 'absent') {
+            navigation.openForm = function (options, parameters) {
+                log('navigation.openForm', parameters === undefined ? options : { options: options, parameters: parameters });
+
+                return o.openForm === 'rejects'
+                    ? Promise.reject(webApiFault(2147746581, '', 'The form could not be opened.'))
+                    : Promise.resolve({ savedEntityReference: null });
+            };
+        }
 
         /*
          * 'absent' removes the three rather than making them fail, because
@@ -562,6 +1129,16 @@
 
         var host = HOSTS[o.host] || HOSTS['model-driven'];
         var security = SECURITY[o.security];
+        var clientUrl = o.clientUrl || nextClientUrl();
+        var isLookup = o.valueType === 'Lookup.Simple';
+
+        installFetch(clientUrl, o, log);
+
+        function fails() {
+            return o.webApiFails
+                ? Promise.reject(webApiFault(2147746581, '', 'The request could not be completed.'))
+                : null;
+        }
 
         var getString =
             o.getString
@@ -598,7 +1175,7 @@
                      * this switch exists to find.
                      */
                     attributes: host.publishesMetadata
-                        ? { MaxLength: o.maxLength, LogicalName: 'name', DisplayName: o.label }
+                        ? { MaxLength: o.maxLength, LogicalName: o.column, DisplayName: o.label }
                         : undefined,
                     /*
                      * `undefined` unless the column carries a field-level
@@ -609,10 +1186,40 @@
                     error: o.error,
                     // The platform sets no message when there is no error.
                     errorMessage: o.error ? o.errorMessage : undefined,
-                    type: 'SingleLine.Text',
+                    type: o.valueType,
                 },
                 placeholder: { raw: o.placeholder, type: 'SingleLine.Text' },
-            }, parameters),
+            }, parameters, isLookup && o.targetMethod !== 'absent'
+                ? {
+                    value: Object.assign({}, {
+                        raw: o.value,
+                        attributes: host.publishesMetadata
+                            ? { LogicalName: o.column, DisplayName: o.label }
+                            : undefined,
+                        security: security,
+                        error: o.error,
+                        errorMessage: o.error ? o.errorMessage : undefined,
+                        type: o.valueType,
+                        /*
+                         * The two methods only a lookup binding has. 'throws'
+                         * is a host that has the method and cannot answer it —
+                         * the hub's harness, before it had none.
+                         */
+                        getTargetEntityType: function () {
+                            if (o.targetMethod === 'throws') {
+                                throw new Error('getTargetEntityType is not available on this host.');
+                            }
+                            return o.target;
+                        },
+                        getViewId: function () {
+                            if (o.targetMethod === 'throws') {
+                                throw new Error('getViewId is not available on this host.');
+                            }
+                            return '00000000-0000-0000-00aa-000010001002';
+                        },
+                    }, parameters.value || {}),
+                }
+                : {}),
 
             mode: {
                 isVisible: o.visible,
@@ -828,6 +1435,10 @@
                     createRecord: function (entityType, data) {
                         log('webAPI.createRecord', entityType);
 
+                        if (fails()) {
+                            return fails();
+                        }
+
                         if (o.createRecord === null || o.createRecord === undefined) {
                             return Promise.reject({
                                 errorCode: 2147746581,
@@ -852,6 +1463,10 @@
                     updateRecord: function (entityType, id, data) {
                         log('webAPI.updateRecord', entityType + ' ' + id + ' ' + Object.keys(data || {}).join(','));
 
+                        if (fails()) {
+                            return fails();
+                        }
+
                         return o.updateRecord
                             ? Promise.resolve({ entityType: entityType, id: { guid: id }, name: '' })
                             : Promise.reject({
@@ -863,12 +1478,64 @@
                     retrieveRecord: function (entityType, id, options) {
                         log('webAPI.retrieveRecord', entityType + ' ' + id + ' ' + (options || ''));
 
-                        return o.retrieveRecord === null || o.retrieveRecord === undefined
-                            ? Promise.reject({
-                                errorCode: 2147746581,
-                                message: 'The record could not be retrieved.',
-                            })
-                            : Promise.resolve(o.retrieveRecord);
+                        if (fails()) {
+                            return fails();
+                        }
+
+                        if (o.retrieveRecord === null || o.retrieveRecord === undefined) {
+                            return Promise.reject(webApiFault(2147746581, '', 'The record could not be retrieved.'));
+                        }
+
+                        if (o.retrieveRecord !== 'fixture') {
+                            return Promise.resolve(o.retrieveRecord);
+                        }
+
+                        /*
+                         * From the fixture, by id, with `$select` honoured the
+                         * way a query's is. An id the fixture does not hold is
+                         * the server's "Record Is Unavailable" (0x80040217).
+                         */
+                        var h = hierarchyOf(o.fixture, entityType);
+                        var rows = ((o.fixture && o.fixture.tables) || {})[entityType] || [];
+                        var found = rows.filter(function (row) {
+                            return bareId(row[h.id]) === bareId(id);
+                        })[0];
+
+                        if (!found) {
+                            return Promise.reject(webApiFault(
+                                2147746327,
+                                'Record Is Unavailable',
+                                'The requested record was not found or you do not have sufficient permissions to view it.',
+                            ));
+                        }
+
+                        return answerQuery(
+                            o.fixture,
+                            entityType,
+                            (options || '?') + (options && options.indexOf('?') !== -1 ? '&' : '') + '$filter=' + h.id + ' eq ' + bareId(id),
+                            0,
+                            o,
+                        ).then(function (result) {
+                            return result.entities[0];
+                        });
+                    },
+
+                    /**
+                     * From the fixture — see `answerQuery` for the OData and
+                     * FetchXML subsets it reads, what it refuses, and the two
+                     * server behaviours it reproduces. `maxPageSize` is the
+                     * method's third argument and truncates with a `nextLink`,
+                     * which is not what `$top` does; a control that needs the
+                     * "there are more" signal has to use the right one.
+                     */
+                    retrieveMultipleRecords: function (entityType, options, maxPageSize) {
+                        log('webAPI.retrieveMultipleRecords', entityType + ' ' + (options || '') + (maxPageSize ? ' max=' + maxPageSize : ''));
+
+                        if (fails()) {
+                            return fails();
+                        }
+
+                        return answerQuery(o.fixture, entityType, options, maxPageSize, o);
                     },
                 }
                 : undefined,
@@ -881,6 +1548,22 @@
              * the platform's ability to act on it.
              */
             navigation: buildNavigation(o, log),
+
+            /*
+             * `context.page` — undocumented, like `contextInfo`, and read for
+             * one thing: `getClientUrl()`, the organisation URL a same-origin
+             * metadata `fetch` has to start from. Absent on canvas and under
+             * `page: false`, which is the state that makes a control write its
+             * `Xrm` fallback and then its "no metadata, take the other route"
+             * branch.
+             */
+            page: o.page && o.host !== 'canvas'
+                ? {
+                    getClientUrl: function () {
+                        return clientUrl;
+                    },
+                }
+                : undefined,
 
             /*
              * `context.utils`, absent on a host without the `Utility` feature.
@@ -918,7 +1601,13 @@
 
                         Object.defineProperty(Metadata.prototype, 'PrimaryIdAttribute', {
                             get: function () {
-                                return entityName + 'id';
+                                return hierarchyOf(o.fixture, entityName).id;
+                            },
+                        });
+
+                        Object.defineProperty(Metadata.prototype, 'PrimaryNameAttribute', {
+                            get: function () {
+                                return o.primaryNameAttribute;
                             },
                         });
 
@@ -1045,5 +1734,9 @@
         FORM_FACTORS: FORM_FACTORS,
         createContext: createContext,
         captureRegistration: captureRegistration,
+        nextClientUrl: nextClientUrl,
+        clientUrlFor: clientUrlFor,
+        answerQuery: answerQuery,
+        webApiFault: webApiFault,
     };
 });

@@ -194,9 +194,36 @@ mutators into the console. That is the gap the rig exists to fill:
 
 | Shape | What only the rig reaches |
 | --- | --- |
-| field | Field-level security (`security.readable` false is *not* an empty column), the platform's own `error`/`errorMessage`, a host that publishes no theme, a host that publishes no column metadata, whether a cleared value comes back as `null` rather than `undefined`, and a `device`/`getResource` that reject the way every host without a native bridge does. |
+| field | Field-level security (`security.readable` false is *not* an empty column), the platform's own `error`/`errorMessage`, a host that publishes no theme, a host that publishes no column metadata, whether a cleared value comes back as `null` rather than `undefined`, and a `device`/`getResource` that reject the way every host without a native bridge does. And the Web API read from a fixture — `retrieveRecord`, `retrieveMultipleRecords` with an OData or a **FetchXML** query including the hierarchical operators, a `page.getClientUrl()` and a same-origin metadata `fetch` answered per host — with each one's refusal as a switch (`webApiFails`, `webAPI: false`, `page: false`, `relationshipsStatus`, `hierarchical: false`, `openForm: 'absent'`). |
 | dataset | **More than one page.** Server-side sorting, server-side *filtering*, a non-sortable column, a hidden column, columns out of order — and the three ways real paging misbehaves, as switches. |
 | grid-customizer | The whole shape; see below. |
+
+**The field rig answers the Web API from `dev/fixture.js`**, since the first
+field control that read a hierarchy through it (`pcf-hierarchy-view`). The
+fixture is nine accounts in the Web API's own shape — the primary key under its
+logical name, a lookup as `_column_value`, a formatted value under its
+`@OData.Community.Display.V1.FormattedValue` annotation — plus `hierarchy`,
+which names the parent column so `above` and `under` mean something, and
+`relationships`, which is what `EntityDefinitions(…)/OneToManyRelationships`
+lists with `IsHierarchical` read off it. `retrieveMultipleRecords` reads a
+small subset of OData (`$select`, an `and` of `x eq v`, `$orderby`, `$top`) and
+of FetchXML (the entity, its attributes with `alias` and
+`rowaggregate='CountChildren'`, `order`, and the conditions of one `filter`),
+and reproduces two server behaviours on purpose: a FetchXML result **omits
+null-valued properties**, and `maxPageSize` truncates with a `nextLink` where
+`top` truncates silently. A hierarchical operator on a table whose relationship
+is not hierarchical is refused in the fault shape.
+
+Two rules come with it. **One `fetch` stub, routed by origin**: every host
+registers its `clientUrl` and a single global dispatches on the URL's prefix,
+because a stub installed per host belonged to whichever host a suite created
+last. And **one `clientUrl` per mount, not per context**: `createContext` runs
+on every render and a form's URL does not change between passes, so
+`smoke.js`'s `mount()` takes one from `host.nextClientUrl()` and hands the
+same string to every context that instance sees — `update()` included, which
+used to drop the call log. The suite's tail carries the rig's own claims about
+all of this and they are marked *keep*; they were each a bug in a sibling's rig
+before they were an assertion.
 
 Both harness pages also carry the two switches `npm start` has — form factor and
 allocated width — so a responsive control can be developed in one place. Note

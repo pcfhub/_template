@@ -325,7 +325,8 @@ function verifyOtherShapes() {
             virtual.has('dev/harness.html')
             && virtual.has('dev/harness.js')
             && virtual.has('dev/fluent-stub.js')
-            && virtual.has('dev/virtual-bundle.js'),
+            && virtual.has('dev/virtual-bundle.js')
+            && virtual.has('dev/fixture.js'),
         );
 
         const page = virtual.read('dev/harness.html');
@@ -762,6 +763,18 @@ function main() {
         check(
             'the dev rig lands',
             has('dev/smoke.js') && has('dev/host.js') && has('dev/dom.js') && has('dev/clock.js'),
+        );
+
+        /*
+         * The field rig answers the Web API from a fixture too, since the first
+         * field control that read a hierarchy through it. A rig without the
+         * file fails at `require` rather than at the assertion that needs it.
+         */
+        check(
+            'the field fixture lands and the page loads it before the host',
+            has('dev/fixture.js')
+            && read('dev/harness.html').indexOf('src="fixture.js"') !== -1
+            && read('dev/harness.html').indexOf('src="fixture.js"') < read('dev/harness.html').indexOf('src="host.js"'),
         );
 
         check('the browser harness lands for a standard control', has('dev/harness.html') && has('dev/harness.js'));

@@ -186,13 +186,13 @@ const DONORS = {
     'field:standard': {
         sources: '__CONTROL__',
         dev: 'dev',
-        devFiles: ['harness.html', 'harness.js', 'host.js', 'smoke.js'],
+        devFiles: ['fixture.js', 'harness.html', 'harness.js', 'host.js', 'smoke.js'],
     },
     'field:react': {
         sources: '__CONTROL__',
         react: join('variants', 'react'),
         dev: 'dev',
-        devFiles: ['harness.html', 'harness.js', 'host.js', 'smoke.js'],
+        devFiles: ['fixture.js', 'harness.html', 'harness.js', 'host.js', 'smoke.js'],
         virtualDev: join('variants', 'react', 'dev'),
     },
     'dataset:standard': {

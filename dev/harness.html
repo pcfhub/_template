@@ -281,6 +281,45 @@
             </label>
 
             <label>
+                navigation.openForm
+                <select id="harness-openform">
+                    <option value="resolves">Resolves (a form the user navigated to)</option>
+                    <option value="rejects">Refused (rejects)</option>
+                    <option value="absent">Absent (canvas)</option>
+                </select>
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-webapifails" />
+                Every Web API call is refused
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-page" checked />
+                context.page.getClientUrl exists
+            </label>
+
+            <label>
+                Relationship metadata fetch
+                <select id="harness-relationships">
+                    <option value="200">200 — lists the fixture's relationships</option>
+                    <option value="403">403 — refused</option>
+                    <option value="404">404 — not found</option>
+                    <option value="0">Network failure (rejects with a TypeError)</option>
+                </select>
+                <span>What <code>EntityDefinitions(…)/OneToManyRelationships</code> answers.</span>
+            </label>
+
+            <label>
+                The parent lookup is hierarchical
+                <select id="harness-hierarchical">
+                    <option value="fixture">As the fixture says (parentaccountid: yes)</option>
+                    <option value="true">Yes</option>
+                    <option value="false">No — hierarchical operators are refused</option>
+                </select>
+            </label>
+
+            <label>
                 Platform dialogs
                 <select id="harness-dialogs">
                     <option value="confirmed">Confirmed</option>
@@ -322,6 +361,7 @@
             bundle calls the moment it loads, and there is nowhere to register
             otherwise.
         -->
+        <script src="fixture.js"></script>
         <script src="host.js"></script>
         <script src="harness.js"></script>
         <script src="../out/controls/__CONTROL__/bundle.js"></script>

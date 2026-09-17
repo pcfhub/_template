@@ -25,6 +25,11 @@
 
     /** Every `trackContainerResize` / `setFullScreen` call the control made. */
     var calls = [];
+    /*
+     * One organisation URL for the life of the page — the platform's does not
+     * change between passes, and the rig's `fetch` stub answers on it.
+     */
+    var clientUrl = host.nextClientUrl();
 
     /*
      * What the "Location" switch means, spelled out here rather than in the
@@ -81,6 +86,16 @@
             hasNavigation: document.getElementById('harness-navigation').checked,
             dialogs: document.getElementById('harness-dialogs').value,
             offline: document.getElementById('harness-offline').checked,
+            openForm: document.getElementById('harness-openform').value,
+            webApiFails: document.getElementById('harness-webapifails').checked,
+            page: document.getElementById('harness-page').checked,
+            relationshipsStatus: Number(document.getElementById('harness-relationships').value),
+            hierarchical:
+                document.getElementById('harness-hierarchical').value === 'fixture'
+                    ? undefined
+                    : document.getElementById('harness-hierarchical').value === 'true',
+            fixture: window.__pcfFixture,
+            clientUrl: clientUrl,
         };
     }
 
