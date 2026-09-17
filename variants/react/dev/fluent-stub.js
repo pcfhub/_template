@@ -41,8 +41,9 @@
  *   - **`Menu` closes only on a choice.** The real one also closes on an
  *     outside click and on Escape; this one stays open until an item is
  *     picked or the trigger pressed again, so a screenshot can show it.
- *   - **`Button` is a `<button>`** with its appearance as a class and no
- *     icon slot; `disableButtonEnhancement` is swallowed.
+ *   - **`Button` is a `<button>`** with its appearance as a class and its
+ *     icon rendered before the children; `iconPosition` and
+ *     `disableButtonEnhancement` are swallowed.
  *
  * ---
  *
@@ -234,6 +235,14 @@
      * Hover and pressed states are approximate; `disableButtonEnhancement`
      * is swallowed — it is a Fluent-internal hint, not an attribute.
      */
+    var SPINNER_STYLES = [
+        '.stub-spinner { display: inline-block; width: 16px; height: 16px; border: 2px solid var(--colorBrandStroke2, #c7e0f4);',
+        '  border-top-color: var(--colorBrandStroke1, #0f6cbd); border-radius: 50%; animation: stub-spin 1s linear infinite; }',
+        '.stub-spinner--tiny { width: 12px; height: 12px; border-width: 2px; }',
+        '.stub-spinner--extra-tiny { width: 10px; height: 10px; border-width: 1.5px; }',
+        '@keyframes stub-spin { to { transform: rotate(360deg); } }',
+    ].join('\n');
+
     var BUTTON_STYLES = [
         ':where(.stub-button){box-sizing:border-box;display:inline-flex;align-items:center;justify-content:center;gap:4px;',
         'min-width:64px;height:24px;padding:0 8px;margin:0;font-family:var(--fontFamilyBase,"Segoe UI",system-ui,sans-serif);',
@@ -253,7 +262,7 @@
         var styleTag = global.document.createElement('style');
 
         styleTag.id = 'fluent-stub-styles';
-        styleTag.textContent = BUTTON_STYLES;
+        styleTag.textContent = BUTTON_STYLES + '\n' + SPINNER_STYLES;
         global.document.head.appendChild(styleTag);
     }
 
@@ -271,7 +280,30 @@
             .filter(Boolean)
             .join(' ');
 
-        return React.createElement('button', attributes, props.children);
+        // The icon slot renders before the children, as the real one does when
+        // iconPosition is 'before' (the default); 'after' is not modelled.
+        return React.createElement('button', attributes, props.icon || null, props.children);
+    }
+
+    /**
+     * `Spinner`: a `<span role="progressbar">` with the size as a class and a
+     * CSS ring, so a loading state has something visible and something an
+     * assertion can find. The real one animates with Griffel and takes a
+     * `label`; this draws neither.
+     */
+    function Spinner(props) {
+        var attributes = {
+            role: 'progressbar',
+            className: ['stub-spinner', 'stub-spinner--' + (props.size || 'medium'), props.className].filter(Boolean).join(' '),
+        };
+
+        Object.keys(props).forEach(function (key) {
+            if (key.indexOf('aria-') === 0) {
+                attributes[key] = props[key];
+            }
+        });
+
+        return React.createElement('span', attributes, props.label || null);
     }
 
     /*
@@ -383,6 +415,7 @@
         PopoverTrigger: PopoverTrigger,
         PopoverSurface: PopoverSurface,
         Button: Button,
+        Spinner: Spinner,
         Menu: Menu,
         MenuTrigger: MenuTrigger,
         MenuPopover: MenuPopover,

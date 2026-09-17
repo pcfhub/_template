@@ -1435,8 +1435,10 @@
                     createRecord: function (entityType, data) {
                         log('webAPI.createRecord', entityType);
 
-                        if (fails()) {
-                            return fails();
+                        var refusal = fails();
+
+                        if (refusal) {
+                            return refusal;
                         }
 
                         if (o.createRecord === null || o.createRecord === undefined) {
@@ -1463,8 +1465,10 @@
                     updateRecord: function (entityType, id, data) {
                         log('webAPI.updateRecord', entityType + ' ' + id + ' ' + Object.keys(data || {}).join(','));
 
-                        if (fails()) {
-                            return fails();
+                        var refusal = fails();
+
+                        if (refusal) {
+                            return refusal;
                         }
 
                         return o.updateRecord
@@ -1478,8 +1482,10 @@
                     retrieveRecord: function (entityType, id, options) {
                         log('webAPI.retrieveRecord', entityType + ' ' + id + ' ' + (options || ''));
 
-                        if (fails()) {
-                            return fails();
+                        var refusal = fails();
+
+                        if (refusal) {
+                            return refusal;
                         }
 
                         if (o.retrieveRecord === null || o.retrieveRecord === undefined) {
@@ -1531,8 +1537,10 @@
                     retrieveMultipleRecords: function (entityType, options, maxPageSize) {
                         log('webAPI.retrieveMultipleRecords', entityType + ' ' + (options || '') + (maxPageSize ? ' max=' + maxPageSize : ''));
 
-                        if (fails()) {
-                            return fails();
+                        var refusal = fails();
+
+                        if (refusal) {
+                            return refusal;
                         }
 
                         return answerQuery(o.fixture, entityType, options, maxPageSize, o);
