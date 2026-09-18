@@ -291,6 +291,32 @@
         /** What `audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails` answers, by row. */
         audits: { details: DETAILS },
 
+        /** Display names `utils.getEntityMetadata(table, columns).Attributes` answers, per table. */
+        labels: {
+            account: {
+                name: 'Account Name',
+                parentaccountid: 'Parent Account',
+                websiteurl: 'Website',
+                industrycode: 'Industry',
+                description: 'Description',
+                statecode: 'Status',
+                statuscode: 'Status Reason',
+                ownerid: 'Owner',
+                revenue: 'Annual Revenue',
+                address1_city: 'Address 1: City',
+                address1_line1: 'Address 1: Street 1',
+                address1_postalcode: 'Address 1: ZIP/Postal Code',
+                telephone1: 'Main Phone',
+                fax: 'Fax',
+                emailaddress1: 'Email',
+                numberofemployees: 'Number of Employees',
+                creditlimit: 'Credit Limit',
+                accountcategorycode: 'Category',
+                tickersymbol: 'Ticker Symbol',
+                donotemail: 'Email',
+            },
+        },
+
         /** The users the audit rows name, for a suite that asserts on them. */
         users: USERS,
 

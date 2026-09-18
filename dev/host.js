@@ -1862,6 +1862,40 @@
                             },
                         });
 
+                        /*
+                         * `Attributes` is an item collection — `get(name)` and
+                         * `getAll()`, never a plain object — holding only the
+                         * columns the call ASKED for (the second argument),
+                         * each with `LogicalName` and `DisplayName` read from
+                         * `fixture.labels[entity]`; a column the fixture does
+                         * not name is absent from the collection, as one the
+                         * server does not know would be. `DisplayName` is a
+                         * string here, as pcf-audit-history's SPEC.md P11
+                         * records the platform sending it.
+                         */
+                        Object.defineProperty(Metadata.prototype, 'Attributes', {
+                            get: function () {
+                                var labels = (o.fixture && o.fixture.labels && o.fixture.labels[entityName]) || {};
+                                var items = (attributes || []).filter(function (name) {
+                                    return Object.prototype.hasOwnProperty.call(labels, name);
+                                }).map(function (name) {
+                                    return { LogicalName: name, DisplayName: labels[name] };
+                                });
+
+                                return {
+                                    get: function (name) {
+                                        return items.filter(function (item) { return item.LogicalName === name; })[0];
+                                    },
+                                    getAll: function () {
+                                        return items.slice();
+                                    },
+                                    getLength: function () {
+                                        return items.length;
+                                    },
+                                };
+                            },
+                        });
+
                         return Promise.resolve(new Metadata());
                     },
 

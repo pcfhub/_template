@@ -801,6 +801,13 @@ async function rigSelfCheck() {
         .catch((error) => { offline = error.constructor.name; });
     check('rig: auditStatus 0 is the offline shape, a TypeError', offline === 'TypeError', offline);
 
+    const metadata = await ctx.utils.getEntityMetadata('account', ['name', 'revenue', 'nosuchcolumn']);
+    check(
+        'rig: getEntityMetadata(table, columns).Attributes is an item collection of the columns asked for that the fixture names',
+        metadata.Attributes.get('name').DisplayName === 'Account Name' && metadata.Attributes.getAll().length === 2 && metadata.Attributes.get('nosuchcolumn') === undefined,
+        JSON.stringify(metadata.Attributes.getAll()),
+    );
+
     disposeAll();
 }
 
