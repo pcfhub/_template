@@ -767,16 +767,13 @@
 
         if (needsHierarchy && !isHierarchical(fixture, entity, o)) {
             /*
-             * The shape is a stand-in until the 0.0.1 probe of
-             * pcf-hierarchy-view records what the server actually says (P4 in
-             * its SPEC.md); the code and the fact that it is a plain object
-             * are what a control depends on, and both are the measured norm.
+             * The measured shape (pcf-hierarchy-view 0.0.1 probe, Accounts
+             * form, 2026-09-17): a plain object, `errorCode` and `code` both
+             * 2147746307, `title` "Invalid Argument", `message` "Invalid
+             * Argument." — the server says nothing about hierarchy, which is
+             * why a control asks the metadata first rather than the query.
              */
-            return Promise.reject(webApiFault(
-                2147746581,
-                '',
-                'The hierarchical condition operator requires a hierarchical relationship on ' + entity + '.',
-            ));
+            return Promise.reject(webApiFault(2147746307, 'Invalid Argument', 'Invalid Argument.'));
         }
 
         var matched = rows.filter(function (row) {
