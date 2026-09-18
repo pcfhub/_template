@@ -90,6 +90,12 @@
             webApiFails: document.getElementById('harness-webapifails').checked,
             page: document.getElementById('harness-page').checked,
             relationshipsStatus: Number(document.getElementById('harness-relationships').value),
+            auditStatus: Number(document.getElementById('harness-auditstatus').value),
+            auditSummary: document.getElementById('harness-auditsummary').checked,
+            auditEnabled: {
+                org: document.getElementById('harness-auditorg').checked,
+                table: document.getElementById('harness-audittable').checked,
+            },
             hierarchical:
                 document.getElementById('harness-hierarchical').value === 'fixture'
                     ? undefined

@@ -311,6 +311,31 @@
             </label>
 
             <label>
+                Audit functions fetch
+                <select id="harness-auditstatus">
+                    <option value="200">200 — answers from the fixture's audit history</option>
+                    <option value="403">403 — no prvReadRecordAuditHistory</option>
+                    <option value="0">Network failure (rejects with a TypeError)</option>
+                </select>
+                <span>What <code>audits(…)/…RetrieveAuditDetails</code> and <code>RetrieveRecordChangeHistory(…)</code> answer.</span>
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-auditsummary" checked />
+                The audit table can be queried (prvReadAuditSummary)
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-auditorg" checked />
+                Auditing is on for the organisation
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-audittable" checked />
+                Auditing is on for the table
+            </label>
+
+            <label>
                 The parent lookup is hierarchical
                 <select id="harness-hierarchical">
                     <option value="fixture">As the fixture says (parentaccountid: yes)</option>

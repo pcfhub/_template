@@ -735,6 +735,72 @@ async function rigSelfCheck() {
     const page = await ctx.webAPI.retrieveMultipleRecords('account', "?$select=accountid,name&$filter=_parentaccountid_value eq c1&$orderby=name asc", 1);
     check('rig: maxPageSize truncates and says there is more', page.entities.length === 1 && typeof page.nextLink === 'string', JSON.stringify(page));
 
+    /*
+     * The audit half: rows through `webAPI`, values through the two functions
+     * on the fetch stub. The `nextLink` has to carry the query, because a
+     * control hands it straight back — before it did, page two of a filtered
+     * list answered an unfiltered one.
+     */
+    const auditQuery = '?$select=auditid,createdon,action,_objectid_value&$filter=_objectid_value eq c1&$orderby=createdon desc';
+    const first = await ctx.webAPI.retrieveMultipleRecords('audit', auditQuery, 10);
+    const second = await ctx.webAPI.retrieveMultipleRecords('audit', first.nextLink, 10);
+    const third = await ctx.webAPI.retrieveMultipleRecords('audit', second.nextLink, 10);
+    check(
+        'rig: the audit table pages by nextLink, newest first, and the link carries the filter',
+        first.entities.length === 10 && second.entities.length === 10 && third.entities.length === 6 && third.nextLink === undefined
+            && first.entities[0].createdon > second.entities[0].createdon
+            && second.entities.every((row) => row._objectid_value === 'c1'),
+        `${first.entities.length}/${second.entities.length}/${third.entities.length}`,
+    );
+
+    const api = `${ctx.page.getClientUrl()}/api/data/v9.2`;
+    const detail = await fetch(`${api}/audits(${first.entities[1].auditid})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`).then((r) => r.json());
+    check(
+        'rig: RetrieveAuditDetails answers by audit id, lookups annotated, and no AuditRecord',
+        detail.AuditDetail['@odata.type'] === '#Microsoft.Dynamics.CRM.AttributeAuditDetail'
+            && detail.AuditDetail.NewValue['_parentaccountid_value@Microsoft.Dynamics.CRM.lookuplogicalname'] === 'account'
+            && !('AuditRecord' in detail.AuditDetail),
+        JSON.stringify(Object.keys(detail.AuditDetail)),
+    );
+    const unknown = await fetch(`${api}/audits(00000000-0000-0000-0000-0000000000ff)/Microsoft.Dynamics.CRM.RetrieveAuditDetails`);
+    check('rig: an audit id the fixture does not hold is a 404', unknown.status === 404, String(unknown.status));
+
+    const target = encodeURIComponent("{'@odata.id':'accounts(c1)'}");
+    const paging = encodeURIComponent(JSON.stringify({ PageNumber: 2, Count: 10, ReturnTotalRecordCount: true }));
+    const history = await fetch(`${api}/RetrieveRecordChangeHistory(Target=@t,PagingInfo=@p)?@t=${target}&@p=${paging}`).then((r) => r.json());
+    check(
+        'rig: RetrieveRecordChangeHistory pages by @p and counts the whole history',
+        history.AuditDetailCollection.AuditDetails.length === 10 && history.AuditDetailCollection.TotalRecordCount === 26
+            && history.AuditDetailCollection.MoreRecords === true,
+        JSON.stringify([history.AuditDetailCollection.AuditDetails.length, history.AuditDetailCollection.TotalRecordCount]),
+    );
+
+    const definition = await fetch(`${api}/EntityDefinitions(LogicalName='account')?$select=IsAuditEnabled`).then((r) => r.json());
+    const off = host.createContext({ fixture, clientUrl: host.nextClientUrl(), auditEnabled: { org: false, table: false }, auditStatus: 403, auditSummary: false });
+    const offApi = `${off.page.getClientUrl()}/api/data/v9.2`;
+    const offDefinition = await fetch(`${offApi}/EntityDefinitions(LogicalName='account')?$select=IsAuditEnabled`).then((r) => r.json());
+    const offOrg = await off.webAPI.retrieveMultipleRecords('organization', '?$select=isauditenabled&$top=1');
+    check(
+        'rig: IsAuditEnabled is a managed property that follows the switch, on the table and the organisation',
+        definition.IsAuditEnabled.Value === true && offDefinition.IsAuditEnabled.Value === false && offOrg.entities[0].isauditenabled === false,
+        JSON.stringify([definition.IsAuditEnabled, offDefinition.IsAuditEnabled, offOrg.entities[0]]),
+    );
+
+    const refusedDetail = await fetch(`${offApi}/audits(${first.entities[1].auditid})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`);
+    let summaryFault = null;
+    await off.webAPI.retrieveMultipleRecords('audit', auditQuery, 10).catch((error) => { summaryFault = error; });
+    check(
+        'rig: the two audit privileges refuse separately — a 403 body on the function, a plain-object fault on the query',
+        refusedDetail.status === 403 && summaryFault !== null && !(summaryFault instanceof Error) && typeof summaryFault.errorCode === 'number',
+        `${refusedDetail.status} / ${summaryFault && summaryFault.constructor.name}`,
+    );
+
+    let offline = 'resolved';
+    const dark = host.createContext({ fixture, clientUrl: host.nextClientUrl(), auditStatus: 0 });
+    await fetch(`${dark.page.getClientUrl()}/api/data/v9.2/audits(${first.entities[1].auditid})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`)
+        .catch((error) => { offline = error.constructor.name; });
+    check('rig: auditStatus 0 is the offline shape, a TypeError', offline === 'TypeError', offline);
+
     disposeAll();
 }
 

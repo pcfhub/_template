@@ -385,6 +385,40 @@
         relationshipsStatus: 200,
 
         /**
+         * What the two audit **functions** answer on the `fetch` stub —
+         * `audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails` (bound to
+         * the audit row) and `RetrieveRecordChangeHistory(Target=@t,
+         * PagingInfo=@p)` (unbound, its arguments as `@`-aliases in the query
+         * string) — as the HTTP status. `200` answers from `fixture.audits`;
+         * `403` is the refusal a user without `prvReadRecordAuditHistory`
+         * gets, a body with `error.code` and `error.message`; **`0` rejects
+         * with a `TypeError`**, the offline shape. Neither function is
+         * reachable through `context.webAPI`, which has no `execute` — that is
+         * the whole reason a control fetches them.
+         */
+        auditStatus: 200,
+
+        /**
+         * Whether `retrieveMultipleRecords('audit', …)` answers. `false` is
+         * the user without `prvReadAuditSummary`: the query rejects in the
+         * fault shape while the functions above may still answer, because the
+         * two privileges are separate and a control degrades on each on its
+         * own — rows without values, or values nobody can list.
+         */
+        auditSummary: true,
+
+        /**
+         * Whether auditing is on, at the two levels a control can ask about:
+         * `org` is what `retrieveMultipleRecords('organization',
+         * '?$select=isauditenabled')` answers when the fixture holds no
+         * `organization` table, and `table` is `IsAuditEnabled.Value` on the
+         * `EntityDefinitions(LogicalName='x')?$select=IsAuditEnabled` fetch.
+         * Both are `BooleanManagedProperty`-shaped on the wire — `{ Value,
+         * CanBeChanged, ManagedPropertyLogicalName }` — never a bare boolean.
+         */
+        auditEnabled: { org: true, table: true },
+
+        /**
          * What `navigation.openForm` does — model-driven only, so absent on
          * canvas whatever this says.
          *
@@ -687,7 +721,19 @@
         };
     }
 
-    /** The OData subset: `$select`, `$filter` (`and` of `x eq v`), `$orderby`, `$top`. */
+    /**
+     * The OData subset: `$select`, `$filter` (`and` of `x eq v`, `x ne v`,
+     * `x lt|le|gt|ge v` and `contains(x,'v')`), `$orderby`, `$top`, and
+     * `$skiptoken` — the offset a `nextLink` from this rig carries, applied
+     * after ordering. `options` may be a full URL on the host's origin: a
+     * control that hands a `nextLink` back as `options` is asking for the
+     * next page, and the rig reads the query off it.
+     *
+     * A clause the subset cannot read is kept as `unparsed`, and an unparsed
+     * clause **passes every row** — so a suite asserting a filtered count
+     * against an operator nobody added here is asserting nothing. Add the
+     * operator.
+     */
     function parseOData(query) {
         var part = function (name) {
             var m = query.match(new RegExp('[?&]\\' + name + '=([^&]*)'));
@@ -697,10 +743,12 @@
         var filter = part('$filter');
         var orderby = part('$orderby');
         var top = part('$top');
+        var skip = part('$skiptoken');
 
         return {
             attributes: select ? select.split(',').map(function (name) { return { name: name.trim() }; }) : [],
             top: top !== undefined ? Number(top) : undefined,
+            skip: skip !== undefined ? Number(skip) : 0,
             order: orderby
                 ? orderby.split(',').map(function (clause) {
                     var bits = clause.trim().split(/\s+/);
@@ -709,14 +757,20 @@
                 : [],
             conditions: filter
                 ? filter.split(/\s+and\s+/i).map(function (clause) {
-                    var m = clause.trim().match(/^_?([a-z0-9_]+?)(?:_value)?\s+(eq|ne)\s+(.+)$/i);
+                    var text = clause.trim();
+                    var fn = text.match(/^contains\(_?([a-z0-9_]+?)(?:_value)?\s*,\s*'([^']*)'\)$/i);
+                    if (fn) {
+                        return { attribute: fn[1], operator: 'contains', value: fn[2] };
+                    }
+                    var m = text.match(/^_?([a-z0-9_]+?)(?:_value)?\s+(eq|ne|lt|le|gt|ge)\s+(.+)$/i);
                     if (!m) {
-                        return { attribute: clause, operator: 'unparsed', value: undefined };
+                        return { attribute: text, operator: 'unparsed', value: undefined };
                     }
                     var raw = m[3].trim();
+                    var op = m[2].toLowerCase();
                     return {
                         attribute: m[1],
-                        operator: raw === 'null' ? (m[2] === 'eq' ? 'null' : 'not-null') : m[2] === 'eq' ? 'eq' : 'ne',
+                        operator: raw === 'null' ? (op === 'eq' ? 'null' : 'not-null') : op,
                         value: raw.replace(/^'|'$/g, ''),
                     };
                 })
@@ -745,8 +799,18 @@
      */
     function answerQuery(fixture, entity, options, maxPageSize, o) {
         var query = String(options || '');
+        if (/^https?:\/\//i.test(query)) {
+            // A `nextLink` handed back as `options`: the query is what matters.
+            query = query.indexOf('?') === -1 ? '' : query.slice(query.indexOf('?'));
+        }
         var isFetch = /^\?fetchXml=/i.test(query);
         var rows = ((fixture && fixture.tables) || {})[entity] || [];
+
+        if (entity === 'organization' && rows.length === 0 && o.auditEnabled) {
+            // One row, and only the columns a control has been seen to ask
+            // for. A fixture that ships an `organization` table wins.
+            rows = [{ organizationid: '00000000-0000-0000-0000-00000000000f', isauditenabled: Boolean(o.auditEnabled.org) }];
+        }
         var h = hierarchyOf(fixture, entity);
         var q;
 
@@ -784,11 +848,25 @@
                     return bareId(actual) === bareId(wanted) || String(actual) === String(wanted);
                 };
 
+                var present = actual !== null && actual !== undefined;
+                var compare = function () {
+                    // Numbers as numbers, everything else as strings — an ISO
+                    // instant sorts as text, which is why the shape is chosen.
+                    var x = typeof actual === 'number' ? actual : String(actual);
+                    var y = typeof actual === 'number' ? Number(wanted) : String(wanted);
+                    return x < y ? -1 : x > y ? 1 : 0;
+                };
+
                 switch (c.operator) {
-                    case 'eq': return actual !== null && actual !== undefined && same();
-                    case 'ne': case 'neq': return actual === null || actual === undefined || !same();
-                    case 'null': return actual === null || actual === undefined;
-                    case 'not-null': return actual !== null && actual !== undefined;
+                    case 'eq': return present && same();
+                    case 'ne': case 'neq': return !present || !same();
+                    case 'null': return !present;
+                    case 'not-null': return present;
+                    case 'lt': return present && compare() < 0;
+                    case 'le': return present && compare() <= 0;
+                    case 'gt': return present && compare() > 0;
+                    case 'ge': return present && compare() >= 0;
+                    case 'contains': return present && String(actual).toLowerCase().indexOf(String(wanted).toLowerCase()) !== -1;
                     case 'above': return ancestorsOf(rows, h, wanted).indexOf(row) !== -1;
                     case 'eq-or-above': return bareId(row[h.id]) === bareId(wanted) || ancestorsOf(rows, h, wanted).indexOf(row) !== -1;
                     case 'under': return descendantsOf(rows, h, wanted).indexOf(row) !== -1;
@@ -812,7 +890,9 @@
             matched = matched.slice(0, q.top);
         }
 
-        var page = maxPageSize > 0 && matched.length > maxPageSize ? matched.slice(0, maxPageSize) : matched;
+        var offset = q.skip || 0;
+        var remaining = offset > 0 ? matched.slice(offset) : matched;
+        var page = maxPageSize > 0 && remaining.length > maxPageSize ? remaining.slice(0, maxPageSize) : remaining;
         var wanted = q.attributes.filter(function (a) { return !a.rowaggregate; }).map(function (a) { return a.name; });
         var counts = q.attributes.filter(function (a) { return a.rowaggregate === 'CountChildren'; });
 
@@ -843,8 +923,18 @@
 
         var result = { entities: entities };
 
-        if (page.length < matched.length) {
-            result.nextLink = (o.clientUrl || clientUrlFor(1)) + '/api/data/v9.2/' + entity + 's?$skiptoken=' + page.length;
+        if (offset + page.length < matched.length) {
+            /*
+             * The server's `nextLink` is the original query plus a
+             * continuation, and a control may hand it straight back as
+             * `options` — so it has to carry the filter and the order, or
+             * page two answers a different question. The rig's continuation
+             * is an offset; the server's is opaque, and a control must never
+             * read it.
+             */
+            var base = isFetch ? '' : query.replace(/[?&]\$skiptoken=\d+/, '');
+            result.nextLink = (o.clientUrl || clientUrlFor(1)) + '/api/data/v9.2/' + entity + 's'
+                + (base || '?') + (base ? '&' : '') + '$skiptoken=' + (offset + page.length);
             if (isFetch) {
                 result.fetchXmlPagingCookie = '<cookie page="1"><' + h.id + ' last="' + bareId(page[page.length - 1][h.id]) + '" /></cookie>';
             }
@@ -854,17 +944,60 @@
     }
 
     /**
-     * Register this host's origin with the shared `fetch` stub. Answers only
-     * the metadata a field control has been seen to read — `EntityDefinitions(
-     * LogicalName='x')` for `EntitySetName`, and its `ManyToOneRelationships`
-     * or `OneToManyRelationships` — and refuses everything else on its origin
-     * by rejecting, the way an unknown path would 404 into a `.json()` that
-     * throws.
+     * A `RetrieveAuditDetails` / `RetrieveRecordChangeHistory` refusal, by the
+     * `auditStatus` switch. `null` means "answer".
+     */
+    function auditRefusal(o) {
+        var status = o.auditStatus;
+
+        if (status === 200 || status === undefined) {
+            return null;
+        }
+        if (status === 0) {
+            return Promise.reject(new TypeError('Failed to fetch'));
+        }
+
+        return reply(status, {
+            error: {
+                code: '0x80040220',
+                message: 'Principal user is missing prvReadRecordAuditHistory privilege.',
+            },
+        });
+    }
+
+    /**
+     * `fixture.audits.details[id]`, or the empty AttributeAuditDetail a row
+     * with nothing recorded answers — a Create with every column null, say.
+     */
+    function auditDetailOf(fixture, id) {
+        var details = (fixture.audits && fixture.audits.details) || {};
+        var key = Object.keys(details).filter(function (candidate) { return bareId(candidate) === bareId(id); })[0];
+
+        return key ? details[key] : undefined;
+    }
+
+    /**
+     * Register this host's origin with the shared `fetch` stub. Answers what a
+     * field control has been seen to read off the organisation URL — the
+     * metadata `context.webAPI` cannot address (`EntityDefinitions(
+     * LogicalName='x')` for `EntitySetName` or `IsAuditEnabled`, and its
+     * `ManyToOneRelationships` or `OneToManyRelationships`) and the two audit
+     * **functions** it cannot call (`audits(<id>)/Microsoft.Dynamics.CRM.
+     * RetrieveAuditDetails`, bound to the row; `RetrieveRecordChangeHistory(
+     * Target=@t,PagingInfo=@p)` and `RetrieveAttributeChangeHistory(…)`,
+     * unbound, their arguments as `@`-aliases in the query string) — and
+     * refuses everything else on its origin by rejecting, the way an unknown
+     * path would 404 into a `.json()` that throws.
+     *
+     * The function answers reproduce the one thing Learn documents and a
+     * control has to design around: **no `AuditRecord` on any `AuditDetail`**
+     * — the who and the when are not in a function's answer, only in the
+     * `audit` table's rows.
      */
     function installFetch(clientUrl, o, log) {
         var scope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null);
         var fixture = o.fixture || {};
-        var prefix = clientUrl + "/api/data/v9.2/EntityDefinitions(LogicalName='";
+        var prefix = clientUrl + '/api/data/v9.2/';
 
         if (!scope) {
             return;
@@ -879,12 +1012,105 @@
 
             log('fetch', address.slice(clientUrl.length));
 
-            var rest = address.slice(prefix.length);
+            var path = address.slice(prefix.length);
+            var refusal;
+
+            // ---- audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails ----
+            var bound = path.match(/^audits\(([0-9a-z{}-]+)\)\/Microsoft\.Dynamics\.CRM\.RetrieveAuditDetails$/i);
+
+            if (bound) {
+                refusal = auditRefusal(o);
+                if (refusal) {
+                    return refusal;
+                }
+                var detail = auditDetailOf(fixture, bound[1]);
+
+                return detail
+                    ? reply(200, { AuditDetail: detail })
+                    : reply(404, { error: { code: '0x80040217', message: 'audit With Id = ' + bound[1] + ' Does Not Exist' } });
+            }
+
+            // ---- RetrieveRecordChangeHistory / RetrieveAttributeChangeHistory ----
+            var unbound = path.match(/^(RetrieveRecordChangeHistory|RetrieveAttributeChangeHistory)\(([^)]*)\)\?(.*)$/);
+
+            if (unbound) {
+                refusal = auditRefusal(o);
+                if (refusal) {
+                    return refusal;
+                }
+                var aliases = {};
+                unbound[3].split('&').forEach(function (pair) {
+                    var at = pair.indexOf('=');
+                    if (pair.charAt(0) === '@' && at !== -1) {
+                        aliases[pair.slice(1, at)] = decodeURIComponent(pair.slice(at + 1).replace(/\+/g, ' '));
+                    }
+                });
+                var named = {};
+                unbound[2].split(',').forEach(function (pair) {
+                    var m = pair.match(/^(\w+)=@(\w+)$/);
+                    if (m) {
+                        named[m[1]] = aliases[m[2]];
+                    }
+                });
+                var ref = (named.Target || '').match(/'@odata\.id'\s*:\s*'([a-z0-9_]+)\(([0-9a-z{}-]+)\)'/i);
+                var paging = {};
+                try {
+                    paging = named.PagingInfo ? JSON.parse(named.PagingInfo) : {};
+                } catch (e) {
+                    paging = {};
+                }
+                if (!ref) {
+                    return reply(400, { error: { code: '0x80060888', message: 'Target is not an entity reference.' } });
+                }
+                var column = unbound[1] === 'RetrieveAttributeChangeHistory'
+                    ? String(named.AttributeLogicalName || '').replace(/^'|'$/g, '').toLowerCase()
+                    : null;
+                var all = ((fixture.tables || {}).audit || [])
+                    .filter(function (row) { return bareId(row._objectid_value) === bareId(ref[2]); })
+                    .sort(function (a, b) { return a.createdon < b.createdon ? 1 : a.createdon > b.createdon ? -1 : 0; })
+                    .map(function (row) { return auditDetailOf(fixture, row.auditid); })
+                    .filter(function (d) {
+                        if (!d) {
+                            return false;
+                        }
+                        if (column === null) {
+                            return true;
+                        }
+                        return [d.OldValue, d.NewValue].some(function (bag) {
+                            return bag && Object.keys(bag).some(function (key) {
+                                return key.split('@')[0].replace(/^_|_value$/g, '').toLowerCase() === column;
+                            });
+                        });
+                    });
+                var count = paging.Count > 0 ? paging.Count : all.length;
+                var pageNumber = paging.PageNumber > 0 ? paging.PageNumber : 1;
+                var slice = all.slice((pageNumber - 1) * count, pageNumber * count);
+
+                return reply(200, {
+                    '@odata.context': clientUrl + '/api/data/v9.2/$metadata#Microsoft.Dynamics.CRM.' + unbound[1] + 'Response',
+                    AuditDetailCollection: {
+                        MoreRecords: pageNumber * count < all.length,
+                        PagingCookie: pageNumber * count < all.length ? '<cookie page="' + pageNumber + '"><cookieExtensions ContinuationToken="rig" /></cookie>' : '',
+                        TotalRecordCount: paging.ReturnTotalRecordCount ? all.length : -1,
+                        AuditDetails: slice,
+                    },
+                });
+            }
+
+            // ---- EntityDefinitions(LogicalName='x') … --------------------------
+            var definitionPrefix = "EntityDefinitions(LogicalName='";
+
+            if (path.indexOf(definitionPrefix) !== 0) {
+                return Promise.reject(new Error('No fetch for ' + address));
+            }
+
+            var rest = path.slice(definitionPrefix.length);
             var entity = (rest.match(/^([a-z0-9_]+)'\)/i) || [])[1];
-            var definition = rest.match(/^[a-z0-9_]+'\)(\?\$select=EntitySetName)?$/i);
+            var definition = rest.match(/^[a-z0-9_]+'\)(\?\$select=([A-Za-z,]+))?$/i);
 
             if (definition) {
                 var set = (fixture.entitySets || {})[entity];
+                var selected = (definition[2] || 'EntitySetName').split(',');
 
                 if (set === undefined) {
                     return reply(404, {
@@ -892,7 +1118,18 @@
                     });
                 }
 
-                return reply(200, { LogicalName: entity, EntitySetName: set });
+                var body = { LogicalName: entity };
+                if (selected.indexOf('EntitySetName') !== -1) {
+                    body.EntitySetName = set;
+                }
+                if (selected.indexOf('IsAuditEnabled') !== -1) {
+                    body.IsAuditEnabled = {
+                        Value: Boolean(o.auditEnabled && o.auditEnabled.table),
+                        CanBeChanged: true,
+                        ManagedPropertyLogicalName: 'canmodifyauditsettings',
+                    };
+                }
+                return reply(200, body);
             }
 
             var direction = /\/OneToManyRelationships/.test(rest) ? 'one' : /\/ManyToOneRelationships/.test(rest) ? 'many' : null;
@@ -1538,6 +1775,15 @@
 
                         if (refusal) {
                             return refusal;
+                        }
+
+                        if (entityType === 'audit' && !o.auditSummary) {
+                            // The user without prvReadAuditSummary. The code
+                            // is the platform's generic privilege refusal;
+                            // pcf-audit-history's SPEC.md P7 records what the
+                            // form actually sends.
+                            return Promise.reject(webApiFault(2147746323, 'Insufficient Permissions',
+                                'Principal user is missing prvReadAuditSummary privilege.'));
                         }
 
                         return answerQuery(o.fixture, entityType, options, maxPageSize, o);
