@@ -46,11 +46,18 @@
     'use strict';
 
     var F = '@OData.Community.Display.V1.FormattedValue';
+    var L = '@Microsoft.Dynamics.CRM.lookuplogicalname';
+    var N = '@Microsoft.Dynamics.CRM.associatednavigationproperty';
 
     function account(id, name, parent, city, revenue) {
         var row = { accountid: id, name: name, _parentaccountid_value: parent };
 
         row['_parentaccountid_value' + F] = parent === null ? undefined : NAMES[parent];
+        // A populated lookup arrives with its two annotations beside the
+        // formatted value — the platform's own shape on a retrieveRecord,
+        // and what an audit's old side carries for a lookup (SPEC.md P5).
+        row['_parentaccountid_value' + L] = parent === null ? undefined : 'account';
+        row['_parentaccountid_value' + N] = parent === null ? undefined : 'parentaccountid';
         row.address1_city = city;
         row.revenue = revenue;
         row['revenue' + F] = revenue === null ? undefined : '$' + revenue.toLocaleString('en-US', { minimumFractionDigits: 2 });
@@ -66,8 +73,6 @@
         return row;
     }
 
-    var L = '@Microsoft.Dynamics.CRM.lookuplogicalname';
-    var N = '@Microsoft.Dynamics.CRM.associatednavigationproperty';
     var T = '@odata.type';
 
     var USERS = {

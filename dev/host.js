@@ -311,8 +311,33 @@
          */
         retrieveRecord: 'fixture',
 
-        /** Whether `webAPI.updateRecord` resolves. `false` rejects. */
+        /**
+         * Whether `webAPI.updateRecord` resolves. `false` rejects.
+         *
+         * When it resolves it **applies**: the row in this host's copy of
+         * `fixture.tables` takes the payload — a primitive under its key, an
+         * `<nav>@odata.bind` as the lookup's `_<column>_value` with the three
+         * annotations, `null` clearing either — and, where the fixture has
+         * an `audit` table, the write is **audited**: a new row by
+         * `userId`/`userName` with an `AttributeAuditDetail` whose old side
+         * is what the row held and whose new side is the payload, so the
+         * next `RetrieveRecordChangeHistory` lists it first. That is what
+         * the platform does with every update, and it is how a control that
+         * writes can be shown its own write on the next read. A payload
+         * naming an `@odata.bind` the fixture's relationships do not declare
+         * is refused with the measured "undeclared property" fault; a bind
+         * value whose entity set or id the fixture does not hold is "Record
+         * Is Unavailable".
+         */
         updateRecord: true,
+
+        /**
+         * `userSettings.userId` and `userName` — the platform publishes
+         * both (typed), and a control that writes shows them on the row it
+         * wrote. Braced upper-case, as the platform sends the id.
+         */
+        userId: '{00000000-0000-0000-0000-0000000000AA}',
+        userName: 'Rig User',
 
         /**
          * Every Web API method rejects with the measured fault shape — a plain
@@ -552,6 +577,36 @@
     var hostsByUrl = {};
     var hostCount = 0;
 
+    /*
+     * The fixture is shared by every host a suite creates, and a write that
+     * mutated it leaked into every later host — `pcf-kanban-board` 0.3.0
+     * saw seven assertions fail that way. So each host works on its own
+     * copy, made once per organisation URL: the tables' rows one level deep
+     * (a row is replaced, never mutated in place, so the shared row objects
+     * are never touched), the audit details by reference (the write adds
+     * keys, it does not change existing ones). Everything else is read only
+     * and shared as it is.
+     */
+    var fixturesByUrl = {};
+
+    function fixtureFor(clientUrl, base) {
+        if (!base) {
+            return base;
+        }
+
+        if (!fixturesByUrl[clientUrl]) {
+            var copy = Object.assign({}, base, { tables: {}, audits: Object.assign({}, base.audits, { details: Object.assign({}, (base.audits || {}).details) }) });
+
+            Object.keys(base.tables || {}).forEach(function (table) {
+                copy.tables[table] = base.tables[table].map(function (row) { return Object.assign({}, row); });
+            });
+
+            fixturesByUrl[clientUrl] = copy;
+        }
+
+        return fixturesByUrl[clientUrl];
+    }
+
     function clientUrlFor(index) {
         return 'https://rig' + (index === 1 ? '' : index) + '.crm.invalid';
     }
@@ -605,6 +660,177 @@
             parent: declared ? declared.parent : undefined,
             name: (declared && declared.name) || 'name',
         };
+    }
+
+    var FORMATTED = '@OData.Community.Display.V1.FormattedValue';
+    var LOOKUP_NAME = '@Microsoft.Dynamics.CRM.lookuplogicalname';
+    var NAVIGATION = '@Microsoft.Dynamics.CRM.associatednavigationproperty';
+
+    /** The measured payload fault for an `@odata.bind` the server does not know (pcf-data-table 0.5.0). */
+    function undeclaredProperty(name) {
+        return webApiFault(2147781913, '',
+            "Error identified in Payload provided by the user for Entity :'', For more information on this error please follow this help link https://go.microsoft.com/fwlink/?linkid=2195293 ----> InnerException : Microsoft.OData.ODataException: An undeclared property '"
+            + name + "' which only has property annotations in the payload but no property value was found in the payload. In OData, only declared navigation properties and declared named streams can be represented as properties without values.");
+    }
+
+    var writeCount = 0;
+
+    /**
+     * Apply an `updateRecord` payload to this host's row and audit it — see
+     * `updateRecord` in DEFAULTS for what is applied and what is refused.
+     * The row is replaced in the table rather than mutated, so the shared
+     * fixture's row objects are never touched.
+     */
+    function applyUpdate(fixture, entityType, id, data, o) {
+        var tables = fixture.tables;
+        var h = hierarchyOf(fixture, entityType);
+        var rows = tables[entityType];
+        var index = -1;
+
+        rows.forEach(function (candidate, i) {
+            if (index === -1 && bareId(candidate[h.id]) === bareId(id)) {
+                index = i;
+            }
+        });
+
+        if (index === -1) {
+            return { failure: webApiFault(2147746327, 'Record Is Unavailable', 'The requested record was not found.') };
+        }
+
+        var before = rows[index];
+        var after = Object.assign({}, before);
+        var oldBag = { '@odata.type': '#Microsoft.Dynamics.CRM.' + entityType };
+        var newBag = { '@odata.type': '#Microsoft.Dynamics.CRM.' + entityType };
+        var failure = null;
+
+        function carry(bag, row, key) {
+            [key, key + FORMATTED, key + LOOKUP_NAME, key + NAVIGATION].forEach(function (name) {
+                if (row[name] !== undefined) {
+                    bag[name] = row[name];
+                }
+            });
+        }
+
+        Object.keys(data).forEach(function (key) {
+            if (failure) {
+                return;
+            }
+
+            var bind = key.match(/^(.+)@odata\.bind$/);
+
+            if (!bind) {
+                carry(oldBag, before, key);
+                after[key] = data[key];
+                delete after[key + FORMATTED];
+                newBag[key] = data[key];
+
+                return;
+            }
+
+            var nav = bind[1];
+            var relationship = (fixture.relationships || []).filter(function (candidate) {
+                return candidate.navigationProperty === nav && (!candidate.entity || candidate.entity === entityType);
+            })[0];
+            var column = relationship ? relationship.column : nav;
+            var valueKey = '_' + column + '_value';
+
+            if (!relationship && !Object.prototype.hasOwnProperty.call(before, valueKey)) {
+                failure = undeclaredProperty(nav);
+
+                return;
+            }
+
+            carry(oldBag, before, valueKey);
+            [valueKey, valueKey + FORMATTED, valueKey + LOOKUP_NAME, valueKey + NAVIGATION].forEach(function (name) {
+                delete after[name];
+            });
+
+            if (data[key] === null) {
+                after[valueKey] = null;
+                newBag[valueKey] = null;
+
+                return;
+            }
+
+            var reference = String(data[key]).match(/^\/([^(]+)\(([^)]+)\)$/);
+            var sets = fixture.entitySets || {};
+            var target = reference ? Object.keys(sets).filter(function (table) { return sets[table] === reference[1]; })[0] : undefined;
+            var targetRows = target ? tables[target] || [] : [];
+            var th = target ? hierarchyOf(fixture, target) : null;
+            var related = target
+                ? targetRows.filter(function (candidate) { return bareId(candidate[th.id]) === bareId(reference[2]); })[0]
+                : undefined;
+
+            if (!related) {
+                failure = webApiFault(2147746327, 'Record Is Unavailable', 'The requested record was not found.');
+
+                return;
+            }
+
+            after[valueKey] = bareId(reference[2]);
+            after[valueKey + FORMATTED] = related[th.name];
+            after[valueKey + LOOKUP_NAME] = target;
+            after[valueKey + NAVIGATION] = nav;
+            carry(newBag, after, valueKey);
+        });
+
+        if (failure) {
+            return { failure: failure };
+        }
+
+        rows[index] = after;
+
+        // Audited, where the fixture audits: a row and its detail, newest.
+        if (tables.audit) {
+            var n = (writeCount += 1);
+            var auditId = 'ffffffff-0000-0000-0000-' + ('000000000000' + n).slice(-12);
+            /*
+             * The server's clock is after every row it holds; a suite's fake
+             * clock need not be, so the row is stamped after the newest one
+             * on the record when the clock is behind it.
+             */
+            var newest = tables.audit
+                .filter(function (row) { return bareId(row._objectid_value) === bareId(id); })
+                .map(function (row) { return Date.parse(row.createdon) || 0; })
+                .reduce(function (a, b) { return a > b ? a : b; }, 0);
+            var at = new Date(Math.max(Date.now(), newest + 60000));
+            var pad = function (v) { return v < 10 ? '0' + v : String(v); };
+            var hour = at.getUTCHours();
+            var row = {
+                auditid: auditId,
+                createdon: at.toISOString().replace(/\.\d{3}Z$/, 'Z'),
+                action: 2,
+                operation: 2,
+                _userid_value: bareId(o.userId),
+                _objectid_value: bareId(id),
+                objecttypecode: entityType,
+                transactionid: auditId,
+                attributemask: ',0,',
+            };
+
+            row['createdon' + FORMATTED] = (at.getUTCMonth() + 1) + '/' + at.getUTCDate() + '/' + at.getUTCFullYear()
+                + ' ' + (hour % 12 || 12) + ':' + pad(at.getUTCMinutes()) + ' ' + (hour < 12 ? 'AM' : 'PM');
+            row['action' + FORMATTED] = 'Update';
+            row['operation' + FORMATTED] = 'Update';
+            row['_userid_value' + FORMATTED] = o.userName;
+            row['_userid_value' + LOOKUP_NAME] = 'systemuser';
+            row['_objectid_value' + FORMATTED] = after[h.name];
+            row['_objectid_value' + LOOKUP_NAME] = entityType;
+
+            tables.audit.unshift(row);
+            fixture.audits = fixture.audits || {};
+            fixture.audits.details = fixture.audits.details || {};
+            fixture.audits.details[auditId] = {
+                '@odata.type': '#Microsoft.Dynamics.CRM.AttributeAuditDetail',
+                InvalidNewValueAttributes: [],
+                LocLabelLanguageCode: 0,
+                DeletedAttributes: { Count: 0, Keys: [], Values: [] },
+                OldValue: oldBag,
+                NewValue: newBag,
+            };
+        }
+
+        return { failure: null };
     }
 
     function parentOf(row, h) {
@@ -1039,14 +1265,13 @@
      * refuses everything else on its origin by rejecting, the way an unknown
      * path would 404 into a `.json()` that throws.
      *
-     * The function answers reproduce the one thing Learn documents and a
-     * control has to design around: **no `AuditRecord` on any `AuditDetail`**
-     * — the who and the when are not in a function's answer, only in the
-     * `audit` table's rows.
+     * The function answers carry an `AuditRecord` on every `AuditDetail`,
+     * as the form does (SPEC.md P13/P14) and Learn says it does not; see
+     * `auditDetailOf`.
      */
-    function installFetch(clientUrl, o, log) {
+    function installFetch(clientUrl, o, log, hostFixture) {
         var scope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null);
-        var fixture = o.fixture || {};
+        var fixture = hostFixture || o.fixture || {};
         var prefix = clientUrl + '/api/data/v9.2/';
 
         if (!scope) {
@@ -1416,8 +1641,10 @@
         var security = SECURITY[o.security];
         var clientUrl = o.clientUrl || nextClientUrl();
         var isLookup = o.valueType === 'Lookup.Simple';
+        // This host's own rows — see `fixtureFor`.
+        var fixture = fixtureFor(clientUrl, o.fixture);
 
-        installFetch(clientUrl, o, log);
+        installFetch(clientUrl, o, log, fixture);
 
         function fails() {
             return o.webApiFails
@@ -1756,12 +1983,25 @@
                             return refusal;
                         }
 
-                        return o.updateRecord
-                            ? Promise.resolve({ entityType: entityType, id: { guid: id }, name: '' })
-                            : Promise.reject({
+                        if (!o.updateRecord) {
+                            return Promise.reject({
                                 errorCode: 2147746581,
                                 message: 'The record could not be updated.',
                             });
+                        }
+
+                        var tables = (fixture && fixture.tables) || {};
+
+                        // A fixture without the table is the older shape: resolve, apply nothing.
+                        if (!tables[entityType]) {
+                            return Promise.resolve({ entityType: entityType, id: { guid: id }, name: '' });
+                        }
+
+                        var outcome = applyUpdate(fixture, entityType, id, data || {}, o);
+
+                        return outcome.failure
+                            ? Promise.reject(outcome.failure)
+                            : Promise.resolve({ entityType: entityType, id: { guid: id }, name: '' });
                     },
 
                     retrieveRecord: function (entityType, id, options) {
@@ -1786,8 +2026,8 @@
                          * way a query's is. An id the fixture does not hold is
                          * the server's "Record Is Unavailable" (0x80040217).
                          */
-                        var h = hierarchyOf(o.fixture, entityType);
-                        var rows = ((o.fixture && o.fixture.tables) || {})[entityType] || [];
+                        var h = hierarchyOf(fixture, entityType);
+                        var rows = ((fixture && fixture.tables) || {})[entityType] || [];
                         var found = rows.filter(function (row) {
                             return bareId(row[h.id]) === bareId(id);
                         })[0];
@@ -1801,7 +2041,7 @@
                         }
 
                         return answerQuery(
-                            o.fixture,
+                            fixture,
                             entityType,
                             (options || '?') + (options && options.indexOf('?') !== -1 ? '&' : '') + '$filter=' + h.id + ' eq ' + bareId(id),
                             0,
@@ -1837,7 +2077,7 @@
                                 'Principal user is missing prvReadAuditSummary privilege.'));
                         }
 
-                        return answerQuery(o.fixture, entityType, options, maxPageSize, o);
+                        return answerQuery(fixture, entityType, options, maxPageSize, o);
                     },
                 }
                 : undefined,
@@ -1895,15 +2135,23 @@
                             this._attributes = attributes || [];
                         }
 
+                        /*
+                         * From `fixture.entitySets` when it names the table
+                         * — a lookup's target has its own set, and a control
+                         * that reads `getEntityMetadata(target).EntitySetName`
+                         * must get the target's — else the one switch.
+                         */
                         Object.defineProperty(Metadata.prototype, 'EntitySetName', {
                             get: function () {
-                                return o.entitySetName;
+                                var sets = (fixture && fixture.entitySets) || {};
+
+                                return Object.prototype.hasOwnProperty.call(sets, entityName) ? sets[entityName] : o.entitySetName;
                             },
                         });
 
                         Object.defineProperty(Metadata.prototype, 'PrimaryIdAttribute', {
                             get: function () {
-                                return hierarchyOf(o.fixture, entityName).id;
+                                return hierarchyOf(fixture, entityName).id;
                             },
                         });
 
@@ -1926,7 +2174,7 @@
                          */
                         Object.defineProperty(Metadata.prototype, 'Attributes', {
                             get: function () {
-                                var labels = (o.fixture && o.fixture.labels && o.fixture.labels[entityName]) || {};
+                                var labels = (fixture && fixture.labels && fixture.labels[entityName]) || {};
                                 var items = (attributes || []).filter(function (name) {
                                     return Object.prototype.hasOwnProperty.call(labels, name);
                                 }).map(function (name) {
@@ -2015,6 +2263,8 @@
             userSettings: {
                 isRTL: o.rtl,
                 languageId: 1033,
+                userId: o.userId,
+                userName: o.userName,
                 // Read by any control that formats a number or a date.
                 numberFormattingInfo: { numberDecimalSeparator: '.', numberGroupSeparator: ',' },
             },
