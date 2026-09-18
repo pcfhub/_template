@@ -892,7 +892,16 @@
 
         var offset = q.skip || 0;
         var remaining = offset > 0 ? matched.slice(offset) : matched;
-        var page = maxPageSize > 0 && remaining.length > maxPageSize ? remaining.slice(0, maxPageSize) : remaining;
+        /*
+         * **The audit table ignores `maxPageSize`.** Measured on the Accounts
+         * form 2026-09-18 (pcf-audit-history P2/P3): fifteen rows came back
+         * for a page size of five, with an empty `nextLink`. Cosmos-backed,
+         * and paged only through the audit functions' PagingInfo. A control
+         * that pages the audit table by `maxPageSize` passes on a fixture and
+         * loads everything on a form.
+         */
+        var pageSize = entity === 'audit' ? 0 : maxPageSize;
+        var page = pageSize > 0 && remaining.length > pageSize ? remaining.slice(0, pageSize) : remaining;
         var wanted = q.attributes.filter(function (a) { return !a.rowaggregate; }).map(function (a) { return a.name; });
         var counts = q.attributes.filter(function (a) { return a.rowaggregate === 'CountChildren'; });
 
@@ -922,6 +931,10 @@
         });
 
         var result = { entities: entities };
+
+        if (entity === 'audit') {
+            result.nextLink = '';
+        }
 
         if (offset + page.length < matched.length) {
             /*
@@ -966,14 +979,51 @@
     }
 
     /**
-     * `fixture.audits.details[id]`, or the empty AttributeAuditDetail a row
-     * with nothing recorded answers — a Create with every column null, say.
+     * `fixture.audits.details[id]` with the audit row attached as
+     * `AuditRecord` — **the platform sends it on every AuditDetail**, with
+     * the row's formatted values under Prefer (measured on the Accounts
+     * form 2026-09-18, pcf-audit-history P13/P14), whatever Learn says about
+     * the Web API omitting it. `undefined` for an id the fixture does not
+     * hold. `transactionid` and `versionnumber` arrive zeroed from the
+     * record-history function and real from the bound one; neither is read.
      */
-    function auditDetailOf(fixture, id) {
+    function auditDetailOf(fixture, id, annotated) {
         var details = (fixture.audits && fixture.audits.details) || {};
         var key = Object.keys(details).filter(function (candidate) { return bareId(candidate) === bareId(id); })[0];
+        var row = ((fixture.tables || {}).audit || []).filter(function (candidate) { return bareId(candidate.auditid) === bareId(id); })[0];
 
-        return key ? details[key] : undefined;
+        if (!key) {
+            return undefined;
+        }
+
+        var record = { '@odata.type': '#Microsoft.Dynamics.CRM.audit' };
+
+        Object.keys(row || {}).forEach(function (name) {
+            if (annotated || name.indexOf('@') === -1) {
+                record[name] = row[name];
+            }
+        });
+
+        var out = {};
+        Object.keys(details[key]).forEach(function (name) {
+            out[name] = details[key][name];
+            if (name === 'DeletedAttributes') {
+                out.AuditRecord = record;
+            }
+        });
+        if (!out.AuditRecord) {
+            out.AuditRecord = record;
+        }
+
+        return out;
+    }
+
+    /** Whether the request carried `Prefer: odata.include-annotations`. */
+    function wantsAnnotations(init) {
+        var headers = (init && init.headers) || {};
+        var prefer = headers.Prefer || headers.prefer || '';
+
+        return /include-annotations/.test(String(prefer));
     }
 
     /**
@@ -1003,8 +1053,9 @@
             return;
         }
 
-        hostsByUrl[clientUrl] = function (url) {
+        hostsByUrl[clientUrl] = function (url, init) {
             var address = String(url);
+            var annotated = wantsAnnotations(init);
 
             if (address.indexOf(prefix) !== 0) {
                 return Promise.reject(new Error('No fetch for ' + address));
@@ -1023,7 +1074,7 @@
                 if (refusal) {
                     return refusal;
                 }
-                var detail = auditDetailOf(fixture, bound[1]);
+                var detail = auditDetailOf(fixture, bound[1], annotated);
 
                 return detail
                     ? reply(200, { AuditDetail: detail })
@@ -1068,7 +1119,7 @@
                 var all = ((fixture.tables || {}).audit || [])
                     .filter(function (row) { return bareId(row._objectid_value) === bareId(ref[2]); })
                     .sort(function (a, b) { return a.createdon < b.createdon ? 1 : a.createdon > b.createdon ? -1 : 0; })
-                    .map(function (row) { return auditDetailOf(fixture, row.auditid); })
+                    .map(function (row) { return auditDetailOf(fixture, row.auditid, annotated); })
                     .filter(function (d) {
                         if (!d) {
                             return false;

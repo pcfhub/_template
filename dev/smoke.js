@@ -743,23 +743,31 @@ async function rigSelfCheck() {
      */
     const auditQuery = '?$select=auditid,createdon,action,_objectid_value&$filter=_objectid_value eq c1&$orderby=createdon desc';
     const first = await ctx.webAPI.retrieveMultipleRecords('audit', auditQuery, 10);
-    const second = await ctx.webAPI.retrieveMultipleRecords('audit', first.nextLink, 10);
-    const third = await ctx.webAPI.retrieveMultipleRecords('audit', second.nextLink, 10);
     check(
-        'rig: the audit table pages by nextLink, newest first, and the link carries the filter',
-        first.entities.length === 10 && second.entities.length === 10 && third.entities.length === 6 && third.nextLink === undefined
-            && first.entities[0].createdon > second.entities[0].createdon
-            && second.entities.every((row) => row._objectid_value === 'c1'),
-        `${first.entities.length}/${second.entities.length}/${third.entities.length}`,
+        'rig: the audit table ignores maxPageSize — every row, newest first, nextLink an empty string (measured)',
+        first.entities.length === 26 && first.nextLink === '' && first.entities[0].createdon > first.entities[25].createdon
+            && first.entities.every((row) => row._objectid_value === 'c1'),
+        `${first.entities.length} ${JSON.stringify(first.nextLink)}`,
+    );
+    const paged = await ctx.webAPI.retrieveMultipleRecords('account', '?$select=accountid,name&$filter=_parentaccountid_value eq r1&$orderby=name asc', 1);
+    const next = await ctx.webAPI.retrieveMultipleRecords('account', paged.nextLink, 1);
+    check(
+        'rig: any other table pages by a nextLink that carries the filter and the order',
+        paged.entities.length === 1 && next.entities.length === 1 && paged.entities[0].accountid === 'o1' && next.entities[0].accountid === 'p1',
+        JSON.stringify([paged.entities, next.entities]),
     );
 
     const api = `${ctx.page.getClientUrl()}/api/data/v9.2`;
-    const detail = await fetch(`${api}/audits(${first.entities[1].auditid})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`).then((r) => r.json());
+    const detail = await fetch(`${api}/audits(${first.entities[1].auditid})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`, { headers: { Prefer: 'odata.include-annotations="*"' } }).then((r) => r.json());
+    const plain = await fetch(`${api}/audits(${first.entities[1].auditid})/Microsoft.Dynamics.CRM.RetrieveAuditDetails`).then((r) => r.json());
     check(
-        'rig: RetrieveAuditDetails answers by audit id, lookups annotated, and no AuditRecord',
+        'rig: RetrieveAuditDetails answers by audit id with the AuditRecord — who, when, action — annotated only under Prefer',
         detail.AuditDetail['@odata.type'] === '#Microsoft.Dynamics.CRM.AttributeAuditDetail'
             && detail.AuditDetail.NewValue['_parentaccountid_value@Microsoft.Dynamics.CRM.lookuplogicalname'] === 'account'
-            && !('AuditRecord' in detail.AuditDetail),
+            && detail.AuditDetail.AuditRecord.auditid === first.entities[1].auditid
+            && detail.AuditDetail.AuditRecord['_userid_value@OData.Community.Display.V1.FormattedValue'] === 'Priya Raman'
+            && plain.AuditDetail.AuditRecord.auditid === first.entities[1].auditid
+            && plain.AuditDetail.AuditRecord['_userid_value@OData.Community.Display.V1.FormattedValue'] === undefined,
         JSON.stringify(Object.keys(detail.AuditDetail)),
     );
     const unknown = await fetch(`${api}/audits(00000000-0000-0000-0000-0000000000ff)/Microsoft.Dynamics.CRM.RetrieveAuditDetails`);
@@ -769,9 +777,11 @@ async function rigSelfCheck() {
     const paging = encodeURIComponent(JSON.stringify({ PageNumber: 2, Count: 10, ReturnTotalRecordCount: true }));
     const history = await fetch(`${api}/RetrieveRecordChangeHistory(Target=@t,PagingInfo=@p)?@t=${target}&@p=${paging}`).then((r) => r.json());
     check(
-        'rig: RetrieveRecordChangeHistory pages by @p and counts the whole history',
+        'rig: RetrieveRecordChangeHistory pages by @p, counts the whole history, and every detail carries its AuditRecord',
         history.AuditDetailCollection.AuditDetails.length === 10 && history.AuditDetailCollection.TotalRecordCount === 26
-            && history.AuditDetailCollection.MoreRecords === true,
+            && history.AuditDetailCollection.MoreRecords === true
+            && history.AuditDetailCollection.AuditDetails.every((d) => typeof d.AuditRecord?.auditid === 'string')
+            && history.AuditDetailCollection.AuditDetails[0].AuditRecord.auditid === first.entities[10].auditid,
         JSON.stringify([history.AuditDetailCollection.AuditDetails.length, history.AuditDetailCollection.TotalRecordCount]),
     );
 
