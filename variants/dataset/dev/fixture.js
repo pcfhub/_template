@@ -139,6 +139,17 @@
          */
         relationships: [
             { column: 'ownerid', target: 'systemuser', navigationProperty: 'ownerid' },
+            /*
+             * Two lookups from account to account — the parent account, and
+             * the master record a merge points at — because that is the
+             * shape a subgrid's table usually has: a contact has both
+             * `parentcustomerid` and the read-only `accountid` pointing at
+             * account, and only one of them is the subgrid's relationship. A
+             * control that picks "the lookup to the parent table" has two to
+             * pick from here, and the rows decide (pcf-chart-view, P2).
+             */
+            { column: 'parentaccountid', target: 'account', navigationProperty: 'parentaccountid' },
+            { column: 'masterid', target: 'account', navigationProperty: 'masterid' },
         ],
 
         /**
@@ -266,6 +277,20 @@
                 isHidden: true,
             },
             /*
+             * The parent account, hidden: the lookup a sub-accounts subgrid
+             * relates its rows by. In the view so a control can read it off
+             * the loaded rows; `masterid` above is deliberately not.
+             */
+            {
+                name: 'parentaccountid',
+                displayName: 'Parent Account',
+                dataType: 'Lookup.Simple',
+                alias: 'parentaccountid',
+                order: 9,
+                visualSizeFactor: 150,
+                isHidden: true,
+            },
+            /*
              * A currency column, hidden, for anything that adds up: a sum
              * per group, a total, a data bar. One row has none, because a
              * blank number is not a zero and a sum that treats it as one is
@@ -292,28 +317,28 @@
          */
 
         records: [
-            { id: 'a01', values: { revenue: 1250000, name: 'Fabrikam Manufacturing', accountnumber: 'ACC-1042', primarycontactname: 'Dana Whitfield', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-01-14T00:00:00.000Z', createdon: '2026-03-01T04:30:00Z' } },
-            { id: 'a02', values: { revenue: 480000, name: 'Contoso Logistics', accountnumber: 'ACC-1087', primarycontactname: 'Ravi Menon', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 3, modifiedon: '2026-02-03T00:00:00.000Z' } },
-            { id: 'a03', values: { revenue: 92000, name: 'Northwind Traders', accountnumber: 'ACC-1103', primarycontactname: 'Erin Boyle', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 1, modifiedon: '2025-11-22T00:00:00.000Z' } },
-            { id: 'a04', values: { revenue: 730000, name: 'Adventure Works Cycles', accountnumber: 'ACC-1155', primarycontactname: 'Marcus Feld', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 2, modifiedon: '2026-03-18T00:00:00.000Z' } },
-            { id: 'a05', values: { revenue: 150000, name: 'Litware Consulting', accountnumber: 'ACC-1178', primarycontactname: 'Priya Raman', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-09-30T00:00:00.000Z' } },
-            { id: 'a06', values: { revenue: 61000, name: 'Tailspin Toys', accountnumber: 'ACC-1201', primarycontactname: 'Owen Brackett', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 1, modifiedon: '2026-01-07T00:00:00.000Z' } },
-            { id: 'a07', values: { revenue: 2100000, name: 'Proseware Systems', accountnumber: 'ACC-1233', primarycontactname: 'Alice Nakamura', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 4, modifiedon: '2026-02-25T00:00:00.000Z' } },
-            { id: 'a08', values: { revenue: 405000, name: 'Wingtip Analytics', accountnumber: 'ACC-1260', primarycontactname: 'Tomas Ehrlich', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2025-12-11T00:00:00.000Z' } },
+            { id: 'a01', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 1250000, name: 'Fabrikam Manufacturing', accountnumber: 'ACC-1042', primarycontactname: 'Dana Whitfield', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-01-14T00:00:00.000Z', createdon: '2026-03-01T04:30:00Z' } },
+            { id: 'a02', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 480000, name: 'Contoso Logistics', accountnumber: 'ACC-1087', primarycontactname: 'Ravi Menon', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 3, modifiedon: '2026-02-03T00:00:00.000Z' } },
+            { id: 'a03', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000002' }, etn: 'account', name: 'Parent 2' }, revenue: 92000, name: 'Northwind Traders', accountnumber: 'ACC-1103', primarycontactname: 'Erin Boyle', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 1, modifiedon: '2025-11-22T00:00:00.000Z' } },
+            { id: 'a04', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 730000, name: 'Adventure Works Cycles', accountnumber: 'ACC-1155', primarycontactname: 'Marcus Feld', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 2, modifiedon: '2026-03-18T00:00:00.000Z' } },
+            { id: 'a05', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 150000, name: 'Litware Consulting', accountnumber: 'ACC-1178', primarycontactname: 'Priya Raman', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-09-30T00:00:00.000Z' } },
+            { id: 'a06', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000002' }, etn: 'account', name: 'Parent 2' }, revenue: 61000, name: 'Tailspin Toys', accountnumber: 'ACC-1201', primarycontactname: 'Owen Brackett', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 1, modifiedon: '2026-01-07T00:00:00.000Z' } },
+            { id: 'a07', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 2100000, name: 'Proseware Systems', accountnumber: 'ACC-1233', primarycontactname: 'Alice Nakamura', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 4, modifiedon: '2026-02-25T00:00:00.000Z' } },
+            { id: 'a08', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 405000, name: 'Wingtip Analytics', accountnumber: 'ACC-1260', primarycontactname: 'Tomas Ehrlich', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2025-12-11T00:00:00.000Z' } },
 
             // The edges start here.
 
             // A column with no value at all, which is not the same as one with
             // an empty string — and both reach `getFormattedValue`.
-            { id: 'a09', values: { name: 'Blue Yonder Airlines', accountnumber: null, primarycontactname: '', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: null, modifiedon: '2026-03-01T00:00:00.000Z' } },
+            { id: 'a09', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, name: 'Blue Yonder Airlines', accountnumber: null, primarycontactname: '', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: null, modifiedon: '2026-03-01T00:00:00.000Z' } },
 
             // Long enough to overflow whatever width `visualSizeFactor` bought.
-            { id: 'a10', values: { revenue: 3300000, name: 'Consolidated Messenger Intercontinental Freight and Warehousing', accountnumber: 'ACC-1288', primarycontactname: 'Margarethe Kowalczyk-Fitzgerald', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-04-02T00:00:00.000Z' } },
+            { id: 'a10', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000002' }, etn: 'account', name: 'Parent 2' }, revenue: 3300000, name: 'Consolidated Messenger Intercontinental Freight and Warehousing', accountnumber: 'ACC-1288', primarycontactname: 'Margarethe Kowalczyk-Fitzgerald', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-04-02T00:00:00.000Z' } },
 
             // Leading punctuation and a lowercase start: the two that show a
             // sort comparing raw strings rather than formatted values.
-            { id: 'a11', values: { revenue: 15000, name: '(pending) Woodgrove Bank', accountnumber: 'ACC-0007', primarycontactname: 'Ines Duarte', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-08-19T00:00:00.000Z' } },
-            { id: 'a12', values: { revenue: 88000, name: 'école Numérique', accountnumber: 'ACC-1310', primarycontactname: 'LucRousseau', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2026-03-27T00:00:00.000Z' } },
+            { id: 'a11', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 15000, name: '(pending) Woodgrove Bank', accountnumber: 'ACC-0007', primarycontactname: 'Ines Duarte', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-08-19T00:00:00.000Z' } },
+            { id: 'a12', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 88000, name: 'école Numérique', accountnumber: 'ACC-1310', primarycontactname: 'LucRousseau', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2026-03-27T00:00:00.000Z' } },
         ],
     };
 });

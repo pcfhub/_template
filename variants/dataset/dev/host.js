@@ -392,16 +392,27 @@
 
         /**
          * A `FilterExpression` the **host** holds on the view, which the
-         * control never set: a subgrid's relationship to its parent record,
-         * a quick-find the user typed into the grid's own box. It narrows the
-         * rows the dataset shows and — the part that matters to a control
-         * re-deriving the view's records — comes back from
-         * `filtering.getFilter()` merged with whatever the control set.
-         * Whether a real subgrid reports its relationship this way is
-         * **unmeasured** (pcf-chart-view SPEC.md P2); `null` models the host
-         * that does not, which is the host every control must survive.
+         * control never set — a quick-find typed into the grid's own box —
+         * that narrows the rows and comes back from `filtering.getFilter()`
+         * merged with whatever the control set. Whether a real grid reports
+         * a quick-find this way is unmeasured. **A subgrid's relationship
+         * is not this**: see `relationshipFilter`.
          */
         hostFilter: null,
+
+        /**
+         * The subgrid's relationship to the record the form is on: `{ column,
+         * id }`, the lookup on the bound table and the parent's GUID. It
+         * narrows the rows the dataset shows and is **invisible to the
+         * control** — measured 2026-09-19 (pcf-chart-view SPEC.md P2):
+         * `filtering.getFilter()` answered `null` and
+         * `linking.getLinkedEntities()` `[]` on a contacts subgrid, while
+         * `filtering.canDisableRelationshipFilter` sat beside them naming the
+         * filter the platform keeps to itself. Pair it with `contextInfo`,
+         * which is where the parent's identity *is* visible. `null` is a main
+         * grid.
+         */
+        relationshipFilter: null,
 
         /**
          * What `getViewId()` answers. `undefined` is the fixture's own id;
@@ -1115,11 +1126,16 @@
                     return removed.indexOf(row.id) === -1;
                 });
 
-            var narrowed = o.hostFilter
+            var related = o.relationshipFilter
                 ? alive.filter(function (row) {
-                    return passes(row, o.hostFilter);
+                    return holds(row, { attributeName: o.relationshipFilter.column, conditionOperator: OPERATOR.Equal, value: o.relationshipFilter.id });
                 })
                 : alive;
+            var narrowed = o.hostFilter
+                ? related.filter(function (row) {
+                    return passes(row, o.hostFilter);
+                })
+                : related;
 
             return filter
                 ? narrowed.filter(function (row) {
@@ -1411,6 +1427,8 @@
              * catch.
              */
             getFilter: function () {
+                // `relationshipFilter` is deliberately not here: measured, a
+                // subgrid reports nothing of its relationship through this.
                 if (o.hostFilter && requestedFilter) {
                     // Both in force, as one `And` of two children — a shape a
                     // control translating filters has to handle either way.
