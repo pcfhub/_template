@@ -44,6 +44,39 @@
         title: 'Active Accounts',
 
         /*
+         * The view the dataset is bound to, as `getViewId()` names it and as
+         * `retrieveRecord('savedquery', id)` describes it. The definition's
+         * `<filter>` is what a control re-deriving the view's records (an
+         * aggregate, a count) has to carry, and it **deliberately admits
+         * fewer rows than the fixture holds**: the records above include two
+         * inactive accounts a real "Active Accounts" view would never show,
+         * so a query built from the definition answers 10 where the loaded
+         * rows say 12 — which is what lets a suite tell the two apart. The
+         * `<link-entity>` carries an attribute, because a real view's does,
+         * and an aggregate that forgets to strip it is refused by the server.
+         */
+        viewId: '00000000-0000-0000-0000-00000000a11e',
+        views: {
+            '00000000-0000-0000-0000-00000000a11e': {
+                table: 'savedquery',
+                name: 'Active Accounts',
+                fetchxml: '<fetch version="1.0" output-format="xml-platform" mapping="logical" distinct="false">'
+                    + '<entity name="account">'
+                    + '<attribute name="name"/><attribute name="accountnumber"/><attribute name="statecode"/><attribute name="accountid"/>'
+                    + '<order attribute="name" descending="false"/>'
+                    + '<filter type="and"><condition attribute="statecode" operator="eq" value="0"/></filter>'
+                    + '<link-entity name="contact" from="contactid" to="primarycontactid" link-type="outer" alias="pc"><attribute name="fullname"/></link-entity>'
+                    + '</entity></fetch>',
+            },
+            // A personal view, in the other table, with no filter at all.
+            '00000000-0000-0000-0000-00000000b22e': {
+                table: 'userquery',
+                name: 'My accounts',
+                fetchxml: '<fetch><entity name="account"><attribute name="name"/><attribute name="accountid"/></entity></fetch>',
+            },
+        },
+
+        /*
          * What `utils.getEntityMetadata('account', [column]).Attributes.get(
          * column)` carries for each Choice and Lookup column, in the shapes
          * measured on a model-driven subgrid 2026-09-11 — not the shape the
@@ -232,6 +265,21 @@
                 visualSizeFactor: 130,
                 isHidden: true,
             },
+            /*
+             * A currency column, hidden, for anything that adds up: a sum
+             * per group, a total, a data bar. One row has none, because a
+             * blank number is not a zero and a sum that treats it as one is
+             * wrong by exactly the amount nobody notices.
+             */
+            {
+                name: 'revenue',
+                displayName: 'Annual revenue',
+                dataType: 'Currency',
+                alias: 'revenue',
+                order: 8,
+                visualSizeFactor: 120,
+                isHidden: true,
+            },
         ],
 
         /*
@@ -244,14 +292,14 @@
          */
 
         records: [
-            { id: 'a01', values: { name: 'Fabrikam Manufacturing', accountnumber: 'ACC-1042', primarycontactname: 'Dana Whitfield', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-01-14T00:00:00.000Z', createdon: '2026-03-01T04:30:00Z' } },
-            { id: 'a02', values: { name: 'Contoso Logistics', accountnumber: 'ACC-1087', primarycontactname: 'Ravi Menon', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 3, modifiedon: '2026-02-03T00:00:00.000Z' } },
-            { id: 'a03', values: { name: 'Northwind Traders', accountnumber: 'ACC-1103', primarycontactname: 'Erin Boyle', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 1, modifiedon: '2025-11-22T00:00:00.000Z' } },
-            { id: 'a04', values: { name: 'Adventure Works Cycles', accountnumber: 'ACC-1155', primarycontactname: 'Marcus Feld', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 2, modifiedon: '2026-03-18T00:00:00.000Z' } },
-            { id: 'a05', values: { name: 'Litware Consulting', accountnumber: 'ACC-1178', primarycontactname: 'Priya Raman', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-09-30T00:00:00.000Z' } },
-            { id: 'a06', values: { name: 'Tailspin Toys', accountnumber: 'ACC-1201', primarycontactname: 'Owen Brackett', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 1, modifiedon: '2026-01-07T00:00:00.000Z' } },
-            { id: 'a07', values: { name: 'Proseware Systems', accountnumber: 'ACC-1233', primarycontactname: 'Alice Nakamura', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 4, modifiedon: '2026-02-25T00:00:00.000Z' } },
-            { id: 'a08', values: { name: 'Wingtip Analytics', accountnumber: 'ACC-1260', primarycontactname: 'Tomas Ehrlich', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2025-12-11T00:00:00.000Z' } },
+            { id: 'a01', values: { revenue: 1250000, name: 'Fabrikam Manufacturing', accountnumber: 'ACC-1042', primarycontactname: 'Dana Whitfield', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-01-14T00:00:00.000Z', createdon: '2026-03-01T04:30:00Z' } },
+            { id: 'a02', values: { revenue: 480000, name: 'Contoso Logistics', accountnumber: 'ACC-1087', primarycontactname: 'Ravi Menon', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 3, modifiedon: '2026-02-03T00:00:00.000Z' } },
+            { id: 'a03', values: { revenue: 92000, name: 'Northwind Traders', accountnumber: 'ACC-1103', primarycontactname: 'Erin Boyle', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 1, modifiedon: '2025-11-22T00:00:00.000Z' } },
+            { id: 'a04', values: { revenue: 730000, name: 'Adventure Works Cycles', accountnumber: 'ACC-1155', primarycontactname: 'Marcus Feld', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 2, modifiedon: '2026-03-18T00:00:00.000Z' } },
+            { id: 'a05', values: { revenue: 150000, name: 'Litware Consulting', accountnumber: 'ACC-1178', primarycontactname: 'Priya Raman', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-09-30T00:00:00.000Z' } },
+            { id: 'a06', values: { revenue: 61000, name: 'Tailspin Toys', accountnumber: 'ACC-1201', primarycontactname: 'Owen Brackett', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 1, modifiedon: '2026-01-07T00:00:00.000Z' } },
+            { id: 'a07', values: { revenue: 2100000, name: 'Proseware Systems', accountnumber: 'ACC-1233', primarycontactname: 'Alice Nakamura', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 4, modifiedon: '2026-02-25T00:00:00.000Z' } },
+            { id: 'a08', values: { revenue: 405000, name: 'Wingtip Analytics', accountnumber: 'ACC-1260', primarycontactname: 'Tomas Ehrlich', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2025-12-11T00:00:00.000Z' } },
 
             // The edges start here.
 
@@ -260,12 +308,12 @@
             { id: 'a09', values: { name: 'Blue Yonder Airlines', accountnumber: null, primarycontactname: '', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: null, modifiedon: '2026-03-01T00:00:00.000Z' } },
 
             // Long enough to overflow whatever width `visualSizeFactor` bought.
-            { id: 'a10', values: { name: 'Consolidated Messenger Intercontinental Freight and Warehousing', accountnumber: 'ACC-1288', primarycontactname: 'Margarethe Kowalczyk-Fitzgerald', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-04-02T00:00:00.000Z' } },
+            { id: 'a10', values: { revenue: 3300000, name: 'Consolidated Messenger Intercontinental Freight and Warehousing', accountnumber: 'ACC-1288', primarycontactname: 'Margarethe Kowalczyk-Fitzgerald', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 2, modifiedon: '2026-04-02T00:00:00.000Z' } },
 
             // Leading punctuation and a lowercase start: the two that show a
             // sort comparing raw strings rather than formatted values.
-            { id: 'a11', values: { name: '(pending) Woodgrove Bank', accountnumber: 'ACC-0007', primarycontactname: 'Ines Duarte', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-08-19T00:00:00.000Z' } },
-            { id: 'a12', values: { name: 'école Numérique', accountnumber: 'ACC-1310', primarycontactname: 'LucRousseau', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2026-03-27T00:00:00.000Z' } },
+            { id: 'a11', values: { revenue: 15000, name: '(pending) Woodgrove Bank', accountnumber: 'ACC-0007', primarycontactname: 'Ines Duarte', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-08-19T00:00:00.000Z' } },
+            { id: 'a12', values: { revenue: 88000, name: 'école Numérique', accountnumber: 'ACC-1310', primarycontactname: 'LucRousseau', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2026-03-27T00:00:00.000Z' } },
         ],
     };
 });

@@ -123,7 +123,9 @@
         GreaterEqual: 4,
         LessEqual: 5,
         Like: 6,
+        In: 8,
         Null: 12,
+        NotNull: 13,
         On: 25,
         OnOrBefore: 26,
         OnOrAfter: 27,
@@ -387,6 +389,46 @@
          * controls.
          */
         webApiFails: false,
+
+        /**
+         * A `FilterExpression` the **host** holds on the view, which the
+         * control never set: a subgrid's relationship to its parent record,
+         * a quick-find the user typed into the grid's own box. It narrows the
+         * rows the dataset shows and — the part that matters to a control
+         * re-deriving the view's records — comes back from
+         * `filtering.getFilter()` merged with whatever the control set.
+         * Whether a real subgrid reports its relationship this way is
+         * **unmeasured** (pcf-chart-view SPEC.md P2); `null` models the host
+         * that does not, which is the host every control must survive.
+         */
+        hostFilter: null,
+
+        /**
+         * What `getViewId()` answers. `undefined` is the fixture's own id;
+         * `null` is the measured answer on a bound lookup's dataset
+         * (pcf-hierarchy-view, 2026-09-17), against typings that say `string`.
+         */
+        viewId: undefined,
+
+        /**
+         * Whether `retrieveRecord('savedquery' | 'userquery', id)` answers.
+         * `false` refuses both the way a record the user cannot read is
+         * refused — a personal view belonging to somebody else.
+         */
+        viewsReadable: true,
+
+        /**
+         * The most rows an aggregate FetchXML may cover before the server
+         * refuses with `AggregateQueryRecordLimit exceeded` (0x8004E023;
+         * 50,000 on a standard environment). Set it low to reach the
+         * refusal on a twelve-row fixture. The refusal's exact shape is
+         * **unmeasured** (pcf-chart-view SPEC.md P7); the rig uses the
+         * documented code and the fault shape every other refusal has.
+         */
+        aggregateLimit: 50000,
+
+        /** Whether every aggregate FetchXML is refused, whatever it covers. */
+        aggregateRefused: false,
 
         /**
          * Whether `context.page` exists. Its `getClientUrl()` is how a control
@@ -886,14 +928,26 @@
          */
         function holds(row, condition) {
             var actual = row.values[condition.attributeName];
-            var left = formatted(actual).toLowerCase();
-            var right = formatted(condition.value).toLowerCase();
+
+            // A lookup cell is an EntityReference; a condition on it names the GUID.
+            if (actual && typeof actual === 'object' && actual.id && typeof actual.id.guid === 'string') {
+                actual = actual.id.guid;
+            }
+
+            var left = formatted(actual).toLowerCase().replace(/[{}]/g, '');
+            var right = formatted(condition.value).toLowerCase().replace(/[{}]/g, '');
 
             switch (condition.conditionOperator) {
                 case OPERATOR.Equal:
                     return left === right;
                 case OPERATOR.NotEqual:
                     return left !== right;
+                case OPERATOR.NotNull:
+                    return !(actual === null || actual === undefined || actual === '');
+                case OPERATOR.In:
+                    return (Array.isArray(condition.value) ? condition.value : [condition.value]).some(function (candidate) {
+                        return formatted(candidate).toLowerCase().replace(/[{}]/g, '') === left;
+                    });
                 case OPERATOR.GreaterThan:
                     return Number(actual) > Number(condition.value);
                 case OPERATOR.LessThan:
@@ -1061,11 +1115,17 @@
                     return removed.indexOf(row.id) === -1;
                 });
 
-            return filter
+            var narrowed = o.hostFilter
                 ? alive.filter(function (row) {
-                    return passes(row, filter);
+                    return passes(row, o.hostFilter);
                 })
                 : alive;
+
+            return filter
+                ? narrowed.filter(function (row) {
+                    return passes(row, filter);
+                })
+                : narrowed;
         }
 
         /** All matching records in the order the current sort puts them. */
@@ -1351,7 +1411,13 @@
              * catch.
              */
             getFilter: function () {
-                return requestedFilter || undefined;
+                if (o.hostFilter && requestedFilter) {
+                    // Both in force, as one `And` of two children — a shape a
+                    // control translating filters has to handle either way.
+                    return { conditions: [], filterOperator: AND, filters: [o.hostFilter, requestedFilter] };
+                }
+
+                return requestedFilter || o.hostFilter || undefined;
             },
 
             setFilter: function (expression) {
@@ -1517,6 +1583,15 @@
                 return fixture.targetEntityType;
             },
 
+            /**
+             * The bound view's id. Typed `string`; measured `null` on the
+             * dataset under a bound lookup. A control reads it to fetch the
+             * view's own FetchXML from `savedquery` — see `retrieveRecord`.
+             */
+            getViewId: function () {
+                return o.viewId === undefined ? fixture.viewId || null : o.viewId;
+            },
+
             refresh: function () {
                 log('refresh');
                 fetched();
@@ -1616,6 +1691,341 @@
             filter = requestedFilter;
             state.refreshes += 1;
             state.renderOwed = true;
+        }
+
+        /* ------------------------------------------------------------------ */
+        /* FetchXML through the Web API                                         */
+        /* ------------------------------------------------------------------ */
+
+        /**
+         * The FetchXML operator names → the `ConditionOperator` numbers
+         * `holds()` already evaluates, so a FetchXML condition and a dataset
+         * filter condition are judged by the same code. A name not here is
+         * **unhonoured, and passes every row** — the same rule as `holds()`'s
+         * default, for the same reason: "no filtering happened" is a failure
+         * a suite can see, "everything vanished" is not.
+         */
+        var FETCH_OPERATORS = {
+            'eq': OPERATOR.Equal,
+            'ne': OPERATOR.NotEqual,
+            'neq': OPERATOR.NotEqual,
+            'gt': OPERATOR.GreaterThan,
+            'lt': OPERATOR.LessThan,
+            'ge': OPERATOR.GreaterEqual,
+            'le': OPERATOR.LessEqual,
+            'like': OPERATOR.Like,
+            'in': OPERATOR.In,
+            'null': OPERATOR.Null,
+            'not-null': OPERATOR.NotNull,
+            'on': OPERATOR.On,
+            'on-or-before': OPERATOR.OnOrBefore,
+            'on-or-after': OPERATOR.OnOrAfter,
+        };
+
+        function xmlAttr(tag, name) {
+            var m = tag.match(new RegExp('\\b' + name + "=['\"]([^'\"]*)['\"]"));
+            return m ? m[1].replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&') : undefined;
+        }
+
+        /**
+         * A `<filter>` element and everything inside it → a `FilterExpression`
+         * `passes()` reads. Nested filters nest; a `<condition>` with
+         * `<value>` children is an `in`. Conditions inside a `<link-entity>`
+         * are dropped with the link-entity, because the rig has no joined
+         * rows to judge them against — a suite asserting a linked filter's
+         * effect is asserting nothing here, and the header says so.
+         */
+        function parseFilter(xml) {
+            var withoutLinks = xml.replace(/<link-entity\b[^>]*\/>/g, '').replace(/<link-entity\b[^>]*>[\s\S]*?<\/link-entity>/g, '');
+            var filters = [];
+
+            // Top-level filters only: nested ones are parsed by recursion on the body.
+            var depth = 0;
+            var body = '';
+            var open = '';
+            var tokens = withoutLinks.match(/<\/?filter\b[^>]*>|[^<]+|<[^>]+>/g) || [];
+
+            tokens.forEach(function (token) {
+                if (/^<filter\b/.test(token)) {
+                    if (depth === 0) {
+                        open = token;
+                        body = '';
+                    } else {
+                        body += token;
+                    }
+                    depth += 1;
+                } else if (/^<\/filter>/.test(token)) {
+                    depth -= 1;
+                    if (depth === 0) {
+                        filters.push(filterOf(open, body));
+                    } else {
+                        body += token;
+                    }
+                } else if (depth > 0) {
+                    body += token;
+                }
+            });
+
+            return filters;
+        }
+
+        function filterOf(openTag, body) {
+            var conditions = [];
+            var conditionPattern = /<condition\b([^>]*?)(\/>|>([\s\S]*?)<\/condition>)/g;
+            var outer = body.replace(/<filter\b[^>]*>[\s\S]*?<\/filter>/g, '');
+            var m;
+
+            while ((m = conditionPattern.exec(outer)) !== null) {
+                var operator = xmlAttr(m[1], 'operator');
+                var values = [];
+                var valuePattern = /<value>([\s\S]*?)<\/value>/g;
+                var v;
+
+                while (m[3] && (v = valuePattern.exec(m[3])) !== null) {
+                    values.push(v[1]);
+                }
+
+                conditions.push({
+                    attributeName: xmlAttr(m[1], 'attribute'),
+                    conditionOperator: Object.prototype.hasOwnProperty.call(FETCH_OPERATORS, operator) ? FETCH_OPERATORS[operator] : -1,
+                    value: values.length > 0 ? values : xmlAttr(m[1], 'value'),
+                });
+            }
+
+            return {
+                conditions: conditions,
+                filterOperator: (xmlAttr(openTag, 'type') || 'and').toLowerCase() === 'or' ? OR : AND,
+                filters: parseFilter(body),
+            };
+        }
+
+        /**
+         * The rows a FetchXML query is judged against: the bound table's own
+         * rows (`allRecords`, minus deletes — **not** narrowed by the host's
+         * filter, because a query carries its own conditions), or a flat
+         * `fixture.tables` row wrapped to look like one.
+         */
+        function fetchRows(entityType) {
+            if (entityType === fixture.targetEntityType) {
+                return allRecords.filter(function (row) {
+                    return removed.indexOf(row.id) === -1;
+                });
+            }
+
+            return ((fixture.tables || {})[entityType] || []).map(function (source) {
+                return { id: source[entityType + 'id'] || '', values: source };
+            });
+        }
+
+        /** The `dategrouping` bucket of a value, in the user's zone — the server groups by the user's calendar. */
+        function dateBucket(value, grouping) {
+            var day = dayOf(value);
+
+            if (day === null) {
+                return null;
+            }
+
+            var year = Number(day.slice(0, 4));
+            var month = Number(day.slice(5, 7));
+            var date = Number(day.slice(8, 10));
+
+            switch (grouping) {
+                case 'year': return { bucket: year, year: year, month: month };
+                case 'quarter': return { bucket: Math.floor((month - 1) / 3) + 1, year: year, month: month };
+                case 'day': return { bucket: date, year: year, month: month };
+                case 'week': {
+                    // SQL Server's DATEPART(week): Sunday start, week 1 holds 1 January.
+                    var jan1 = Date.UTC(year, 0, 1);
+                    var at = Date.UTC(year, month - 1, date);
+                    var dow = new Date(jan1).getUTCDay();
+                    return { bucket: Math.floor((Math.floor((at - jan1) / 86400000) + dow) / 7) + 1, year: year, month: month };
+                }
+                case 'month':
+                default: return { bucket: month, year: year, month: month };
+            }
+        }
+
+        /**
+         * The label the server annotates a group with — a Choice's label, a
+         * lookup's name, Yes/No — under `<alias>@OData.Community.Display.V1
+         * .FormattedValue`. A date bucket gets none: what the platform sends
+         * there is unmeasured (pcf-chart-view SPEC.md P5), and a control
+         * that builds its own label from the bucket needs nothing.
+         */
+        function groupLabel(name, raw) {
+            if (raw && typeof raw === 'object' && typeof raw.name === 'string') {
+                return raw.name;
+            }
+
+            var type = typeOf(name);
+
+            if (type === 'OptionSet' && typeof raw === 'number') {
+                return optionLabel(name, raw);
+            }
+
+            if (type === 'TwoOptions') {
+                return raw === true || raw === 1 ? 'Yes' : 'No';
+            }
+
+            return undefined;
+        }
+
+        /**
+         * Answer a `?fetchXml=` query from the rows: the entity's conditions
+         * applied (link-entities and their conditions ignored — said above),
+         * then either the plain rows or, under `aggregate='true'`, one row
+         * per distinct combination of the `groupby` attributes carrying each
+         * aggregate under its alias.
+         *
+         * Reproduced on purpose, because a control that does not expect them
+         * is wrong on a form: **a FetchXML result omits null-valued
+         * properties**, so a blank group has no `g` at all; a Choice group's
+         * value is its **integer**; a lookup group's is the bare GUID with the
+         * name in the annotation; a `sum`/`avg`/`min`/`max` over no values
+         * is omitted the same way; and `count` on the primary key counts
+         * rows while `countcolumn` counts non-null values. What the server
+         * puts under a `dategrouping` alias — the bucket number, assumed — is
+         * the P5 question.
+         */
+        function answerFetchXml(entityType, xml) {
+            var entityTag = xml.match(/<entity\b[^>]*>/);
+            var entity = entityTag ? xmlAttr(entityTag[0], 'name') : entityType;
+            var fetchTag = xml.match(/<fetch\b[^>]*>/);
+            var aggregate = fetchTag ? xmlAttr(fetchTag[0], 'aggregate') === 'true' : false;
+            var rootOnly = xml.replace(/<link-entity\b[^>]*\/>/g, '').replace(/<link-entity\b[^>]*>[\s\S]*?<\/link-entity>/g, '');
+            var attributes = (rootOnly.match(/<attribute\b[^>]*\/>/g) || []).map(function (tag) {
+                return {
+                    name: xmlAttr(tag, 'name'),
+                    alias: xmlAttr(tag, 'alias'),
+                    groupby: xmlAttr(tag, 'groupby') === 'true',
+                    aggregate: xmlAttr(tag, 'aggregate'),
+                    dategrouping: xmlAttr(tag, 'dategrouping'),
+                };
+            });
+            var filters = parseFilter(rootOnly);
+            var expression = filters.length === 0 ? null : filters.length === 1 ? filters[0] : { conditions: [], filterOperator: AND, filters: filters };
+            var rows = fetchRows(entity).filter(function (row) {
+                return passes(row, expression);
+            });
+
+            log('webAPI.fetchXml', { entity: entity, aggregate: aggregate, attributes: attributes.length, conditions: filters.length, rows: rows.length });
+
+            if (!aggregate) {
+                return Promise.resolve({
+                    entities: rows.map(function (row) {
+                        var out = {};
+                        Object.keys(row.values).forEach(function (key) {
+                            var keep = attributes.length === 0 || attributes.some(function (a) { return a.name === key; });
+                            if (keep && row.values[key] !== null && row.values[key] !== undefined) {
+                                out[key] = row.values[key];
+                            }
+                        });
+                        return out;
+                    }),
+                });
+            }
+
+            if (o.aggregateRefused || rows.length > o.aggregateLimit) {
+                /*
+                 * 0x8004E023 = 2147164195, "AggregateQueryRecordLimit
+                 * exceeded. Cannot perform this operation." — the documented
+                 * code and message; the object shape is the one every other
+                 * refusal here has. Unmeasured: SPEC.md P7.
+                 */
+                return Promise.reject(webApiFault(2147164195, '', 'AggregateQueryRecordLimit exceeded. Cannot perform this operation.'));
+            }
+
+            var groupAttributes = attributes.filter(function (a) { return a.groupby; });
+            var aggregateAttributes = attributes.filter(function (a) { return !a.groupby && a.aggregate; });
+            var groups = {};
+            var order = [];
+
+            rows.forEach(function (row) {
+                var keys = groupAttributes.map(function (a) {
+                    var raw = row.values[a.name];
+
+                    if (raw && typeof raw === 'object' && raw.id && typeof raw.id.guid === 'string') {
+                        raw = raw.id.guid.toLowerCase();
+                    }
+
+                    if (a.dategrouping) {
+                        var bucket = dateBucket(raw, a.dategrouping);
+                        return bucket === null ? null : bucket.bucket;
+                    }
+
+                    return raw === undefined || raw === '' ? null : raw;
+                });
+                var id = JSON.stringify(keys);
+
+                if (!groups[id]) {
+                    groups[id] = { keys: keys, rows: [] };
+                    order.push(id);
+                }
+
+                groups[id].rows.push(row);
+            });
+
+            return Promise.resolve({
+                entities: order.map(function (id) {
+                    var group = groups[id];
+                    var out = {};
+
+                    groupAttributes.forEach(function (a, index) {
+                        var key = group.keys[index];
+
+                        if (key === null) {
+                            return;
+                        }
+
+                        out[a.alias] = key;
+
+                        var label = a.dategrouping ? undefined : groupLabel(a.name, group.rows[0].values[a.name]);
+
+                        if (label !== undefined) {
+                            out[a.alias + '@OData.Community.Display.V1.FormattedValue'] = label;
+                        }
+                    });
+
+                    aggregateAttributes.forEach(function (a) {
+                        var values = group.rows.map(function (row) {
+                            return row.values[a.name];
+                        });
+                        var numbers = values.filter(function (v) {
+                            return typeof v === 'number' && isFinite(v);
+                        });
+                        var result;
+
+                        switch (a.aggregate) {
+                            case 'count':
+                                result = group.rows.length;
+                                break;
+                            case 'countcolumn':
+                                result = values.filter(function (v) { return v !== null && v !== undefined && v !== ''; }).length;
+                                break;
+                            case 'sum':
+                                result = numbers.length === 0 ? undefined : numbers.reduce(function (s, v) { return s + v; }, 0);
+                                break;
+                            case 'avg':
+                                result = numbers.length === 0 ? undefined : numbers.reduce(function (s, v) { return s + v; }, 0) / numbers.length;
+                                break;
+                            case 'min':
+                                result = numbers.length === 0 ? undefined : Math.min.apply(null, numbers);
+                                break;
+                            case 'max':
+                                result = numbers.length === 0 ? undefined : Math.max.apply(null, numbers);
+                                break;
+                            default:
+                                result = undefined;
+                        }
+
+                        if (result !== undefined) {
+                            out[a.alias] = result;
+                        }
+                    });
+
+                    return out;
+                }),
+            });
         }
 
         /**
@@ -2128,6 +2538,17 @@
                             }
 
                             var query = String(options || '');
+
+                            if (/^\?fetchXml=/i.test(query)) {
+                                var xml = query.slice(query.indexOf('=') + 1);
+
+                                if (xml.charAt(0) !== '<') {
+                                    xml = decodeURIComponent(xml);
+                                }
+
+                                return answerFetchXml(entityType, xml);
+                            }
+
                             var top = query.match(/\$top=(\d+)/);
                             var select = query.match(/\$select=([^&]+)/);
                             var wanted = select ? select[1].split(',') : null;
@@ -2254,6 +2675,30 @@
 
                         retrieveRecord: function (entityType, id, options) {
                             log('webAPI.retrieveRecord', entityType + ' ' + id + ' ' + (options || ''));
+
+                            /*
+                             * A saved query is an ordinary table: `savedquery`
+                             * for a system view, `userquery` for a personal
+                             * one, and a control that wants the view's own
+                             * FetchXML reads `fetchxml` off it by the id
+                             * `getViewId()` gave. Answered from
+                             * `fixture.views`, keyed by id and naming the
+                             * table each lives in; an id in the other table
+                             * is "not found", which is how a control learns to
+                             * try both.
+                             */
+                            if (entityType === 'savedquery' || entityType === 'userquery') {
+                                var view = (fixture.views || {})[String(id).replace(/[{}]/g, '').toLowerCase()];
+
+                                if (!o.viewsReadable || !view || (view.table || 'savedquery') !== entityType) {
+                                    return Promise.reject(webApiFault(2147746581, 'Record Is Unavailable', 'The requested record was not found.'));
+                                }
+
+                                var viewRow = { fetchxml: view.fetchxml, name: view.name || fixture.title };
+                                viewRow[entityType + 'id'] = id;
+
+                                return Promise.resolve(viewRow);
+                            }
 
                             var match = null;
 
