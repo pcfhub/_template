@@ -5,6 +5,7 @@
   "name": "__TITLE__",
   "tagline": "__TAGLINE__",
   "category": "__CATEGORY__",
+  "hosts": ["model-driven"],
   "tags": [],
 
   "control": {

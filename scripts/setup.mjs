@@ -144,6 +144,29 @@ const rules = {
         test: /^[a-z0-9]+(?:-[a-z0-9]+)*$/,
         hint: 'lowercase words separated by single hyphens',
     },
+    /*
+     * Where the control runs, and the one answer with nothing to derive it
+     * from — a ControlManifest says nothing about hosts, which is exactly why
+     * the hub asks the repository rather than reading it back.
+     *
+     * Defaulted to model-driven rather than to both: PCF's original surface,
+     * the only answer a grid customizer can have, and the conservative
+     * direction. Claiming canvas support a control does not have puts it in
+     * front of people it cannot help; omitting support it does have costs one
+     * line in a JSON file.
+     *
+     * Not a token substitution like the others. `pcfhub.json` ships a real
+     * `"hosts": ["model-driven"]` rather than a `__HOSTS__` placeholder, so the
+     * template stays parseable JSON — `check-template.mjs` and the hub's own
+     * validator both read that file before anybody runs this script. The answer
+     * is applied by edit() below instead.
+     */
+    HOSTS: {
+        question: 'Runs in (canvas, model-driven, or both comma-separated)',
+        derive: () => 'model-driven',
+        test: /^(canvas|model-driven)(,\s*(canvas|model-driven))?$/,
+        hint: '"canvas", "model-driven", or "canvas,model-driven"',
+    },
     OWNER: {
         question: 'GitHub owner',
         example: 'pcfhub',
@@ -387,6 +410,42 @@ edit('.github/workflows/build.yml', (text) =>
         )
         .replace(/\n    with:\n      adopt-first: true\n/, '\n'),
 );
+
+/*
+ * The hosts answer, written over the template's default.
+ *
+ * After the token pass and after applyType(), so a grid customizer's own branch
+ * — which already deletes docs/canvas.md, because the customizer property
+ * exists only on the Power Apps grid — keeps the last word.
+ *
+ * The docs are pruned to match, and that is not tidiness: the hub derives hosts
+ * from these files for any repository that has not declared them, and
+ * check-template.mjs compares the two. A control shipping a canvas.md it does
+ * not mean would be published as a canvas control the day somebody removed the
+ * key.
+ */
+{
+    const declared = type === 'grid-customizer'
+        ? ['model-driven']
+        : answers.HOSTS.split(',').map((host) => host.trim());
+
+    // The hub's own order, so a manifest and a catalog card read the same way.
+    const hosts = ['canvas', 'model-driven'].filter((host) => declared.includes(host));
+
+    edit('pcfhub.json', (text) =>
+        text.replace(
+            /"hosts": \[[^\]]*\]/,
+            `"hosts": [${hosts.map((host) => `"${host}"`).join(', ')}]`,
+        ));
+
+    if (!hosts.includes('canvas')) {
+        rmSync(join(root, 'docs', 'canvas.md'), { force: true });
+    }
+
+    if (!hosts.includes('model-driven')) {
+        rmSync(join(root, 'docs', 'model-driven.md'), { force: true });
+    }
+}
 
 const templateDoc = join(root, 'TEMPLATE.md');
 

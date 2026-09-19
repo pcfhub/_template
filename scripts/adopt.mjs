@@ -223,6 +223,22 @@ const written = [];
 const skipped = [];
 const notes = [];
 
+/**
+ * The hosts a target's `docs/` directory implies.
+ *
+ * `docs/canvas.md` is a page whose entire content is how to use the control in
+ * a canvas app, so its presence is a claim rather than a guess — the hub's own
+ * backfill read exactly these files to give twenty-six existing components
+ * their hosts.
+ */
+function hostsFromDocs() {
+    const found = ['canvas', 'model-driven'].filter(
+        (host) => existsSync(join(target, 'docs', `${host}.md`)),
+    );
+
+    return found.length > 0 ? found : ['model-driven'];
+}
+
 /*
  * pcfhub.json first, because it is the only file the hub strictly requires and
  * the only one this script composes rather than copies. Everything it names —
@@ -235,6 +251,18 @@ put('pcfhub.json', () => `${JSON.stringify({
     name: answers.TITLE,
     tagline: answers.TAGLINE,
     category: answers.CATEGORY,
+    /*
+     * Where the control runs. Derived from the docs the target already has,
+     * because that is the only evidence an adoption script has — and it is the
+     * same evidence the hub falls back on for a repository that declares
+     * nothing. A control with neither doc page gets model-driven, PCF's
+     * original surface and the conservative answer; the author corrects it in
+     * one line if it is wrong, and the next sync picks the correction up.
+     *
+     * Not derivable from the ControlManifest: it says nothing about hosts,
+     * which is the whole reason the hub asks the repository.
+     */
+    hosts: hostsFromDocs(),
     tags: [],
     control: {
         namespace,
@@ -533,6 +561,28 @@ function comparePcfhubJson() {
         ['control.namespace', existing.control?.namespace, namespace],
         ['control.manifestPath', existing.control?.manifestPath, manifestPath],
     ];
+
+    /*
+     * Hosts is a *migration* note rather than a comparison, and it is the one
+     * thing here the manifest cannot be wrong about — only out of date. The hub
+     * retired `canvas` and `model-driven` as tags when hosts became facts of
+     * their own, so a manifest still carrying them is one written against the
+     * older vocabulary.
+     */
+    const retired = (existing.tags ?? []).filter(
+        (tag) => tag === 'canvas' || tag === 'model-driven' || tag === 'dataset',
+    );
+
+    if (retired.length > 0) {
+        found.push(`pcfhub.json still tags ${retired.map((t) => `"${t}"`).join(', ')}. `
+            + 'Those are no longer tags on the hub: canvas and model-driven belong in "hosts", '
+            + 'and dataset is what control.type already says.');
+    }
+
+    if (existing.hosts === undefined) {
+        found.push('pcfhub.json declares no "hosts", so the hub will keep whatever it derived from '
+            + `your docs/ pages — here, ${JSON.stringify(hostsFromDocs())}. Declare it to be sure.`);
+    }
 
     for (const [key, was, derived] of compare) {
         if (was !== undefined && was !== derived) {

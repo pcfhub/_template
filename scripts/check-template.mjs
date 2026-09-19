@@ -200,6 +200,45 @@ if (manifestPath && !exists(join(root, manifestPath))) {
     problems.push(`pcfhub.json points control.manifestPath at "${manifestPath}", which does not exist.`);
 }
 
+/*
+ * Hosts against the docs on disk.
+ *
+ * The one host rule the hub cannot apply, and a good example of what this
+ * script is still for now that the manifest rules live on the hub: the hub
+ * validates a JSON document it was handed, and cannot see which files a
+ * repository ships.
+ *
+ * It matters because the two feed each other. A repository that declares no
+ * `hosts` has them derived from exactly these files, so a `docs/canvas.md` left
+ * behind by a template is a canvas claim nobody made — and a `hosts` naming
+ * canvas with no canvas page sends a reader from the docs nav to nothing.
+ *
+ * Warnings, not problems. Either state can be right briefly — a page being
+ * written, a host being added — and a check that fails a release over
+ * documentation one commit behind is a check people disable.
+ */
+if (Array.isArray(manifest.hosts)) {
+    for (const host of ['canvas', 'model-driven']) {
+        const claims = manifest.hosts.includes(host);
+        const documented = exists(join(root, 'docs', `${host}.md`));
+
+        if (claims && !documented) {
+            warnings.push(
+                `pcfhub.json declares the "${host}" host, but docs/${host}.md is missing. The hub `
+                + 'publishes a documentation section per host, and a reader who picks that tab gets nothing.',
+            );
+        }
+
+        if (!claims && documented) {
+            warnings.push(
+                `docs/${host}.md exists, but pcfhub.json does not list "${host}" in hosts. Every catalog `
+                + 'card says where a control runs, and this one will not say it runs there — add the host, '
+                + 'or delete the page.',
+            );
+        }
+    }
+}
+
 // ------------------------------------------------------- the control shape
 //
 // `control.type` and `control.framework` are the repository claiming what the
