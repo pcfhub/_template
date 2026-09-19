@@ -372,6 +372,49 @@ for (const controlDir of controlDirs) {
     }
 }
 
+// ---------------------------------------------- property names FormXML owns
+//
+// The classic form designer writes every configured property under the
+// cell's <parameters> as an element named after the property, and the
+// publish step scans the form's XML for <labels> elements to publish their
+// translations. So a property named `labels` turns `<labels>auto</labels>`
+// into a label owner, the publisher walks up to the cell's GUID, finds
+// `parameters` is not a node it knows, and publishing the form fails with
+// "XML node parameters is one that has an id of <guid> but is one that we
+// don't recognize as having a valid LabelTypeCode" — measured on the
+// Accounts form 2026-09-19 (pcf-chart-view 0.0.1). An entity view has no
+// FormXML, which is why the same control published on the grid and why the
+// failure looks like a subgrid problem. That one is a failure here.
+//
+// The other names are FormXML's own container elements. None has been seen
+// to break a publish — `label` (singular) ships on two controls and
+// publishes — so they warn rather than fail, and the warning says so.
+
+const FORMXML_FAILS = ['labels'];
+const FORMXML_WARNS = ['label', 'parameters', 'tabs', 'tab', 'columns', 'column', 'sections', 'section', 'rows', 'row', 'cell', 'control', 'events', 'event', 'header', 'footer', 'Navigation', 'displayConditions'];
+
+for (const controlDir of controlDirs) {
+    const relative = `${controlDir}/ControlManifest.Input.xml`;
+    const xml = readFileSync(join(root, relative), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+    const names = [...xml.matchAll(/<property(?:-set)?\s+name="([^"]+)"/g)].map((match) => match[1]);
+
+    for (const name of names) {
+        if (FORMXML_FAILS.includes(name)) {
+            problems.push(
+                `${relative} names a property "${name}", which is a FormXML element: the classic form designer ` +
+                'writes it under <parameters> and publishing the form fails with "…don\'t recognize as having a ' +
+                'valid LabelTypeCode" (measured 2026-09-19). Rename it — valueLabels, markLabels, anything FormXML does not own.',
+            );
+        } else if (FORMXML_WARNS.includes(name)) {
+            warnings.push(
+                `${relative} names a property "${name}", which is also a FormXML element. Only "labels" is known to ` +
+                'break publishing; this one has not been seen to, but the classic designer writes it under ' +
+                '<parameters> by that name, and a rename now is free.',
+            );
+        }
+    }
+}
+
 // ------------------------------------------------- external service usage
 //
 // Enabling this makes the control **premium**: every end user of an app that
