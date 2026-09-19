@@ -58,6 +58,18 @@
     flex-direction: column;
     gap: var(--spacingVerticalS, 8px);
     width: 100%;
+    /*
+      And never wider than the box the host gave. A control that sets its
+      root's width from `mode.allocatedWidth` — which a shrink-to-fit host
+      such as a main grid or a form cell requires — meets hosts that hand
+      over more than the box: the hub's demo counted its wrapper's padding
+      in the number, and a root 16px wider than the page was a horizontal
+      scrollbar, then a vertical one, then both flashing (pcf-chart-view
+      0.1.1, measured 2026-09-19). In a shrink-to-fit parent a percentage
+      max-width counts for nothing while the parent sizes itself, so the
+      ceiling cannot collapse the cell the inline width is there to hold.
+    */
+    max-width: 100%;
 }
 
 /*
