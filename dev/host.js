@@ -327,7 +327,9 @@
          * naming an `@odata.bind` the fixture's relationships do not declare
          * is refused with the measured "undeclared property" fault; a bind
          * value whose entity set or id the fixture does not hold is "Record
-         * Is Unavailable".
+         * Is Unavailable". A column in `fixture.notUpdatable[table]` is
+         * **dropped silently** — the write resolves and the row does not
+         * change — because that is what the server does (measured).
          */
         updateRecord: true,
 
@@ -717,6 +719,17 @@
             }
 
             var bind = key.match(/^(.+)@odata\.bind$/);
+
+            /*
+             * A column the metadata marks IsValidForUpdate: false is not
+             * refused — the server resolves and changes nothing (measured on
+             * address1_composite and createdon, pcf-audit-history R9). So
+             * the key is dropped here without a word, which is exactly the
+             * trap a control has to read the metadata to avoid.
+             */
+            if (!bind && ((fixture.notUpdatable || {})[entityType] || []).indexOf(key) !== -1) {
+                return;
+            }
 
             if (!bind) {
                 carry(oldBag, before, key);
@@ -1406,6 +1419,37 @@
                     };
                 }
                 return reply(200, body);
+            }
+
+            // ---- EntityDefinitions(LogicalName='x')/Attributes?$select=… ------
+            // Every column's IsValidForUpdate — measured (pcf-audit-history
+            // R6) as the only place it lives: getEntityMetadata's items do
+            // not carry it. Listed from fixture.labels[table] plus
+            // fixture.notUpdatable[table]; a table the fixture does not
+            // name is a 404, as the server answers.
+            if (/^[a-z0-9_]+'\)\/Attributes(\?|$)/i.test(rest)) {
+                var labelled = Object.keys((fixture.labels || {})[entity] || {});
+                var frozen = (fixture.notUpdatable || {})[entity] || [];
+
+                if (labelled.length === 0 && frozen.length === 0) {
+                    return reply(404, {
+                        error: { code: '0x80060888', message: "Could not find a property named '" + entity + "'." },
+                    });
+                }
+
+                var names = labelled.concat(frozen.filter(function (name) { return labelled.indexOf(name) === -1; }));
+
+                return reply(200, {
+                    value: names.map(function (name) {
+                        return {
+                            '@odata.type': '#Microsoft.Dynamics.CRM.AttributeMetadata',
+                            MetadataId: '00000000-0000-0000-0000-' + ('000000000000' + names.indexOf(name)).slice(-12),
+                            AttributeType: /_composite$/.test(name) ? 'Memo' : /^_|_value$|id$/.test(name) ? 'Lookup' : 'String',
+                            IsValidForUpdate: frozen.indexOf(name) === -1,
+                            LogicalName: name,
+                        };
+                    }),
+                });
             }
 
             var direction = /\/OneToManyRelationships/.test(rest) ? 'one' : /\/ManyToOneRelationships/.test(rest) ? 'many' : null;

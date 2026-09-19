@@ -322,6 +322,16 @@
             },
         },
 
+        /**
+         * Columns the table's attribute metadata marks `IsValidForUpdate:
+         * false` — what `EntityDefinitions(…)/Attributes` lists, beside every
+         * labelled column as updatable. A write to one of these resolves and
+         * changes nothing, as the server does (pcf-audit-history R9).
+         */
+        notUpdatable: {
+            account: ['accountid', 'address1_composite', 'address2_composite', 'createdon', 'createdby', 'modifiedon', 'modifiedby', 'creditlimit_base', 'revenue_base', 'versionnumber'],
+        },
+
         /** The users the audit rows name, for a suite that asserts on them. */
         users: USERS,
 
