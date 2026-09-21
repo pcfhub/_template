@@ -432,11 +432,17 @@ edit('.github/workflows/build.yml', (text) =>
     // The hub's own order, so a manifest and a catalog card read the same way.
     const hosts = ['canvas', 'model-driven'].filter((host) => declared.includes(host));
 
-    edit('pcfhub.json', (text) =>
-        text.replace(
-            /"hosts": \[[^\]]*\]/,
-            `"hosts": [${hosts.map((host) => `"${host}"`).join(', ')}]`,
-        ));
+    edit(
+        'pcfhub.json',
+        (text) =>
+            text.replace(
+                /"hosts": \[[^\]]*\]/,
+                `"hosts": [${hosts.map((host) => `"${host}"`).join(', ')}]`,
+            ),
+        // The default answer is the value already in the file, so this rewrite
+        // is legitimately a no-op most of the time. See edit().
+        { anchor: /"hosts": \[[^\]]*\]/ },
+    );
 
     if (!hosts.includes('canvas')) {
         rmSync(join(root, 'docs', 'canvas.md'), { force: true });
@@ -826,15 +832,35 @@ function applyReactTooling(fluentPackage, fluentVersion) {
     });
 }
 
-function edit(relative, transform) {
+function edit(relative, transform, { anchor = null } = {}) {
     const path = join(root, relative);
     const before = readFileSync(path, 'utf8');
     const after = transform(before);
 
-    // Failing on a no-op is the point: every caller is replacing a string it
-    // expects to be there, so "changed nothing" means the template moved and
-    // this script did not. Silently carrying on ships a half-adopted file.
-    if (after === before) {
+    /*
+     * Failing on a no-op is the point: every caller is replacing a string it
+     * expects to be there, so "changed nothing" means the template moved and
+     * this script did not. Silently carrying on ships a half-adopted file.
+     *
+     * **Except where the replacement can legitimately equal what is already
+     * there**, and `hosts` is exactly that case: the template ships
+     * `"hosts": ["model-driven"]` so the file stays parseable JSON before
+     * anyone runs this, and `model-driven` is also the derived default — so an
+     * adoption that accepts the default wrote the identical string and this
+     * guard failed every one of them. (Introduced by "Ask where a control runs
+     * when a repository is scaffolded"; caught by `verify-adoption.mjs`, which
+     * is the only thing that runs this script end to end.)
+     *
+     * So such a caller passes an `anchor`, and the guard becomes what it was
+     * always really asserting: **the text this script rewrites was found**.
+     * Whether rewriting it changed anything is a different question, and not
+     * one that indicates a broken template.
+     */
+    if (anchor) {
+        if (!anchor.test(before)) {
+            fail(`Could not patch ${relative} — the text this script rewrites was not found.`);
+        }
+    } else if (after === before) {
         fail(`Could not patch ${relative} — the text this script rewrites was not found.`);
     }
 
