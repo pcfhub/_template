@@ -133,19 +133,48 @@ it.
 
 ## Release
 
-1. Bump the version in **three** places, in one commit — they are checked
-   against each other in CI:
-   - `__CONTROL__/ControlManifest.Input.xml` → `<control version="…">`
-   - `Solution/src/Other/Solution.xml` → `<Version>`
-   - `package.json` → `"version"`
-2. Write the release notes — what changed for the user, what was fixed, what
-   they must do — in a Markdown file.
-3. Tag with them: `git tag -a --cleanup=verbatim v1.2.3 -F notes.md && git push origin v1.2.3` — without `--cleanup=verbatim`, git drops every `## Heading` in the notes as a comment, silently
+```bash
+npm run bump -- --minor      # every version location, in one edit
+npm run release -- --draft   # .release-notes.md, from the commits since the last tag
+# …rewrite the notes, commit the bump…
+npm run release -- --push
+```
+
+**On PowerShell, call the scripts directly** — `node scripts/version.mjs --minor`.
+npm swallows a `--` flag there, warns *"Unknown cli config"*, and runs the
+script with no arguments: it prints the report, changes nothing, and reads as a
+bump that found nothing to do.
+
+`npm run bump` with no argument is a **read**: it prints every place the version
+lives and exits 1 if they disagree. Worth running before anything else, because
+the same check otherwise happens in CI — on a Windows runner, after the pack, on
+a tag that has already been pushed. `npm run check` now runs it too.
+
+The version lives in **three** places, more in a repository holding several
+controls, and they are checked against each other:
+
+- `__CONTROL__/ControlManifest.Input.xml` → `<control version="…">`
+- `Solution/src/Other/Solution.xml` → `<Version>`
+- `package.json` → `"version"`
+
+Doing it by hand is still fine, and then the thing to get right is the tag:
+
+```bash
+git tag -a --cleanup=verbatim v1.2.3 -F notes.md && git push origin v1.2.3
+```
+
+**Without `--cleanup=verbatim`, git drops every `## Heading` in the notes as a
+comment, silently.** `npm run release` passes it, and then reads the tag back to
+confirm the headings survived — because the failure is invisible in the command
+that caused it.
 
 **The tag message is the release body, and the release body is the changelog
 on the hub.** A lightweight tag gets GitHub's generated notes instead, which
 for a repository without pull requests is a single compare link — and the
 workflow warns when that is about to happen.
+
+There is deliberately no `CHANGELOG.md`. The hub builds the changelog from
+release notes, and `docs/changelog.md` is a hard failure in `npm run check`.
 
 The release workflow builds, packs both solution types, and attaches them to a
 GitHub Release. PCFHub picks the release up from its webhook within seconds, or

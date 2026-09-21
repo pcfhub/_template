@@ -273,6 +273,23 @@ if (constructors.includes(control)) {
     );
 }
 
+/*
+ * The version the target repository is *already* at, which is what the new
+ * control is born at — not `0.1.0`.
+ *
+ * This was a latent release failure for as long as the script existed. The
+ * donor manifests carry `version="0.1.0"`, because that is where a scaffolded
+ * control starts; copying one into a repository at 0.5.0 and then tagging
+ * v0.5.1 throws in CI — `release-reusable.yml` checks the tag against **every**
+ * manifest in the tree — on a Windows runner, after the pack, on a tag that has
+ * already been pushed. Nothing warned, and the closing notes did not mention
+ * it, so the first person to hit it would have had no reason to look here.
+ *
+ * A second control in one solution is one shipped artifact with one version.
+ * There is no arrangement in which the sibling has a number of its own.
+ */
+const repoVersion = targetVersion();
+
 const answers = {
     CONTROL: control,
     NAMESPACE: namespace,
@@ -308,7 +325,13 @@ const migrated = migrateRootControl();
  */
 const sources = join(control, control);
 
-copyFile(join(donor.sources, 'ControlManifest.Input.xml'), join(sources, 'ControlManifest.Input.xml'));
+copyFile(join(donor.sources, 'ControlManifest.Input.xml'), join(sources, 'ControlManifest.Input.xml'), {
+    // Anchored to the <control> element: the manifest also carries a <resx>
+    // version and one per <platform-library>, and none of those is this one.
+    rewrite: (text) =>
+        text.replace(/<control\b[^>]*>/, (element) =>
+            element.replace(/(\bversion\s*=\s*")[^"]*(")/, `$1${repoVersion}$2`)),
+});
 copyFile(join(donor.sources, 'index.ts'), join(sources, 'index.ts'));
 copyTree(join(donor.sources, 'css'), join(sources, 'css'));
 copyTree(join(donor.sources, 'strings'), join(sources, 'strings'));
@@ -493,6 +516,13 @@ Two things this script deliberately did not do, because both are decisions:
     now names one of two. Rename it if — and only if — nothing has been released
     yet: after a release, changing it makes the next import create a second
     solution rather than upgrade the first.
+
+And one it does: **${control} was born at ${repoVersion}**, the version this
+repository is already at, rather than at the 0.1.0 the donor manifest carries.
+A second control in one solution is one shipped artifact with one version, and
+the release workflow checks the tag against *every* manifest in the tree — so a
+sibling left at 0.1.0 fails the next tag on a Windows runner after the pack.
+Check it with: npm run bump
 `);
 
 // ------------------------------------------------------------------ helpers
@@ -506,12 +536,64 @@ Two things this script deliberately did not do, because both are decisions:
  * directory; `tsconfig.json` is what the compiler picks up from the project
  * directory.
  */
+/**
+ * The target repository's current version: its root `package.json`, falling
+ * back to the first `<control version=…>` found, falling back to `0.1.0` for a
+ * repository that has neither.
+ *
+ * Read rather than asked, for the same reason the namespace is read rather than
+ * asked: the answer is already in the repository, and a question whose answer
+ * is on disk is a question with a wrong answer available.
+ */
+function targetVersion() {
+    const pkg = join(target, 'package.json');
+
+    if (existsSync(pkg)) {
+        try {
+            const declared = JSON.parse(readFileSync(pkg, 'utf8')).version;
+
+            if (typeof declared === 'string' && declared !== '') {
+                return declared;
+            }
+        } catch {
+            // Falls through to the manifest.
+        }
+    }
+
+    for (const path of manifestsIn(target)) {
+        const element = /<control\b[^>]*>/.exec(readFileSync(path, 'utf8'))?.[0] ?? '';
+        const declared = /\bversion\s*=\s*"([^"]*)"/.exec(element)?.[1];
+
+        if (declared) {
+            return declared;
+        }
+    }
+
+    return '0.1.0';
+}
+
+function* manifestsIn(dir) {
+    for (const entry of readdirSync(dir).sort()) {
+        if (['.git', 'node_modules', 'out', 'bin', 'obj', 'generated', 'variants'].includes(entry)) {
+            continue;
+        }
+
+        const path = join(dir, entry);
+
+        if (statSync(path).isDirectory()) {
+            yield* manifestsIn(path);
+        } else if (entry === 'ControlManifest.Input.xml') {
+            yield path;
+        }
+    }
+}
+
 function writeProjectFiles(name) {
     const files = {
         [`${name}.pcfproj`]: projectFile(name),
         'package.json': `${JSON.stringify({
             name: `${basename(target).toLowerCase()}-${name.toLowerCase()}`,
-            version: '0.1.0',
+            version: repoVersion,
             private: true,
             description: `The ${name} control project. Dependencies live in ../package.json.`,
             scripts: {

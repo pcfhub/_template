@@ -446,6 +446,20 @@ function verifySibling() {
     };
 
     try {
+        /*
+         * Move the repository off 0.1.0 *before* adding the sibling, or the
+         * version check below cannot tell the right answer from the wrong one:
+         * a freshly adopted repo is at 0.1.0 and so is the donor manifest, so
+         * a sibling left at the donor's number would pass by coincidence.
+         *
+         * 0.5.0 rather than 0.2.0 because it is the real case — the repository
+         * this was found in.
+         */
+        execFileSync(process.execPath, [join(root, 'scripts', 'version.mjs'), '--into', repo.scratch, '0.5.0'], {
+            cwd: root,
+            stdio: 'pipe',
+        });
+
         const first = add();
 
         check('add-control.mjs succeeds against a freshly adopted repository', first.status === 0,
@@ -513,6 +527,32 @@ function verifySibling() {
 
         const manifest = repo.read(`${SIBLING}/${SIBLING}/ControlManifest.Input.xml`);
         check('the sibling is a dataset control', /<data-set\s/.test(manifest));
+
+        /*
+         * The sibling is born at the repository's version, not the donor's
+         * 0.1.0.
+         *
+         * This was a latent release failure for as long as add-control.mjs
+         * existed: `release-reusable.yml` checks the tag against **every**
+         * manifest in the tree, so a sibling added to a repo at 0.5.0 and left
+         * at 0.1.0 throws on the next tag — on a Windows runner, after the
+         * pack, on a tag already pushed. A second control in one solution is
+         * one shipped artifact with one version; there is no arrangement in
+         * which it has a number of its own.
+         */
+        const siblingVersion = /<control\b[^>]*>/.exec(manifest)?.[0].match(/\bversion\s*=\s*"([^"]*)"/)?.[1];
+        const repoVersion = JSON.parse(repo.read('package.json')).version;
+
+        check(
+            `the sibling is born at the repository's version (${repoVersion}), not the donor's 0.1.0`,
+            siblingVersion === repoVersion,
+            `sibling manifest says ${siblingVersion}, package.json says ${repoVersion}`,
+        );
+
+        check(
+            "and its project package.json agrees",
+            JSON.parse(repo.read(`${SIBLING}/package.json`)).version === repoVersion,
+        );
         check('under its own constructor', new RegExp(`constructor="${SIBLING}"`).test(manifest));
         /*
          * The namespace is read out of the *first* control rather than asked
@@ -829,8 +869,23 @@ function main() {
         // --- nothing left half-substituted -------------------------------
         const leftovers = [];
 
+        /*
+         * `scripts/templates/` survives adoption on purpose: it holds donor
+         * pages that `version.mjs` writes out when a release needs one, and it
+         * carries `__VERSION__` for the same reason the adoption scripts carry
+         * `__CONTROL__` — it is the thing that fills it in. The two scripts
+         * that name the token in a comment are exempt for the same reason.
+         */
+        const CARRIES_TOKENS = new Set([
+            'scripts/templates/migration.md', 'scripts/version.mjs', 'scripts/check-template.mjs',
+        ]);
+
         for (const file of walk(scratch)) {
             if (file === 'package-lock.json' || /\.(png|jpe?g|gif|webp|ico|woff2?|zip)$/i.test(file)) {
+                continue;
+            }
+
+            if (CARRIES_TOKENS.has(file)) {
                 continue;
             }
 
