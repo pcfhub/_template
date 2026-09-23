@@ -74,8 +74,10 @@ const MANAGED = [
     { path: 'scripts/templates/migration.md' },
     // Not for a grid customizer: setup.mjs replaces its dev/ outright with a harness
     // and a suite, because a customizer touches no DOM and nothing there loads these.
-    { path: 'dev/dom.js', when: notCustomizer },
-    { path: 'dev/clock.js', when: notCustomizer },
+    // Loaded by the suite, so only added where the suite loads them: a suite that never
+    // loads the bundle (Code-Editor-PCF transpiles pure modules instead) has no use for either.
+    { path: 'dev/dom.js', when: notCustomizer, loadedBy: 'dev/smoke.js' },
+    { path: 'dev/clock.js', when: notCustomizer, loadedBy: 'dev/smoke.js' },
     { path: 'dev/serve.js', when: notCustomizer },
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
@@ -137,6 +139,8 @@ function sync(target) {
         } else if (entry.state === 'modified') {
             console.log(`  modified   ${label} ${entry.note} — kept; --force ${entry.path} to replace`);
             held += 1;
+        } else if (entry.state === 'unused') {
+            console.log(`  not used   ${label} — dev/smoke.js never loads it, so it is not added`);
         } else if (entry.state === 'missing') {
             if (args['add-missing']) {
                 console.log(`  add        ${label}`);
@@ -180,6 +184,16 @@ function classify(target, shape) {
         const file = join(target, m.path);
 
         if (!existsSync(file)) {
+            const suite = m.loadedBy ? join(target, m.loadedBy) : null;
+
+            // A require, not a mention: a suite explaining why it does *not* load dom.js names it.
+            const name = basename(m.path).replace(/\.js$/, '');
+            const loads = new RegExp(String.raw`require\(\s*['"]\./${name}(\.js)?['"]\s*\)`);
+
+            if (suite && existsSync(suite) && !loads.test(readFileSync(suite, 'utf8'))) {
+                return { path: m.path, state: 'unused', wanted };
+            }
+
             return { path: m.path, state: 'missing', wanted };
         }
 

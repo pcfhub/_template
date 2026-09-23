@@ -478,6 +478,24 @@ function verifySync() {
         const forced = run(['--force', 'dev/serve.js']);
         check('--force <path> replaces that one edited file', forced.status === 0 && !repo.read('dev/serve.js').includes('// edited in this repository'));
         check('and still not the host', repo.read('dev/host.js') === host);
+
+        /*
+         * dom.js and clock.js are added back only where the suite requires
+         * them. A suite that never loads the bundle (Code-Editor-PCF
+         * transpiles pure modules) may still *name* dom.js in a comment, and
+         * a mention is not a require.
+         */
+        rmSync(file('dev/clock.js'));
+        const planned = () => spawnSync(
+            process.execPath,
+            [join(root, 'scripts', 'sync-rig.mjs'), '--into', repo.scratch, '--dry-run', '--add-missing'],
+            { cwd: root, encoding: 'utf8' },
+        ).stdout;
+
+        check('--add-missing restores a clock.js the suite requires', /add\s+dev\/clock\.js/.test(planned()), planned());
+
+        writeFileSync(file('dev/smoke.js'), '// This suite never loads clock.js or the bundle.\n');
+        check('and skips one the suite only mentions', /not used\s+dev\/clock\.js/.test(planned()), planned());
     } finally {
         rmSync(repo.scratch, { recursive: true, force: true });
     }
