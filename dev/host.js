@@ -488,6 +488,26 @@
         targetMethod: 'present',
 
         /**
+         * Bound properties beyond the first, by manifest name — a second
+         * column the maker maps in the configuration pane, such as the parent
+         * a cascading lookup is filtered by.
+         *
+         *   { parentValue: 'unmapped' }
+         *   { parentValue: { type: 'Lookup.Simple', raw: [ { id, name, entityType } ],
+         *                    target: 'account', column: 'parentcustomerid' } }
+         *
+         * **`'unmapped'` is the measured eight-key shape** of an optional
+         * bound property the maker left empty (pcf-address-autocomplete-azure,
+         * Accounts form, 2026-09-13): `type: null`, `raw: null`,
+         * `attributes: {}`, `security: {}`. `type === null` is the tell, and a
+         * control that reads `raw` without it takes an unmapped picker for an
+         * empty column. A mapped `Lookup.Simple` carries the two lookup
+         * methods, subject to `targetMethod` like the first; `raw` of an empty
+         * mapped lookup is `[]`, never `null`.
+         */
+        bound: {},
+
+        /**
          * What `utils.hasEntityPrivilege` answers.
          *
          * **Synchronous, and a boolean rather than a promise** — the one member
@@ -961,17 +981,173 @@
     }
 
     /**
-     * The OData subset: `$select`, `$filter` (`and` of `x eq v`, `x ne v`,
-     * `x lt|le|gt|ge v` and `contains(x,'v')`), `$orderby`, `$top`, and
+     * Split `text` on a top-level ` and ` or ` or ` — outside parentheses and
+     * outside a quoted literal, where `''` is an escaped quote rather than two
+     * literals. A type-ahead's `(startswith(a,'x') or startswith(b,'x')) and
+     * _p_value eq …` is the shape that needs both halves of that rule.
+     */
+    function splitTop(text, word) {
+        var parts = [];
+        var depth = 0;
+        var quoted = false;
+        var start = 0;
+        var pattern = new RegExp('^\\s+' + word + '\\s+', 'i');
+
+        for (var i = 0; i < text.length; i += 1) {
+            var ch = text.charAt(i);
+
+            if (ch === "'") {
+                quoted = !quoted;
+            } else if (!quoted && ch === '(') {
+                depth += 1;
+            } else if (!quoted && ch === ')') {
+                depth -= 1;
+            } else if (!quoted && depth === 0 && /\s/.test(ch)) {
+                var m = text.slice(i).match(pattern);
+                if (m) {
+                    parts.push(text.slice(start, i));
+                    i += m[0].length - 1;
+                    start = i + 1;
+                }
+            }
+        }
+
+        parts.push(text.slice(start));
+        return parts;
+    }
+
+    /** Whether `text` is one parenthesised group from its first character to its last. */
+    function wrapped(text) {
+        if (text.charAt(0) !== '(' || text.charAt(text.length - 1) !== ')') {
+            return false;
+        }
+        var depth = 0;
+        var quoted = false;
+        for (var i = 0; i < text.length; i += 1) {
+            var ch = text.charAt(i);
+            if (ch === "'") {
+                quoted = !quoted;
+            } else if (!quoted && ch === '(') {
+                depth += 1;
+            } else if (!quoted && ch === ')') {
+                depth -= 1;
+                if (depth === 0 && i < text.length - 1) {
+                    return false;
+                }
+            }
+        }
+        return depth === 0;
+    }
+
+    /** One `$filter` clause as a condition — or an `and`/`or` group of them. */
+    function parseClause(clause) {
+        var text = clause.trim();
+
+        if (wrapped(text)) {
+            return parseClause(text.slice(1, -1));
+        }
+
+        var ors = splitTop(text, 'or');
+        if (ors.length > 1) {
+            return { operator: 'or', clauses: ors.map(parseClause) };
+        }
+
+        var ands = splitTop(text, 'and');
+        if (ands.length > 1) {
+            return { operator: 'and', clauses: ands.map(parseClause) };
+        }
+
+        var fn = text.match(/^(contains|startswith)\(\s*_?([a-z0-9_]+?)(?:_value)?\s*,\s*'((?:[^']|'')*)'\s*\)$/i);
+        if (fn) {
+            return { attribute: fn[2], operator: fn[1].toLowerCase(), value: fn[3].replace(/''/g, "'") };
+        }
+        var m = text.match(/^_?([a-z0-9_]+?)(?:_value)?\s+(eq|ne|lt|le|gt|ge)\s+(.+)$/i);
+        if (!m) {
+            return { attribute: text, operator: 'unparsed', value: undefined };
+        }
+        var raw = m[3].trim();
+        var op = m[2].toLowerCase();
+        return {
+            attribute: m[1],
+            operator: raw === 'null' ? (op === 'eq' ? 'null' : 'not-null') : op,
+            value: raw.replace(/^'|'$/g, '').replace(/''/g, "'"),
+        };
+    }
+
+    /** A bound property beyond the first — see `bound` in DEFAULTS. */
+    function boundProperty(spec, host, o) {
+        if (spec === 'unmapped') {
+            return {
+                type: null,
+                raw: null,
+                formatted: undefined,
+                attributes: {},
+                error: false,
+                errorMessage: undefined,
+                security: {},
+                isPropertyLoading: false,
+            };
+        }
+
+        var isLookup = spec.type === 'Lookup.Simple';
+        var property = {
+            type: spec.type,
+            raw: spec.raw !== undefined ? spec.raw : isLookup ? [] : null,
+            attributes: host.publishesMetadata
+                ? { LogicalName: spec.column, DisplayName: spec.label || spec.column }
+                : undefined,
+            security: spec.security !== undefined ? SECURITY[spec.security] : undefined,
+            error: false,
+            errorMessage: undefined,
+        };
+
+        if (isLookup && o.targetMethod !== 'absent') {
+            property.getTargetEntityType = function () {
+                if (o.targetMethod === 'throws') {
+                    throw new Error('getTargetEntityType is not available on this host.');
+                }
+                return spec.target;
+            };
+            property.getViewId = function () {
+                if (o.targetMethod === 'throws') {
+                    throw new Error('getViewId is not available on this host.');
+                }
+                return '00000000-0000-0000-00aa-000010001003';
+            };
+        }
+
+        return property;
+    }
+
+    /** The first clause, at any depth, the subset could not read. */
+    function unparsedIn(conditions) {
+        for (var i = 0; i < conditions.length; i += 1) {
+            var c = conditions[i];
+            if (c.operator === 'unparsed') {
+                return c;
+            }
+            var inner = c.clauses ? unparsedIn(c.clauses) : null;
+            if (inner) {
+                return inner;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * The OData subset: `$select`, `$filter` (`x eq v`, `x ne v`,
+     * `x lt|le|gt|ge v`, `contains(x,'v')` and `startswith(x,'v')`, joined by
+     * `and` and `or` and grouped by parentheses), `$orderby`, `$top`, and
      * `$skiptoken` — the offset a `nextLink` from this rig carries, applied
      * after ordering. `options` may be a full URL on the host's origin: a
      * control that hands a `nextLink` back as `options` is asking for the
      * next page, and the rig reads the query off it.
      *
-     * A clause the subset cannot read is kept as `unparsed`, and an unparsed
-     * clause **passes every row** — so a suite asserting a filtered count
-     * against an operator nobody added here is asserting nothing. Add the
-     * operator.
+     * A clause the subset cannot read is **refused**, the way the server
+     * refuses a malformed filter. It used to pass every row, which meant a
+     * suite asserting a filtered count against an operator nobody added here
+     * asserted nothing — the dataset rig had already stopped doing that. If a
+     * control's real query is refused here, add the operator.
      */
     function parseOData(query) {
         var part = function (name) {
@@ -994,26 +1170,7 @@
                     return { attribute: bits[0], descending: bits[1] === 'desc' };
                 })
                 : [],
-            conditions: filter
-                ? filter.split(/\s+and\s+/i).map(function (clause) {
-                    var text = clause.trim();
-                    var fn = text.match(/^contains\(_?([a-z0-9_]+?)(?:_value)?\s*,\s*'([^']*)'\)$/i);
-                    if (fn) {
-                        return { attribute: fn[1], operator: 'contains', value: fn[2] };
-                    }
-                    var m = text.match(/^_?([a-z0-9_]+?)(?:_value)?\s+(eq|ne|lt|le|gt|ge)\s+(.+)$/i);
-                    if (!m) {
-                        return { attribute: text, operator: 'unparsed', value: undefined };
-                    }
-                    var raw = m[3].trim();
-                    var op = m[2].toLowerCase();
-                    return {
-                        attribute: m[1],
-                        operator: raw === 'null' ? (op === 'eq' ? 'null' : 'not-null') : op,
-                        value: raw.replace(/^'|'$/g, ''),
-                    };
-                })
-                : [],
+            conditions: filter ? [parseClause(filter)] : [],
         };
     }
 
@@ -1079,8 +1236,21 @@
             return Promise.reject(webApiFault(2147746307, 'Invalid Argument', 'Invalid Argument.'));
         }
 
+        var refused = isFetch ? null : unparsedIn(q.conditions);
+        if (refused) {
+            // The rig's own wording; the code is the server's for a query it
+            // cannot read (0x80060888).
+            return Promise.reject(webApiFault(2147879048, '', 'The rig cannot read this $filter clause: ' + refused.attribute));
+        }
+
         var matched = rows.filter(function (row) {
-            return q.conditions.every(function (c) {
+            return q.conditions.every(function test(c) {
+                if (c.operator === 'or') {
+                    return c.clauses.some(test);
+                }
+                if (c.operator === 'and') {
+                    return c.clauses.every(test);
+                }
                 var actual = valueOf(row, c.attribute);
                 var wanted = c.value;
                 var same = function () {
@@ -1106,6 +1276,7 @@
                     case 'gt': return present && compare() > 0;
                     case 'ge': return present && compare() >= 0;
                     case 'contains': return present && String(actual).toLowerCase().indexOf(String(wanted).toLowerCase()) !== -1;
+                    case 'startswith': return present && String(actual).toLowerCase().indexOf(String(wanted).toLowerCase()) === 0;
                     case 'above': return ancestorsOf(rows, h, wanted).indexOf(row) !== -1;
                     case 'eq-or-above': return bareId(row[h.id]) === bareId(wanted) || ancestorsOf(rows, h, wanted).indexOf(row) !== -1;
                     case 'under': return descendantsOf(rows, h, wanted).indexOf(row) !== -1;
@@ -1709,6 +1880,10 @@
 
         Object.keys(o.inputs).forEach(function (name) {
             parameters[name] = { raw: o.inputs[name] };
+        });
+
+        Object.keys(o.bound || {}).forEach(function (name) {
+            parameters[name] = boundProperty(o.bound[name], host, o);
         });
 
         return {
