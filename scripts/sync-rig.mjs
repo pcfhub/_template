@@ -286,6 +286,13 @@ function report(dir) {
         .map((name) => join(dir, name))
         .filter((p) => p !== template && statSync(p).isDirectory() && existsSync(join(p, 'pcfhub.json')));
 
+    // An empty table exits 0 and reads as "nothing is stale" — the report of a
+    // directory one level off from the one meant. Found running `--report ..`
+    // from the workspace root rather than from inside a repository.
+    if (repos.length === 0) {
+        fail(`no repositories found under ${dir} — pass the directory that holds them (from inside a repository, that is ..).`);
+    }
+
     const width = Math.max(...repos.map((p) => basename(p).length), 10);
 
     console.log(`\n${'repository'.padEnd(width)}  stale  modified  missing  current`);
