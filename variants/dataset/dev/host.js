@@ -427,6 +427,13 @@
         manyToManyFilter: null,
 
         /**
+         * The `<data-set name=…>` the manifest declares — the key the dataset
+         * arrives under in `context.parameters`. The scaffold names it
+         * `records`; a control that renamed it passes its own here.
+         */
+        datasetName: 'records',
+
+        /**
          * What `getViewId()` answers. `undefined` is the fixture's own id;
          * `null` is the measured answer on a bound lookup's dataset
          * (pcf-hierarchy-view, 2026-09-17), against typings that say `string`.
@@ -691,6 +698,67 @@
         };
     }
 
+    /**
+     * The `$filter` subset a type-ahead sends, as predicates over a
+     * `fixture.tables` row — or `false` for anything outside it, which the
+     * caller refuses rather than ignores. A stub that ignored an unknown
+     * clause would answer every query with every row and pass a control whose
+     * filter the server would reject.
+     *
+     *   contains(col,'text')     case-insensitive, `''` an escaped quote —
+     *                            measured case-insensitive 2026-09-23
+     *                            (pcf-tag-list P4: "Power Apps" matched 'a')
+     *   col eq null | col ne null
+     *   col eq 'text' | col eq <guid or number>
+     *   … and …
+     */
+    function odataFilter(query) {
+        var match = query.match(/\$filter=([^&]+)/);
+
+        if (!match) {
+            return [];
+        }
+
+        var text = decodeURIComponent(match[1]);
+        var parts = text.split(/\s+and\s+/i);
+        var clauses = [];
+
+        for (var i = 0; i < parts.length; i += 1) {
+            var part = parts[i].trim();
+            var contains = part.match(/^contains\(\s*([A-Za-z0-9_]+)\s*,\s*'((?:[^']|'')*)'\s*\)$/);
+            var compare = part.match(/^([A-Za-z0-9_]+)\s+(eq|ne)\s+(null|'(?:[^']|'')*'|[0-9a-fA-F-]+)$/);
+
+            if (contains) {
+                clauses.push((function (column, needle) {
+                    return function (row) {
+                        return String(row[column] === undefined || row[column] === null ? '' : row[column])
+                            .toLowerCase()
+                            .indexOf(needle) !== -1;
+                    };
+                })(contains[1], contains[2].replace(/''/g, "'").toLowerCase()));
+            } else if (compare) {
+                clauses.push((function (column, operator, literal) {
+                    var wanted = literal === 'null'
+                        ? null
+                        : literal.charAt(0) === "'" ? literal.slice(1, -1).replace(/''/g, "'") : literal;
+
+                    return function (row) {
+                        var have = row[column] === undefined ? null : row[column];
+                        var same = wanted === null
+                            ? have === null
+                            : have !== null && String(have).toLowerCase() === String(wanted).toLowerCase();
+
+                        return operator === 'eq' ? same : !same;
+                    };
+                })(compare[1], compare[2], compare[3]));
+            } else {
+                return false;
+            }
+        }
+
+        return clauses;
+    }
+
     function formatted(value) {
         return value === null || value === undefined ? '' : String(value);
     }
@@ -927,10 +995,11 @@
              * `fixture.manyToMany`; an unknown one is refused the way the
              * server refuses an undeclared property.
              *
-             * **Unmeasured, and chosen to be forgiving:** associating a pair
-             * already linked, and disassociating a pair not linked, both
-             * answer 204 here. Replace with the measured answer when a probe
-             * has one.
+             * **Both are idempotent, measured 2026-09-23** (pcf-tag-list P3,
+             * account ↔ cll_tag on a real form): associating a pair already
+             * linked answered 204, and disassociating a pair not linked
+             * answered 204. So is this — a control cannot learn from the
+             * status whether it changed anything, and must not try.
              */
             function reference(method, path, init) {
                 var root = CLIENT_URL + '/api/data/v9.2/';
@@ -1037,9 +1106,69 @@
                 var service = CLIENT_URL + '/api/data/v9.2/';
 
                 if (/\/\$ref$/.test(address) && address.indexOf(service) === 0) {
-                    log('fetch', method + ' ' + address.slice(service.length - 1));
+                    log('fetch', method + ' ' + address.slice(CLIENT_URL.length));
 
                     return reference(method, address.slice(service.length), init);
+                }
+
+                /*
+                 * The records a many-to-many links to one record: a GET on the
+                 * collection-valued navigation property, `<set>(<id>)/<nav>`,
+                 * answered from `links` and the other table's `fixture.tables`
+                 * rows, `$select` honoured. How a control learns what is
+                 * already linked beyond the page the dataset holds. Standard
+                 * Web API; not yet measured from a control (pcf-tag-list
+                 * SPEC.md, Not verified).
+                 */
+                var collection = address.indexOf(service) === 0 && method === 'GET'
+                    ? address.slice(service.length).match(/^([a-z0-9_]+)\(([^)]+)\)\/([A-Za-z0-9_]+)(\?.*)?$/)
+                    : null;
+
+                if (collection && collection[1] !== 'EntityDefinitions') {
+                    var ownerTable = tableForSet(collection[1]);
+                    var via = (fixture.manyToMany || []).filter(function (row) {
+                        return (row.entity1 === ownerTable && row.nav1 === collection[3]) || (row.entity2 === ownerTable && row.nav2 === collection[3]);
+                    })[0];
+
+                    log('fetch', 'GET ' + address.slice(CLIENT_URL.length));
+
+                    if (!via) {
+                        return reply(400, { error: { code: '0x80060888', message: "Could not find a property named '" + collection[3] + "'." } });
+                    }
+
+                    if (quirks.relationshipsStatus !== 200) {
+                        return reply(quirks.relationshipsStatus, { error: { code: '0x80040220', message: 'Refused by the rig.' } });
+                    }
+
+                    var otherTable = via.entity1 === ownerTable ? via.entity2 : via.entity1;
+                    var owner = bare(collection[2]);
+                    var linkedIds = links
+                        .filter(function (link) {
+                            return link.relationship === via.schemaName && link.ids.indexOf(owner) !== -1;
+                        })
+                        .map(function (link) {
+                            return link.ids[0] === owner ? link.ids[1] : link.ids[0];
+                        });
+                    var selectMatch = (collection[4] || '').match(/\$select=([^&]+)/);
+                    var columnsWanted = selectMatch ? selectMatch[1].split(',') : null;
+
+                    return reply(200, {
+                        value: ((fixture.tables || {})[otherTable] || [])
+                            .filter(function (row) {
+                                return linkedIds.indexOf(bare(row[otherTable + 'id'])) !== -1;
+                            })
+                            .map(function (row) {
+                                var picked = {};
+
+                                Object.keys(row).forEach(function (key) {
+                                    if (!columnsWanted || columnsWanted.indexOf(key) !== -1) {
+                                        picked[key] = row[key];
+                                    }
+                                });
+
+                                return picked;
+                            }),
+                    });
                 }
 
                 if (address.indexOf(prefix) !== 0) {
@@ -1097,6 +1226,7 @@
                     ? {
                         value: (fixture.relationships || []).map(function (row) {
                             return {
+                                SchemaName: row.schemaName || row.navigationProperty,
                                 ReferencingAttribute: row.column,
                                 ReferencedEntity: row.target,
                                 ReferencingEntityNavigationPropertyName: row.navigationProperty,
@@ -2400,8 +2530,11 @@
         }
 
         function createContext() {
-            var parameters = {
-                records: dataset,
+            var parameters = {};
+
+            parameters[o.datasetName] = dataset;
+
+            Object.assign(parameters, {
 
                 /*
                  * **The control's `pageSize` input is not the host's page size,
@@ -2425,7 +2558,7 @@
                     raw: Object.hasOwn(o.inputs, 'pageSize') ? o.inputs.pageSize : null,
                     type: 'Whole.None',
                 },
-            };
+            });
 
             // The control's own inputs, wrapped the way the platform hands them
             // over. A raw `null` is a real value here — an input the maker left
@@ -2757,8 +2890,9 @@
 
                         /**
                          * A query, answered from `fixture.tables[entity]` —
-                         * rows keyed by logical name — with the `$select` and
-                         * `$top` honoured and everything else ignored. Not the
+                         * rows keyed by logical name — with `$select`, `$top`,
+                         * `$orderby` and a `$filter` subset honoured (see
+                         * `odataFilter`; anything outside it is refused). Not the
                          * bound view, which is `dataset`; this is for the
                          * *other* table a control reads once, the way an
                          * uploader reads `organization.maxuploadfilesize` to
@@ -2793,7 +2927,33 @@
                             var top = query.match(/\$top=(\d+)/);
                             var select = query.match(/\$select=([^&]+)/);
                             var wanted = select ? select[1].split(',') : null;
-                            var rows = ((fixture.tables || {})[entityType] || []).slice(0, top ? Number(top[1]) : undefined);
+                            var clauses = odataFilter(query);
+
+                            if (clauses === false) {
+                                return Promise.reject(webApiFault(
+                                    2147746581,
+                                    '',
+                                    'The rig does not understand this $filter: ' + query,
+                                ));
+                            }
+
+                            var order = query.match(/\$orderby=([A-Za-z0-9_]+)( desc)?/);
+                            var matched = ((fixture.tables || {})[entityType] || []).filter(function (row) {
+                                return clauses.every(function (clause) {
+                                    return clause(row);
+                                });
+                            });
+
+                            if (order) {
+                                matched = matched.slice().sort(function (a, b) {
+                                    var x = String(a[order[1]] === undefined || a[order[1]] === null ? '' : a[order[1]]).toLowerCase();
+                                    var y = String(b[order[1]] === undefined || b[order[1]] === null ? '' : b[order[1]]).toLowerCase();
+
+                                    return (x < y ? -1 : x > y ? 1 : 0) * (order[2] ? -1 : 1);
+                                });
+                            }
+
+                            var rows = matched.slice(0, top ? Number(top[1]) : undefined);
 
                             return Promise.resolve({
                                 entities: rows.map(function (source) {
