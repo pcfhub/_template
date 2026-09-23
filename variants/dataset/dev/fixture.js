@@ -153,6 +153,27 @@
         ],
 
         /**
+         * Many-to-many relationships, answered from a same-origin fetch of
+         * `EntityDefinitions(LogicalName='x')/ManyToManyRelationships` and
+         * used to resolve a `$ref` path. `nav1` is the collection on
+         * `entity1`'s side and `nav2` on `entity2`'s, which is the pair a
+         * control has to choose between: a `$ref` from the parent names the
+         * parent's side. Empty here, because an account view has none worth
+         * modelling; see `pcf-tag-list`'s fixture for one in use.
+         *
+         *   { schemaName, entity1, entity2, nav1, nav2, intersect? }
+         */
+        manyToMany: [],
+
+        /**
+         * The links those relationships hold, `{ relationship, ids: [a, b] }`
+         * — a SchemaName and the two GUIDs, either order. Pair with the
+         * host's `manyToManyFilter` to make the dataset a subgrid over one of
+         * them.
+         */
+        links: [],
+
+        /**
          * The tables a lookup can point at: the entity set name — the plural
          * the `@odata.bind` value is spelled with, off
          * `getEntityMetadata(table).EntitySetName` — and the rows a pick can

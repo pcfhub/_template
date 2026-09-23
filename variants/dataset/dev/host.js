@@ -415,6 +415,18 @@
         relationshipFilter: null,
 
         /**
+         * The subgrid's **many-to-many** relationship to the form's record:
+         * `{ relationship, id }`, the relationship's SchemaName and the
+         * parent's GUID. It narrows the rows to those linked in
+         * `fixture.links`, and — like `relationshipFilter` — is not something
+         * the control can read off the dataset. Links change through the
+         * `$ref` requests the fetch stub answers below, and the rows follow
+         * them on the **next fetch**, not on the request: a control that
+         * links and forgets `dataset.refresh()` sees nothing move.
+         */
+        manyToManyFilter: null,
+
+        /**
          * What `getViewId()` answers. `undefined` is the fixture's own id;
          * `null` is the measured answer on a bound lookup's dataset
          * (pcf-hierarchy-view, 2026-09-17), against typings that say `string`.
@@ -618,6 +630,15 @@
 
             /** The HTTP status the relationships `fetch` answers with; anything but 200 is a refusal. */
             relationshipsStatus: 200,
+
+            /**
+             * The status a `$ref` associate or disassociate answers with. 204
+             * is success with no body; 403 is the privilege refusal (Append
+             * on the related table, AppendTo on the parent); 0 is a host with
+             * no network, which arrives as a `TypeError` from `fetch` itself
+             * rather than as a response.
+             */
+            refStatus: 204,
         },
     };
 
@@ -821,6 +842,36 @@
         var createdPending = [];
         var createdCount = 0;
 
+        /**
+         * The many-to-many links, `{ relationship, ids: [a, b] }` with the two
+         * GUIDs sorted so a link has one spelling whichever side asked. Two
+         * copies for the same reason as `removedPending`: `links` is the
+         * server, which a `$ref` changes on the request, and `linksSeen` is
+         * what the dataset shows, which `fetched()` catches up. Copied per
+         * host, because a stub that mutated the fixture's own array would
+         * hand every later host this one's writes.
+         */
+        var links = (fixture.links || []).map(function (link) {
+            return { relationship: link.relationship, ids: [bare(link.ids[0]), bare(link.ids[1])].sort() };
+        });
+        var linksSeen = links.slice();
+
+        function bare(id) {
+            return String(id).replace(/[{}]/g, '').toLowerCase();
+        }
+
+        function linkIndex(relationship, a, b) {
+            var ids = [bare(a), bare(b)].sort();
+
+            for (var i = 0; i < links.length; i += 1) {
+                if (links[i].relationship === relationship && links[i].ids[0] === ids[0] && links[i].ids[1] === ids[1]) {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         function log(name, argument) {
             state.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
         }
@@ -863,14 +914,164 @@
                 });
             }
 
+            /**
+             * A `$ref` associate or disassociate — the one Web API write a
+             * control cannot make through `context.webAPI`, which has no
+             * relationship verbs. Paths, relative to the service root:
+             *
+             *   POST   <set>(<id>)/<nav>/$ref          { "@odata.id": "<root>/<set2>(<id2>)" }
+             *   DELETE <set>(<id>)/<nav>(<id2>)/$ref
+             *
+             * `<nav>` is the collection-valued navigation property on
+             * `<set>`'s side of the relationship, looked up in
+             * `fixture.manyToMany`; an unknown one is refused the way the
+             * server refuses an undeclared property.
+             *
+             * **Unmeasured, and chosen to be forgiving:** associating a pair
+             * already linked, and disassociating a pair not linked, both
+             * answer 204 here. Replace with the measured answer when a probe
+             * has one.
+             */
+            function reference(method, path, init) {
+                var root = CLIENT_URL + '/api/data/v9.2/';
+                var match = path.match(/^([a-z0-9_]+)\(([^)]+)\)\/([A-Za-z0-9_]+)(?:\(([^)]+)\))?\/\$ref$/);
+
+                if (!match) {
+                    return reply(400, { error: { code: '0x80060888', message: 'Malformed $ref path: ' + path } });
+                }
+
+                if (quirks.refStatus === 0) {
+                    return Promise.reject(new TypeError('Failed to fetch'));
+                }
+
+                if (quirks.refStatus !== 204) {
+                    return reply(quirks.refStatus, {
+                        error: {
+                            code: '0x80040220',
+                            message: 'Principal user is missing the privilege to link these records (rig refusal).',
+                        },
+                    });
+                }
+
+                var table = tableForSet(match[1]);
+                var relationship = (fixture.manyToMany || []).filter(function (row) {
+                    return (row.entity1 === table && row.nav1 === match[3]) || (row.entity2 === table && row.nav2 === match[3]);
+                })[0];
+
+                if (!relationship) {
+                    return reply(400, {
+                        error: {
+                            code: '0x80060888',
+                            message: "Could not find a property named '" + match[3] + "' on type 'Microsoft.Dynamics.CRM." + table + "'.",
+                        },
+                    });
+                }
+
+                var other;
+
+                if (method === 'DELETE') {
+                    other = match[4];
+                } else {
+                    var body = {};
+
+                    try {
+                        body = JSON.parse((init && init.body) || '{}');
+                    } catch (error) {
+                        body = {};
+                    }
+
+                    var target = String(body['@odata.id'] || '');
+                    var tail = target.indexOf(root) === 0 ? target.slice(root.length).match(/^[a-z0-9_]+\(([^)]+)\)$/) : null;
+
+                    if (!tail) {
+                        return reply(400, { error: { code: '0x80060888', message: 'The @odata.id is not a record URL on this organisation: ' + target } });
+                    }
+
+                    other = tail[1];
+                }
+
+                var at = linkIndex(relationship.schemaName, match[2], other);
+
+                if (method === 'DELETE' && at !== -1) {
+                    links = links.slice(0, at).concat(links.slice(at + 1));
+                } else if (method === 'POST' && at === -1) {
+                    links = links.concat([{ relationship: relationship.schemaName, ids: [bare(match[2]), bare(other)].sort() }]);
+                }
+
+                return Promise.resolve({
+                    ok: true,
+                    status: 204,
+                    json: function () {
+                        return Promise.reject(new SyntaxError('Unexpected end of JSON input'));
+                    },
+                    text: function () {
+                        return Promise.resolve('');
+                    },
+                });
+            }
+
+            function tableForSet(set) {
+                if ((fixture.entitySetName || fixture.targetEntityType + 's') === set) {
+                    return fixture.targetEntityType;
+                }
+
+                var sets = fixture.entitySets || {};
+                var byMap = Object.keys(sets).filter(function (table) {
+                    return sets[table] === set;
+                })[0];
+
+                if (byMap) {
+                    return byMap;
+                }
+
+                var related = fixture.related || {};
+
+                return Object.keys(related).filter(function (table) {
+                    return related[table].entitySet === set;
+                })[0] || set;
+            }
+
             hostsByUrl[CLIENT_URL] = function (url, init) {
                 var address = String(url);
+                var method = ((init && init.method) || 'GET').toUpperCase();
+                var service = CLIENT_URL + '/api/data/v9.2/';
+
+                if (/\/\$ref$/.test(address) && address.indexOf(service) === 0) {
+                    log('fetch', method + ' ' + address.slice(service.length - 1));
+
+                    return reference(method, address.slice(service.length), init);
+                }
 
                 if (address.indexOf(prefix) !== 0) {
                     return Promise.reject(new Error('No fetch for ' + address));
                 }
 
                 log('fetch', address.slice(CLIENT_URL.length));
+
+                var manyToMany = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)\/ManyToManyRelationships(\?.*)?$/i);
+
+                if (manyToMany) {
+                    if (quirks.relationshipsStatus !== 200) {
+                        return reply(quirks.relationshipsStatus, { error: { code: '0x80040220', message: 'Refused by the rig.' } });
+                    }
+
+                    return reply(200, {
+                        value: (fixture.manyToMany || [])
+                            .filter(function (row) {
+                                return row.entity1 === manyToMany[1] || row.entity2 === manyToMany[1];
+                            })
+                            .map(function (row) {
+                                return {
+                                    SchemaName: row.schemaName,
+                                    IntersectEntityName: row.intersect || row.schemaName.toLowerCase(),
+                                    Entity1LogicalName: row.entity1,
+                                    Entity2LogicalName: row.entity2,
+                                    Entity1NavigationPropertyName: row.nav1,
+                                    Entity2NavigationPropertyName: row.nav2,
+                                };
+                            }),
+                    });
+                }
 
                 var definition = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)(\?\$select=EntitySetName)?$/i);
 
@@ -1126,11 +1327,21 @@
                     return removed.indexOf(row.id) === -1;
                 });
 
-            var related = o.relationshipFilter
+            var oneToMany = o.relationshipFilter
                 ? alive.filter(function (row) {
                     return holds(row, { attributeName: o.relationshipFilter.column, conditionOperator: OPERATOR.Equal, value: o.relationshipFilter.id });
                 })
                 : alive;
+            var related = o.manyToManyFilter
+                ? oneToMany.filter(function (row) {
+                    var ids = [bare(o.manyToManyFilter.id), bare(row.id)].sort();
+
+                    return linksSeen.some(function (link) {
+                        return link.relationship === o.manyToManyFilter.relationship
+                            && link.ids[0] === ids[0] && link.ids[1] === ids[1];
+                    });
+                })
+                : oneToMany;
             var narrowed = o.hostFilter
                 ? related.filter(function (row) {
                     return passes(row, o.hostFilter);
@@ -1697,6 +1908,10 @@
             // before it. See the note on `removedPending`.
             removed = removed.concat(removedPending);
             removedPending = [];
+
+            // Links likewise: a `$ref` changed the server, and the rows the
+            // dataset shows follow it here. See the note on `links`.
+            linksSeen = links.slice();
 
             // Creates likewise. `concat` rather than `push`, so the fixture's
             // own array is never mutated across binds.
@@ -2329,7 +2544,15 @@
 
                             Object.defineProperty(Metadata.prototype, 'PrimaryNameAttribute', {
                                 get: function () {
-                                    return entityName === 'contact' ? 'fullname' : 'name';
+                                    return (fixture.primaryNames || {})[entityName]
+                                        || (entityName === 'contact' ? 'fullname' : 'name');
+                                },
+                            });
+
+                            // `<table>id` on every table, standard and custom alike.
+                            Object.defineProperty(Metadata.prototype, 'PrimaryIdAttribute', {
+                                get: function () {
+                                    return entityName + 'id';
                                 },
                             });
 
@@ -2886,6 +3109,12 @@
             state: state,
             quirks: quirks,
             options: o,
+            /** The server's many-to-many links as they stand, whatever the dataset has fetched. */
+            links: function () {
+                return links.map(function (link) {
+                    return { relationship: link.relationship, ids: link.ids.slice() };
+                });
+            },
             /** True while the control has asked for data it has not re-rendered against. */
             renderOwed: function () {
                 return state.renderOwed;

@@ -912,6 +912,53 @@ const metadataChecks = async () => {
         `a01.industrycode is ${fresh.stored('a01', 'industrycode')} on a fresh host`,
     );
 
+    /*
+     * The many-to-many half of the rig: a `$ref` changes the server on the
+     * request, the rows follow on the next fetch, and neither leaks into
+     * another host. Asserted here, on the rig itself, because a control
+     * suite that passed with a rig that got any of the three wrong would be
+     * certifying the rig's mistake.
+     */
+    const m2m = Object.assign({}, fixture, {
+        manyToMany: [{ schemaName: 'rig_account_user', entity1: 'account', entity2: 'systemuser', nav1: 'rig_users', nav2: 'rig_accounts' }],
+        links: [{ relationship: 'rig_account_user', ids: ['a01', 'b3f1a0c2-0000-4000-8000-000000000001'] }],
+    });
+    const linked = host.createHost(m2m, { manyToManyFilter: { relationship: 'rig_account_user', id: 'b3f1a0c2-0000-4000-8000-000000000001' } });
+    const origin = linked.context.page.getClientUrl();
+    const idsSeen = () => linked.dataset.sortedRecordIds.slice().sort().join(',');
+
+    check('a many-to-many subgrid shows only the linked rows', idsSeen() === 'a01', idsSeen());
+
+    const added = await fetch(`${origin}/api/data/v9.2/systemusers(b3f1a0c2-0000-4000-8000-000000000001)/rig_accounts/$ref`, {
+        method: 'POST',
+        body: JSON.stringify({ '@odata.id': `${origin}/api/data/v9.2/accounts(a02)` }),
+    });
+
+    check(
+        'a $ref POST links on the request and shows on the next fetch, not before',
+        added.status === 204 && linked.links().length === 2 && idsSeen() === 'a01',
+        `status ${added.status}, links ${linked.links().length}, seen ${idsSeen()}`,
+    );
+
+    linked.dataset.refresh();
+    check('and refresh() brings it in', idsSeen() === 'a01,a02', idsSeen());
+
+    await fetch(`${origin}/api/data/v9.2/accounts(a01)/rig_users(b3f1a0c2-0000-4000-8000-000000000001)/$ref`, { method: 'DELETE' });
+    linked.dataset.refresh();
+    check('a $ref DELETE from the other side unlinks the same pair', idsSeen() === 'a02', idsSeen());
+
+    const again = host.createHost(m2m, { manyToManyFilter: { relationship: 'rig_account_user', id: 'b3f1a0c2-0000-4000-8000-000000000001' } });
+    check(
+        'links are copied per host: the next host starts from the fixture',
+        again.links().length === 1 && again.dataset.sortedRecordIds.join(',') === 'a01',
+        `${again.links().length} link(s)`,
+    );
+
+    const offline = host.createHost(m2m, { quirks: { refStatus: 0 } });
+    const refused = await fetch(`${offline.context.page.getClientUrl()}/api/data/v9.2/accounts(a01)/rig_users(b3f1a0c2-0000-4000-8000-000000000001)/$ref`, { method: 'DELETE' })
+        .then(() => 'resolved', (error) => error.constructor.name);
+    check('refStatus 0 is a TypeError from fetch, not a response', refused === 'TypeError', refused);
+
     const readOnly = await first.isEditable('statecode');
     const writable = await first.isEditable('industrycode');
 
