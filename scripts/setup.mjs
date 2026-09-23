@@ -335,6 +335,15 @@ rmSync(join(root, 'scripts', 'adopt.mjs'), { force: true });
 rmSync(join(root, 'scripts', 'add-control.mjs'), { force: true });
 
 /*
+ * `sync-rig.mjs` brings an adopted repository's copies of the shared scripts
+ * and rig up to date, and tells a stale copy from an edited one by searching
+ * the template's own git history — which an adopted repository does not have.
+ * Template-side for the same reason as the two above; reach it as
+ * `node ../_template/scripts/sync-rig.mjs --into .`.
+ */
+rmSync(join(root, 'scripts', 'sync-rig.mjs'), { force: true });
+
+/*
  * `verify-adoption.mjs` tests *this script*, by adopting the template into a
  * scratch directory and asserting what comes out. An adopted repository is the
  * output, not the subject, so it has no use for it — and carrying it would ship

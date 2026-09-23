@@ -418,6 +418,71 @@ function verifyOtherShapes() {
  * would resolve `root` to `dev/` and report a missing bundle, and the harness
  * would 404 the bundle in a browser nobody has open in CI.
  */
+/**
+ * `sync-rig.mjs` against a repository whose copies have aged in the three ways
+ * a real one does: one file an old template version nobody touched (`dom.js`; `clock.js` has never changed), one edited
+ * by hand, and a host that belongs to the control. Only the first may move,
+ * and a dry run may move nothing.
+ *
+ * The old copy is written with CRLF endings on purpose — that is how
+ * `core.autocrlf` leaves it on a Windows checkout, and a comparison that did
+ * not normalise would call every such file "modified" and update none.
+ */
+function verifySync() {
+    console.log('\nAdopting, ageing the rig, then syncing it…\n');
+
+    const repo = adoptWith([]);
+    const file = (p) => join(repo.scratch, p);
+    const lf = (text) => text.replace(/\r\n/g, '\n');
+
+    const run = (extra = []) => {
+        const result = spawnSync(process.execPath, [join(root, 'scripts', 'sync-rig.mjs'), '--into', repo.scratch, ...extra], {
+            cwd: root, encoding: 'utf8',
+        });
+
+        return { status: result.status, out: `${result.stdout}${result.stderr}` };
+    };
+
+    try {
+        const versions = execFileSync('git', ['log', '--format=%H', '--', 'dev/dom.js'], { cwd: root, encoding: 'utf8' })
+            .split('\n').filter(Boolean);
+        const current = lf(readFileSync(join(root, 'dev/dom.js'), 'utf8'));
+        const older = versions
+            .map((sha) => lf(execFileSync('git', ['show', `${sha}:dev/dom.js`], { cwd: root, encoding: 'utf8' })))
+            .find((text) => text !== current);
+
+        check('the template has an older dev/dom.js to age the rig with', older !== undefined);
+
+        if (older === undefined) {
+            return;
+        }
+
+        writeFileSync(file('dev/dom.js'), older.replace(/\n/g, '\r\n'));
+        writeFileSync(file('dev/serve.js'), `${repo.read('dev/serve.js')}\n// edited in this repository\n`);
+        const host = `${repo.read('dev/host.js')}\n// the control's own\n`;
+        writeFileSync(file('dev/host.js'), host);
+
+        const dry = run(['--dry-run']);
+        check('a dry run exits 0', dry.status === 0, dry.out);
+        check('and writes nothing', lf(repo.read('dev/dom.js')) === older);
+
+        const sync = run();
+        check('a sync exits 0', sync.status === 0, sync.out);
+        check('an old, untouched copy is updated', lf(repo.read('dev/dom.js')) === current);
+        check('keeping the line endings it had', repo.read('dev/dom.js').includes('\r\n'));
+        check('an edited copy is kept', repo.read('dev/serve.js').includes('// edited in this repository'));
+        check('and reported as modified', /modified\s+dev\/serve\.js/.test(sync.out), sync.out);
+        check('the control\'s own host is never written', repo.read('dev/host.js') === host);
+        check('a substituted file the adoption wrote counts as current', /current\s+scripts\/check-template\.mjs/.test(sync.out), sync.out);
+
+        const forced = run(['--force', 'dev/serve.js']);
+        check('--force <path> replaces that one edited file', forced.status === 0 && !repo.read('dev/serve.js').includes('// edited in this repository'));
+        check('and still not the host', repo.read('dev/host.js') === host);
+    } finally {
+        rmSync(repo.scratch, { recursive: true, force: true });
+    }
+}
+
 function verifySibling() {
     console.log('\nAdopting, then adding a second control…\n');
 
@@ -767,6 +832,7 @@ function main() {
         check('release-reusable.yml is not inherited', !has('.github/workflows/release-reusable.yml'));
         check('build-reusable.yml is not inherited', !has('.github/workflows/build-reusable.yml'));
         check('adopt.mjs is removed', !has('scripts/adopt.mjs'));
+        check('sync-rig.mjs is removed', !has('scripts/sync-rig.mjs'));
         check('the variants directory is removed', !has('variants'));
         check('TEMPLATE.md is removed', !has('TEMPLATE.md'));
         check('migration.md is removed', !has('docs/migration.md'));
@@ -932,6 +998,7 @@ function main() {
 
     verifyOtherShapes();
     verifySibling();
+    verifySync();
 
     console.log('\nChecking the template itself…\n');
     commentsDoNotCarryPlaceholders();

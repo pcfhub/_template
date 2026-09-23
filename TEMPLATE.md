@@ -139,6 +139,28 @@ refused outright. Both failures arrive as an empty control and a CORS message,
 which reads as a broken control rather than as a missing server. It takes
 `--port` and `--no-open`.
 
+### Keeping an adopted rig current
+
+An adopted repository's `scripts/` and `dev/` are **copies**, and they stop
+moving the day the repository is adopted. `scripts/sync-rig.mjs` brings them
+forward, run from the template against the repository:
+
+```bash
+node ../_template/scripts/sync-rig.mjs --report ..          # every repository, writes nothing
+node ../_template/scripts/sync-rig.mjs --into . --dry-run   # this one, what would change
+node ../_template/scripts/sync-rig.mjs --into .             # update what is safe
+```
+
+It replaces a file only when that file equals **some past version** of the
+template's copy, found in this repository's git history after the target's own
+token substitution. A file equal to none of them was edited on purpose, so it
+is reported and kept unless `--force <path>` names it. `dev/host.js`,
+`fixture.js`, `smoke.js` and the harness pages belong to the control and are
+never written; the report names the template file to compare them with.
+`--add-missing` copies absent shared files in and adds absent `package.json`
+scripts, never replacing one. It refuses a dirty tree, so a sync is its own
+commit. `setup.mjs` deletes it on adoption, as it does `add-control.mjs`.
+
 ### What `npm start` already covers
 
 **Use `npm start` for the happy path**, and know exactly what it is. Read off
