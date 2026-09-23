@@ -64,18 +64,22 @@ const template = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 /**
  * What the template owns in an adopted repository. `source` is where the
  * current copy lives in the template, when that differs from `path`; `when`
- * narrows a file to the shapes that carry it.
+ * narrows a file to the shapes that carry it; `needs` to the repositories that
+ * have the file it serves.
  */
 const MANAGED = [
     { path: 'scripts/check-template.mjs' },
     { path: 'scripts/version.mjs' },
     { path: 'scripts/release.mjs' },
     { path: 'scripts/templates/migration.md' },
-    { path: 'dev/dom.js' },
-    { path: 'dev/clock.js' },
-    { path: 'dev/serve.js' },
-    { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm },
-    { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm },
+    // Not for a grid customizer: setup.mjs replaces its dev/ outright with a harness
+    // and a suite, because a customizer touches no DOM and nothing there loads these.
+    { path: 'dev/dom.js', when: notCustomizer },
+    { path: 'dev/clock.js', when: notCustomizer },
+    { path: 'dev/serve.js', when: notCustomizer },
+    // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
+    { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
+    { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm, needs: 'dev/harness.html' },
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */
@@ -115,7 +119,9 @@ function sync(target) {
     let changed = 0;
     let held = 0;
 
-    for (const entry of classify(target, shape)) {
+    const entries = classify(target, shape);
+
+    for (const entry of entries) {
         const label = entry.path.padEnd(34);
 
         if (entry.state === 'current') {
@@ -149,7 +155,9 @@ function sync(target) {
         console.log(`  owned      ${entry.path.padEnd(34)} ${entry.note}`);
     }
 
-    changed += syncScripts(target, dryRun);
+    const arriving = args['add-missing'] ? entries.filter((e) => e.state === 'missing').map((e) => e.path) : [];
+
+    changed += syncScripts(target, dryRun, arriving);
 
     console.log(
         `\n  ${changed} change(s)${dryRun ? ' planned' : ''}, ${held} locally modified file(s) kept.`
@@ -166,7 +174,7 @@ function sync(target) {
 function classify(target, shape) {
     const tokens = tokensFor(shape);
 
-    return MANAGED.filter((m) => !m.when || m.when(shape)).map((m) => {
+    return MANAGED.filter((m) => (!m.when || m.when(shape)) && (!m.needs || existsSync(join(target, m.needs)))).map((m) => {
         const source = m.source ?? m.path;
         const wanted = substitute(readFileSync(join(template, source), 'utf8'), tokens);
         const file = join(target, m.path);
@@ -210,7 +218,7 @@ function owned(target, shape) {
     });
 }
 
-function syncScripts(target, dryRun) {
+function syncScripts(target, dryRun, arriving) {
     const file = join(target, 'package.json');
 
     if (!existsSync(file)) {
@@ -224,10 +232,11 @@ function syncScripts(target, dryRun) {
             return false;
         }
 
-        // Only offer a script whose file will be there to run.
+        // Only offer a script whose file will be there to run: already present, or
+        // arriving with this sync. A customizer has no serve.js, so no harness script.
         const script = SCRIPTS[name].split(' ')[1];
 
-        return existsSync(join(target, script)) || args['add-missing'];
+        return existsSync(join(target, script)) || arriving.includes(script);
     });
 
     if (absent.length === 0) {
@@ -326,6 +335,10 @@ function readShape(target) {
         slug: manifest.slug,
         title: manifest.name,
     };
+}
+
+function notCustomizer(shape) {
+    return shape.type !== 'grid_customizer';
 }
 
 function isReactForm(shape) {

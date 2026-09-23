@@ -481,6 +481,31 @@ function verifySync() {
     } finally {
         rmSync(repo.scratch, { recursive: true, force: true });
     }
+
+    /*
+     * A grid customizer's dev/ is a harness and a suite and nothing else —
+     * setup.mjs replaces it outright, because nothing a customizer runs loads
+     * dom.js. --add-missing must not put the form rig back, nor a harness
+     * script with no serve.js to run.
+     */
+    const customizer = adoptWith(['--type', 'grid-customizer']);
+
+    try {
+        const planned = spawnSync(
+            process.execPath,
+            [join(root, 'scripts', 'sync-rig.mjs'), '--into', customizer.scratch, '--dry-run', '--add-missing'],
+            { cwd: root, encoding: 'utf8' },
+        );
+
+        check(
+            '--add-missing brings no form rig into a grid customizer',
+            planned.status === 0 && !/add\s+dev\//.test(planned.stdout),
+            planned.stdout,
+        );
+        check('nor a harness script it has no server for', !/scripts:.*harness/.test(planned.stdout), planned.stdout);
+    } finally {
+        rmSync(customizer.scratch, { recursive: true, force: true });
+    }
 }
 
 function verifySibling() {
