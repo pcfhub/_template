@@ -188,9 +188,10 @@
          * The control's own input properties, merged into `parameters`.
          *
          * The scaffolded control has only `placeholder`, and every real one
-         * grows more — including further *bound* properties, which arrive the
-         * same way. Pass them as raw values — `{ maxSizeKb: 512 }` — and they
-         * reach the control as `{ raw: … }` where it expects them.
+         * grows more. Pass them as raw values — `{ maxSizeKb: 512 }` — and they
+         * reach the control as `{ raw: … }` where it expects them. A further
+         * *bound* property goes in `bound` instead, which carries the shape a
+         * mapped or an unmapped column actually arrives in.
          *
          * Passing them rather than editing this file is what keeps a repo's
          * copy of the rig close enough to the template's to update by copying.
@@ -506,6 +507,25 @@
          * mapped lookup is `[]`, never `null`.
          */
         bound: {},
+
+        /**
+         * Whether `utils.lookupObjects` exists while `utils` itself does. A
+         * host can withhold the dialog on its own, so a control detects the
+         * method and not the bag.
+         */
+        lookupObjects: true,
+
+        /**
+         * What `utils.lookupObjects` resolves with. Measured 2026-09-11: a
+         * pick is `[{ id: "{8FE84297-…}", entityType, name }]` — an array,
+         * GUID **braced and upper-case**, the opposite of what a lookup's
+         * `raw` carries — and a **cancel resolves `[]`**, not `undefined` and
+         * not a rejection. The default is the cancel, because that is the
+         * branch a control forgets. Pass `{ id, entityType, name }` for a
+         * pick; the rig braces and upper-cases the id itself. The same two
+         * switches as the dataset rig.
+         */
+        lookupPick: null,
 
         /**
          * What `utils.hasEntityPrivilege` answers.
@@ -2433,6 +2453,30 @@
                      * Read where Write was meant is invisible otherwise,
                      * because almost every user has Read.
                      */
+                    /**
+                     * The platform's lookup dialog. Logged in full — the
+                     * options handed over are the decision — and resolved
+                     * from `o.lookupPick`, braced and upper-cased the way the
+                     * platform hands a pick over; `[]` for a cancel, which is
+                     * the default. Absent under `lookupObjects: false` while
+                     * `utils` stays.
+                     */
+                    lookupObjects: o.lookupObjects
+                        ? function (lookupOptions) {
+                            log('utils.lookupObjects', lookupOptions);
+
+                            var pick = o.lookupPick;
+
+                            return Promise.resolve(pick
+                                ? [{
+                                    id: '{' + String(pick.id).toUpperCase() + '}',
+                                    entityType: pick.entityType,
+                                    name: pick.name,
+                                }]
+                                : []);
+                        }
+                        : undefined,
+
                     hasEntityPrivilege: function (entityTypeName, privilegeType, privilegeDepth) {
                         log('utils.hasEntityPrivilege', {
                             entityTypeName: entityTypeName,
