@@ -413,6 +413,20 @@
         relationshipsStatus: 200,
 
         /**
+         * What a same-origin `fetch` of `<clientUrl>/WebResources/<name>`
+         * answers — the route a control takes to read its configuration out
+         * of a web resource, which needs no `<uses-feature>`. `null` answers
+         * from `fixture.webResources`, the way a form did (pcf-code-editor
+         * SPEC.md P1–P2b, 2026-09-23): **200 `text/jscript`** for a Script
+         * web resource, whatever its name ends in, because Dataverse has no
+         * JSON type; **404 with an empty body** for a name that is not there,
+         * so a control can only go on the status. Any other number is that
+         * status with an empty body — `403` for a resource the user cannot
+         * read — and **`0` rejects with a `TypeError`**, the offline shape.
+         */
+        webResourceStatus: null,
+
+        /**
          * What the two audit **functions** answer on the `fetch` stub —
          * `audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails` (bound to
          * the audit row) and `RetrieveRecordChangeHistory(Target=@t,
@@ -682,6 +696,53 @@
             },
             text: function () {
                 return Promise.resolve(JSON.stringify(body));
+            },
+        });
+    }
+
+    /**
+     * A web resource, as a form served one: its body as text, not JSON — the
+     * control decides what the text is — and the content type a real
+     * response carried. `fixture.webResources[name]` is the text, or
+     * `{ content, contentType }` for a type other than Script.
+     */
+    function webResourceReply(o, fixture, path) {
+        var name = path.split('?')[0].split('/').map(function (segment) {
+            return decodeURIComponent(segment);
+        }).join('/');
+        var status = o.webResourceStatus;
+
+        if (status === 0) {
+            return Promise.reject(new TypeError('Failed to fetch'));
+        }
+
+        var entry = (fixture.webResources || {})[name];
+
+        if (status === null || status === undefined) {
+            status = entry === undefined ? 404 : 200;
+        }
+
+        var found = status === 200 && entry !== undefined;
+        var content = found ? (typeof entry === 'string' ? entry : entry.content) : '';
+        var contentType = found
+            ? (typeof entry === 'string' ? 'text/jscript' : entry.contentType || 'text/jscript')
+            : 'text/html; charset=utf-8';
+
+        return Promise.resolve({
+            ok: status >= 200 && status < 300,
+            status: status,
+            headers: {
+                get: function (header) {
+                    return String(header).toLowerCase() === 'content-type' ? contentType : null;
+                },
+            },
+            text: function () {
+                return Promise.resolve(content);
+            },
+            json: function () {
+                return new Promise(function (resolve) {
+                    resolve(JSON.parse(content));
+                });
             },
         });
     }
@@ -1485,6 +1546,13 @@
         hostsByUrl[clientUrl] = function (url, init) {
             var address = String(url);
             var annotated = wantsAnnotations(init);
+
+            // ---- WebResources/<name> — configuration, same-origin ----------
+            if (address.indexOf(clientUrl + '/WebResources/') === 0) {
+                log('fetch', address.slice(clientUrl.length));
+
+                return webResourceReply(o, fixture, address.slice((clientUrl + '/WebResources/').length));
+            }
 
             if (address.indexOf(prefix) !== 0) {
                 return Promise.reject(new Error('No fetch for ' + address));

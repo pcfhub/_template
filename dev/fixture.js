@@ -335,6 +335,18 @@
         /** The users the audit rows name, for a suite that asserts on them. */
         users: USERS,
 
+        /**
+         * Web resources by name, for a control that reads its configuration
+         * from one (`<clientUrl>/WebResources/<name>`). A string is a Script
+         * (JScript) resource's text — served as `text/jscript`, as a form
+         * served a `.json` one, since Dataverse has no JSON type; pass
+         * `{ content, contentType }` for another. A name not here answers 404
+         * with an empty body.
+         */
+        webResources: {
+            'new_/config/settings.json': '{ "pageSize": 25, "columns": ["name", "revenue"] }',
+        },
+
         /** The record most suites sit on, and its parent as the bound lookup would hand it over. */
         current: 'c1',
         parentLookup: [{ id: 'p1', name: NAMES.p1, entityType: 'account' }],

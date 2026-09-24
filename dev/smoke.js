@@ -854,6 +854,23 @@ async function rigSelfCheck() {
         JSON.stringify(metadata.Attributes.getAll()),
     );
 
+    const wrUrl = host.nextClientUrl();
+    const wrCtx = host.createContext({ fixture, clientUrl: wrUrl });
+    const wrFound = await fetch(`${wrCtx.page.getClientUrl()}/WebResources/new_/config/settings.json`);
+    const wrMissing = await fetch(`${wrCtx.page.getClientUrl()}/WebResources/new_/config/missing.json`);
+    check(
+        'rig: a web resource answers 200 text/jscript with its text; a missing one 404 with an empty body — as a form did',
+        wrFound.status === 200 && wrFound.headers.get('content-type') === 'text/jscript' && JSON.parse(await wrFound.text()).pageSize === 25
+            && wrMissing.status === 404 && (await wrMissing.text()) === '',
+        [wrFound.status, wrMissing.status].join(' / '),
+    );
+    const wrOffline = host.createContext({ fixture, clientUrl: host.nextClientUrl(), webResourceStatus: 0 });
+    let wrFault = null;
+    await fetch(`${wrOffline.page.getClientUrl()}/WebResources/new_/config/settings.json`).catch((e) => { wrFault = e; });
+    const wrDenied = host.createContext({ fixture, clientUrl: host.nextClientUrl(), webResourceStatus: 403 });
+    const wrDeniedReply = await fetch(`${wrDenied.page.getClientUrl()}/WebResources/new_/config/settings.json`);
+    check('rig: webResourceStatus 0 rejects with a TypeError (offline), 403 refuses', wrFault instanceof TypeError && wrDeniedReply.status === 403);
+
     checkModuleLoader();
 
     disposeAll();
