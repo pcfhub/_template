@@ -698,6 +698,40 @@ if (datasetFixture && !exists(join(root, datasetFixture))) {
     problems.push(
         `pcfhub.json names demo.datasetFixture as "${datasetFixture}", which does not exist.`,
     );
+} else if (datasetFixture) {
+    /*
+     * What the file must hold depends on who reads it — the hub's
+     * DemoFixtureShape, mirrored: a dataset control or a grid host indexes
+     * `columns` and `records`; any other control reads only the `dataverse`
+     * section, a stand-in Dataverse for the calls its demo makes (pcfhub's
+     * docs/demo-harness-dataverse.md, "Field controls", 2026-09-24). The hub
+     * refuses the wrong shape at ingestion and says so only on the run.
+     */
+    const needsRows = manifest.control?.type === 'dataset' || (manifest.demo?.host ?? 'form') === 'grid';
+    let fixture = null;
+
+    try {
+        fixture = JSON.parse(readFileSync(join(root, datasetFixture), 'utf8'));
+    } catch (error) {
+        problems.push(`demo.datasetFixture "${datasetFixture}" is not valid JSON: ${error.message}`);
+    }
+
+    const isObject = (value) => typeof value === 'object' && value !== null && !Array.isArray(value);
+
+    if (fixture !== null && !isObject(fixture)) {
+        problems.push(`demo.datasetFixture "${datasetFixture}" must be a JSON object.`);
+    } else if (fixture !== null && needsRows) {
+        for (const key of ['columns', 'records']) {
+            if (!Array.isArray(fixture[key])) {
+                problems.push(`demo.datasetFixture "${datasetFixture}" must have a ${key} array — the hub reads it as rows for this control.`);
+            }
+        }
+    } else if (fixture !== null && !isObject(fixture.dataverse)) {
+        problems.push(
+            `demo.datasetFixture "${datasetFixture}" must have a dataverse object — a control without a ` +
+            'dataset property reads nothing else from it.',
+        );
+    }
 }
 
 // ---------------------------------------------------------------- demo host
