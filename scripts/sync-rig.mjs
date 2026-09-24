@@ -78,6 +78,8 @@ const MANAGED = [
     // loads the bundle (Code-Editor-PCF transpiles pure modules instead) has no use for either.
     { path: 'dev/dom.js', when: notCustomizer, loadedBy: 'dev/smoke.js' },
     { path: 'dev/clock.js', when: notCustomizer, loadedBy: 'dev/smoke.js' },
+    // The loader for a suite that drives pure modules instead of the bundle; same rule.
+    { path: 'dev/modules.js', when: notCustomizer, loadedBy: 'dev/smoke.js' },
     { path: 'dev/serve.js', when: notCustomizer },
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },

@@ -203,7 +203,7 @@ function verifyOtherShapes() {
         check('the hub fixture lands', dataset.has('demo/records.json'));
         check(
             'the shared dev files survive the overlay',
-            dataset.has('dev/dom.js') && dataset.has('dev/clock.js') && dataset.has('dev/serve.js'),
+            dataset.has('dev/dom.js') && dataset.has('dev/clock.js') && dataset.has('dev/serve.js') && dataset.has('dev/modules.js'),
         );
         check(
             'a dataset control keeps the browser harness',
@@ -496,6 +496,16 @@ function verifySync() {
 
         writeFileSync(file('dev/smoke.js'), '// This suite never loads clock.js or the bundle.\n');
         check('and skips one the suite only mentions', /not used\s+dev\/clock\.js/.test(planned()), planned());
+
+        /*
+         * modules.js by the same rule, from the other side: a suite that
+         * drives pure modules instead of the bundle requires the loader and
+         * nothing else of the rig — the shape pcf-code-editor has.
+         */
+        rmSync(file('dev/modules.js'));
+        writeFileSync(file('dev/smoke.js'), "const { createLoader } = require('./modules');\n");
+        check('--add-missing restores a modules.js the suite requires, without the .js', /add\s+dev\/modules\.js/.test(planned()), planned());
+        check('while dom.js, which that suite never loads, stays out', !/add\s+dev\/dom\.js/.test(planned()), planned());
     } finally {
         rmSync(repo.scratch, { recursive: true, force: true });
     }
@@ -911,7 +921,7 @@ function main() {
         // first line rather than at the assertion that needs it.
         check(
             'the dev rig lands',
-            has('dev/smoke.js') && has('dev/host.js') && has('dev/dom.js') && has('dev/clock.js'),
+            has('dev/smoke.js') && has('dev/host.js') && has('dev/dom.js') && has('dev/clock.js') && has('dev/modules.js'),
         );
 
         /*

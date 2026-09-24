@@ -32,10 +32,10 @@
  * application that reads `document` at module scope — a Monaco, a map, a
  * charting library — do not grow `dom.js` to meet it. Keep the control's
  * decisions in modules that import nothing of the library, and drive those
- * instead: `pcf-code-editor`'s `dev/smoke.js` transpiles them with the
- * TypeScript already in devDependencies and refuses one that imports the
- * library. The skill has the shape under *When the bundle cannot load in
- * Node*.
+ * instead, through `dev/modules.js`: it transpiles them with the TypeScript
+ * already in devDependencies and refuses one that imports the library
+ * (`pcf-code-editor` is the worked example). The skill has the shape under
+ * *When the bundle cannot load in Node*.
  *
  * **And a stub must never be more capable than the thing it stands in for.**
  * `dev/host.js` withholds `security`, `attributes` and `fluentDesignLanguage`
@@ -854,7 +854,53 @@ async function rigSelfCheck() {
         JSON.stringify(metadata.Attributes.getAll()),
     );
 
+    checkModuleLoader();
+
     disposeAll();
+}
+
+/*
+ * `dev/modules.js`, the loader for a control whose bundle cannot load here
+ * (see its header). Nothing in this suite needs it, so it is proved on three
+ * throwaway modules rather than left untested until the day one does: a
+ * relative import is followed, a type annotation is stripped, and a package
+ * the caller forbids is refused by name.
+ */
+function checkModuleLoader() {
+    const os = require('os');
+    const { createLoader } = require('./modules.js');
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pcf-modules-'));
+
+    try {
+        fs.writeFileSync(path.join(dir, 'rule.ts'), 'import { limit } from "./limit";\nexport function clamp(n: number): number { return Math.min(n, limit); }\n');
+        fs.writeFileSync(path.join(dir, 'limit.ts'), 'export const limit: number = 5;\n');
+        fs.writeFileSync(path.join(dir, 'leaky.ts'), 'import * as lib from "some-browser-library";\nexport const x = lib;\n');
+
+        fs.writeFileSync(path.join(dir, 'unused.ts'), 'import * as lib from "some-browser-library";\nexport const y = 1;\n');
+        fs.writeFileSync(path.join(dir, 'reach.ts'), 'import { View } from "./components/View";\nexport const z = View;\n');
+
+        const load = createLoader({ root: dir, forbid: [/some-browser-library/, [/components\//, 'the component tree']] });
+        check('rig: modules.js transpiles a decision module and follows its relative import', load('rule').clamp(9) === 5);
+
+        let refused = null;
+        try {
+            load('leaky');
+        } catch (error) {
+            refused = error;
+        }
+        check('rig: modules.js refuses a forbidden import by name, rather than failing on its absence', refused !== null && /imports some-browser-library/.test(refused.message), String(refused && refused.message));
+
+        let reached = null;
+        try {
+            load('reach');
+        } catch (error) {
+            reached = error;
+        }
+        check('rig: modules.js refuses a relative import into a forbidden path, naming what it is', reached !== null && /stay free of the component tree/.test(reached.message), String(reached && reached.message));
+        check('rig: an import nothing uses is elided before the guard sees it — mutation-test the guard with a used import', load('unused').y === 1);
+    } finally {
+        fs.rmSync(dir, { recursive: true, force: true });
+    }
 }
 
 rigSelfCheck().then(report, (error) => {
