@@ -133,7 +133,11 @@ jobs:
           # by searching the template's own history — a shallow clone has one
           # commit, so "the template has an older dev/dom.js" failed on every
           # push from 2026-09-23 until this. A control repository needs none.
-          fetch-depth: ${{ inputs.adopt-first && 0 || 1 }}
+          #
+          # Strings, not numbers: in an Actions expression 0 is falsy, so
+          # `adopt-first && 0 || 1` is always 1 — the first attempt at this
+          # fix, and the log said `fetch-depth: 1`. '0' is a non-empty string.
+          fetch-depth: ${{ inputs.adopt-first && '0' || '1' }}
       - uses: actions/setup-node@v7
         with:
           node-version: ${{ inputs.node-version }}
