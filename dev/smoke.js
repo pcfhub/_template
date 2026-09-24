@@ -741,7 +741,7 @@ async function rigSelfCheck() {
      * control hands it straight back — before it did, page two of a filtered
      * list answered an unfiltered one.
      */
-    const auditQuery = '?$select=auditid,createdon,action,_objectid_value&$filter=_objectid_value eq c1&$orderby=createdon desc';
+    const auditQuery = '?$select=auditid,createdon,action,_objectid_value,_userid_value&$filter=_objectid_value eq c1&$orderby=createdon desc';
     const first = await ctx.webAPI.retrieveMultipleRecords('audit', auditQuery, 10);
     check(
         'rig: the audit table ignores maxPageSize — every row, newest first, nextLink an empty string (measured)',
