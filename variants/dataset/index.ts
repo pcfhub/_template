@@ -399,7 +399,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
                     button.textContent = record.getFormattedValue(column.name);
                     button.title = getString('__CONTROL___OpenRecord').replace(
                         '{0}',
-                        record.getFormattedValue(primary.name),
+                        record.getFormattedValue(primary.name) ?? '',
                     );
                     button.addEventListener('click', () => this.openRecord(dataset, id));
                     cell.appendChild(button);

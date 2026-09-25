@@ -228,7 +228,7 @@ export function __CONTROL__Control(props: IProps): React.ReactElement | null {
                                                     className="__CONTROL__-open"
                                                     title={getString('__CONTROL___OpenRecord').replace(
                                                         '{0}',
-                                                        record.getFormattedValue(primary.name),
+                                                        record.getFormattedValue(primary.name) ?? '',
                                                     )}
                                                     onClick={(): void => props.onOpenRecord(id)}
                                                 >

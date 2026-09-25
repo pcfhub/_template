@@ -1185,6 +1185,19 @@ const metadataChecks = async () => {
     );
 
     /*
+     * An empty column formats as `null` — measured on a main grid
+     * 2026-09-25. A rig answering `''` hid a blank row and an "Open null"
+     * from every suite that tested `=== ''`.
+     */
+    const emptyRow = host.createHost(fixture, { pageSize: 12 }).dataset.records.a09;
+
+    check(
+        'an empty column formats as null, whether the fixture holds null or an empty string',
+        emptyRow.getFormattedValue('accountnumber') === null && emptyRow.getFormattedValue('primarycontactname') === null,
+        `${JSON.stringify(emptyRow.getFormattedValue('accountnumber'))} ${JSON.stringify(emptyRow.getFormattedValue('primarycontactname'))}`,
+    );
+
+    /*
      * Canvas publishes `page` and refuses from the call — measured
      * 2026-09-22. A control that tested `typeof` passes here and fails there.
      */

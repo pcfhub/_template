@@ -1845,10 +1845,27 @@
                     var value = row.values[name];
                     var type = typeOf(name);
 
+                    /*
+                     * **An empty column formats as `null`, not `''`.** Measured
+                     * on a model-driven main grid 2026-09-25 (pcf-row-commands):
+                     * an account with no name handed the control `null`, and a
+                     * control testing `=== ''` drew a blank row and labelled its
+                     * button "Open null". This rig answered `''` until then —
+                     * the value the control expected and the platform never
+                     * sends — so no suite could reach the blank row. Dataverse
+                     * keeps no empty string for a text column, so a fixture's
+                     * `''` is read as empty too. Measured on a text column; a
+                     * number, choice or lookup left empty is modelled the same
+                     * way and has not been watched.
+                     */
+                    if (value === null || value === undefined || value === '') {
+                        return null;
+                    }
+
                     // The platform never shows a choice as its integer or a
                     // lookup as its object; `String({ id: … })` is
                     // `[object Object]` in a cell.
-                    if (value !== null && value !== undefined && type === 'OptionSet') {
+                    if (type === 'OptionSet') {
                         return optionLabel(name, value);
                     }
 
