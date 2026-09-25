@@ -1095,6 +1095,24 @@ const metadataChecks = async () => {
 
     check('hasPrivilege "throws" is a host that cannot say', threw);
 
+    // Published whether or not the manifest declares Utility, and refusing
+    // at the call when it does not — measured 2026-09-25.
+    const undeclared = host.createHost(fixture, { utilityDeclared: false });
+    let refusal = '';
+
+    try {
+        undeclared.context.utils.hasEntityPrivilege('account', 4, 0);
+    } catch (error) {
+        refusal = error.message;
+    }
+
+    check(
+        'without Utility declared, hasEntityPrivilege is there and throws the platform’s words',
+        typeof undeclared.context.utils.hasEntityPrivilege === 'function'
+            && refusal.startsWith("Feature 'Utility.hasEntityPrivilege' is required"),
+        refusal,
+    );
+
     /*
      * Storage. Each host its own, one handed in to model a reload, and the
      * three refusals — the first of which throws on *reading* the global.

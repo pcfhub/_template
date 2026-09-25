@@ -502,6 +502,18 @@
         hasPrivilege: true,
 
         /**
+         * Whether the manifest declares `<uses-feature name="Utility">`.
+         *
+         * **`hasEntityPrivilege` is published either way and throws when it
+         * is not declared** — measured on a model-driven main grid
+         * 2026-09-25 (pcf-row-commands P1): `typeof` answers `"function"`,
+         * and every call throws *Feature 'Utility.hasEntityPrivilege' is required to be specified in the <uses-feature> section in ControlManifest.xml before use.*
+         * So presence is not permission, and the rig cannot read the
+         * manifest: a suite passes what the manifest says.
+         */
+        utilityDeclared: true,
+
+        /**
          * What `localStorage` is while this host's context is the latest one
          * handed out.
          *
@@ -2901,6 +2913,10 @@
                                 privilegeType: privilegeType,
                                 privilegeDepth: privilegeDepth,
                             });
+
+                            if (!o.utilityDeclared) {
+                                throw new Error("Feature 'Utility.hasEntityPrivilege' is required to be specified in the <uses-feature> section in ControlManifest.xml before use.");
+                            }
 
                             if (o.hasPrivilege === 'throws') {
                                 throw new Error('hasEntityPrivilege: refused by the rig.');

@@ -559,6 +559,14 @@
         hasPrivilege: true,
 
         /**
+         * Whether the manifest declares `<uses-feature name="Utility">`.
+         * `hasEntityPrivilege` is published either way and **throws** when
+         * it is not — measured 2026-09-25 (pcf-row-commands P1). The rig
+         * cannot read the manifest; a suite passes what it says.
+         */
+        utilityDeclared: true,
+
+        /**
          * Whether `context.navigation` exists at all.
          *
          * Typed non-optional, which is a claim about the type definitions
@@ -2551,6 +2559,10 @@
                             privilegeType: privilegeType,
                             privilegeDepth: privilegeDepth,
                         });
+
+                        if (!o.utilityDeclared) {
+                            throw new Error("Feature 'Utility.hasEntityPrivilege' is required to be specified in the <uses-feature> section in ControlManifest.xml before use.");
+                        }
 
                         return Boolean(o.hasPrivilege);
                     },

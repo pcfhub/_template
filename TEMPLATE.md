@@ -368,7 +368,7 @@ from correct and neither appears without the `'cancelled'` switch.
 **Three more a control that gates, remembers or selects needs** (added for
 `pcf-row-commands` 0.2.0):
 
-- `hasPrivilege` — what `utils.hasEntityPrivilege` answers: `true`/`false`, a
+- `hasPrivilege` — what `utils.hasEntityPrivilege` answers, and `utilityDeclared: false` makes it **throw**, as it does on a real form when the manifest does not declare `Utility` (measured 2026-09-25 — the method is published either way): `true`/`false`, a
   function `(privilegeType, depth, table)`, or `'throws'`. Delete is **4**,
   Write **3**; depth runs Basic 0 to Global 3. `false` is the user who may
   not; `'throws'` or no `utils` is the host that cannot say, and the two call
