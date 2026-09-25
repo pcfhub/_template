@@ -349,8 +349,10 @@
          * savedEntityReference: null }`**, not `[]` and not a rejection. The
          * dismissal is the default here because it is the branch a control
          * forgets, and `null` rather than `[]` because a reader written as
-         * `saved[0]` throws on it. An ordinary (non-quick-create) form
-         * resolves with an empty array.
+         * `saved[0]` throws on it. **An ordinary form resolves on
+         * navigation, not on close** — 309 ms after the call, measured
+         * 2026-09-25 (pcf-row-commands P7) — with `savedEntityReference`
+         * holding the record it opened. This note used to say an empty array.
          */
         openFormReturns: { savedEntityReference: null },
 
@@ -584,14 +586,16 @@
             previousPageStuck: true,
             /**
              * A fetch clears the platform's selection, so
-             * `getSelectedRecordIds()` answers `[]` after every `refresh()`
-             * and page turn. **Unmeasured**: `pcf-data-table`'s SPEC states
-             * it without a measurement behind it. Defaulted on because it is
-             * the direction that breaks a control trusting the platform's copy
-             * rather than keeping its own; turn it off to model a host that
-             * keeps the ids.
+             * `getSelectedRecordIds()` answers `[]` after it.
+             *
+             * **Off, because the platform kept it**: measured on a subgrid
+             * 2026-09-25 (pcf-row-commands P3), a ribbon Assign on three
+             * selected rows refreshed the subgrid and the next `updateView`
+             * still answered all three. `pcf-data-table`'s SPEC had said the
+             * opposite with no measurement behind it. A page turn with a
+             * selection is still unmeasured, and this is the switch for it.
              */
-            selectionDropsOnFetch: true,
+            selectionDropsOnFetch: false,
             /** `totalResultCount` is -1 — common on large views. */
             uncounted: false,
             /**

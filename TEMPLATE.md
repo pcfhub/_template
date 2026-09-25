@@ -377,9 +377,7 @@ from correct and neither appears without the `'cancelled'` switch.
   throws a `SecurityError`, as blocked site data does), `'full'` (`setItem`
   throws `QuotaExceededError`) or `'absent'`. Each host has its own store;
   hand the same `storageData` to a second host to model a reload.
-- `quirks.selectionDropsOnFetch` — a fetch empties `getSelectedRecordIds()`.
-  **Unmeasured**, and on by default because it breaks a control that trusts
-  the platform's copy instead of keeping its own.
+- `quirks.selectionDropsOnFetch` — a fetch empties `getSelectedRecordIds()`. **Off by default**: a subgrid kept the selection through a ribbon action's refresh (measured 2026-09-25); on is for the page turn nobody has measured.
 
 And `page` on canvas is **present, and `getClientUrl()` throws** — measured on
 a real canvas app 2026-09-22. It used to be absent here, which passed a control

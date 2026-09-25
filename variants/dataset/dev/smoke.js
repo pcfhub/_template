@@ -1166,22 +1166,22 @@ const metadataChecks = async () => {
     host.createHost(fixture, {}).nextContext();
 
     /*
-     * The selection across a fetch. Unmeasured either way; the default is
-     * the direction that breaks a control trusting the platform's copy.
+     * The selection across a fetch: kept, as a subgrid measured after a
+     * ribbon action; dropped under the quirk, for the page turn nobody has.
      */
     const picking = host.createHost(fixture, {});
     picking.dataset.setSelectedRecordIds(['a01', 'a02']);
-    const before = picking.dataset.getSelectedRecordIds().length;
     picking.dataset.refresh();
 
-    const keeping = host.createHost(fixture, { quirks: { selectionDropsOnFetch: false } });
-    keeping.dataset.setSelectedRecordIds(['a01']);
-    keeping.dataset.refresh();
+    const dropping = host.createHost(fixture, { quirks: { selectionDropsOnFetch: true } });
+    dropping.dataset.setSelectedRecordIds(['a01']);
+    const before = dropping.dataset.getSelectedRecordIds().length;
+    dropping.dataset.refresh();
 
     check(
-        'a fetch drops the platform selection by default, and keeps it with the quirk off',
-        before === 2 && picking.dataset.getSelectedRecordIds().length === 0
-            && keeping.dataset.getSelectedRecordIds().length === 1,
+        'a fetch keeps the platform selection by default, and drops it under the quirk',
+        picking.dataset.getSelectedRecordIds().length === 2
+            && before === 1 && dropping.dataset.getSelectedRecordIds().length === 0,
     );
 
     /*
