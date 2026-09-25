@@ -58,6 +58,17 @@
         return lastInputs;
     }
 
+    /** The privilege select as the rig's `hasPrivilege`. Delete is 4. */
+    function privilege(value) {
+        if (value === 'nodelete') {
+            return function (type) {
+                return type !== 4;
+            };
+        }
+
+        return value === 'throws' ? 'throws' : value !== 'none';
+    }
+
     function options() {
         var state = document.getElementById('harness-state').value;
 
@@ -83,7 +94,10 @@
             hasNavigation: document.getElementById('harness-navigation').checked,
             openFile: document.getElementById('harness-openfile').checked,
             dialogs: document.getElementById('harness-dialogs').value,
+            hasPrivilege: privilege(document.getElementById('harness-privilege').value),
+            storage: document.getElementById('harness-storage').value,
             quirks: {
+                selectionDropsOnFetch: document.getElementById('harness-selectiondrops').checked,
                 accumulatePages: document.getElementById('harness-accumulate').checked,
                 previousPageStuck: document.getElementById('harness-stuck').checked,
                 uncounted: document.getElementById('harness-uncounted').checked,

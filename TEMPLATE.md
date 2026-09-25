@@ -365,6 +365,26 @@ record the user just declined to delete, and one that treats the cancel as a
 failure shows an error for something the user did on purpose. Both are one line
 from correct and neither appears without the `'cancelled'` switch.
 
+**Three more a control that gates, remembers or selects needs** (added for
+`pcf-row-commands` 0.2.0):
+
+- `hasPrivilege` — what `utils.hasEntityPrivilege` answers: `true`/`false`, a
+  function `(privilegeType, depth, table)`, or `'throws'`. Delete is **4**,
+  Write **3**; depth runs Basic 0 to Global 3. `false` is the user who may
+  not; `'throws'` or no `utils` is the host that cannot say, and the two call
+  for different behaviour.
+- `storage` — `localStorage` as `'working'`, `'throws'` (reading the global
+  throws a `SecurityError`, as blocked site data does), `'full'` (`setItem`
+  throws `QuotaExceededError`) or `'absent'`. Each host has its own store;
+  hand the same `storageData` to a second host to model a reload.
+- `quirks.selectionDropsOnFetch` — a fetch empties `getSelectedRecordIds()`.
+  **Unmeasured**, and on by default because it breaks a control that trusts
+  the platform's copy instead of keeping its own.
+
+And `page` on canvas is **present, and `getClientUrl()` throws** — measured on
+a real canvas app 2026-09-22. It used to be absent here, which passed a control
+that tested `typeof` and failed it on canvas.
+
 `webAPI.deleteRecord` is there on the dataset side with a `webApiFails` switch
 beside it, because a delete failing on a cascade restriction or a privilege is
 ordinary rather than exceptional. Its rejection is a plain object carrying

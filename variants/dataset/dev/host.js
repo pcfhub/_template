@@ -464,9 +464,63 @@
          * Whether `context.page` exists. Its `getClientUrl()` is how a control
          * finds the organisation for a same-origin metadata `fetch` — the only
          * way to reach `EntityDefinitions`, which `context.webAPI` cannot
-         * address. Not in the typings; absent on canvas and here under `false`.
+         * address. Not in the typings; absent here under `false`, which is
+         * the hub's demo harness.
+         *
+         * **On canvas it is present and `getClientUrl` throws.** Measured with
+         * a host probe on a real canvas app, 2026-09-22 (pcf-row-commands):
+         * the surface is published, and calling it throws `Method not
+         * implemented.` This rig used to leave `page` out on canvas, which
+         * passed a control that tested `typeof page.getClientUrl` and failed
+         * the same control on a real canvas app — the call is the only honest
+         * test, and a thrown refusal is an answer once it is caught.
          */
         page: true,
+
+        /**
+         * What `utils.hasEntityPrivilege(table, privilegeType, depth)`
+         * answers. `privilegeType` is the platform's `PrivilegeType`: Create
+         * 1, Read 2, **Write 3**, **Delete 4**, Assign 5, Share 6, Append 7,
+         * AppendTo 8 — Write measured as 3 on a form (pcf-audit-history R7,
+         * 2026-09-18; the reference page is easy to read one off). `depth`
+         * is Basic 0, Local 1, Deep 2, Global 3.
+         *
+         *   true / false -> every question answers that
+         *   function     -> `fn(privilegeType, depth, table)` answers
+         *   'throws'     -> the call throws, a host that cannot say
+         *
+         * **Synchronous, and a boolean** — the one member of `utils` that is
+         * not a promise. `false` is an ordinary answer about the user's
+         * roles, not a failure, and it is a different state from `utils`
+         * being absent: "the user may not" hides an affordance, "the host
+         * cannot say" leaves it to the server's own refusal. A system
+         * administrator answers `true` to everything, so the `false` branch
+         * is the one only a differently-privileged user reaches — the branch
+         * nobody tests unless a rig can produce it. Same name as the field
+         * rig's switch.
+         */
+        hasPrivilege: true,
+
+        /**
+         * What `localStorage` is while this host's context is the latest one
+         * handed out.
+         *
+         *   'working' -> a store that holds strings; in a browser page with a
+         *                real `localStorage`, the real one
+         *   'throws'  -> **reading `localStorage` itself throws** a
+         *                `SecurityError`, which is what blocked site data and
+         *                some private windows do — the access, not a method
+         *   'full'    -> reads work and `setItem` throws `QuotaExceededError`
+         *   'absent'  -> `undefined`
+         *
+         * A control that persists a preference has to render correctly under
+         * every one of these, and the first is the only one its author sees.
+         * `storageData` is the backing object: pass the same one to two hosts
+         * to model a reload on the same browser, and read it back through
+         * `handle.storageData()` to assert what was written.
+         */
+        storage: 'working',
+        storageData: null,
 
         /**
          * Whether `utils.lookupObjects` exists while `utils` itself does. A
@@ -516,6 +570,16 @@
             accumulatePages: true,
             /** `hasPreviousPage` never becomes true. Observed on a real form. */
             previousPageStuck: true,
+            /**
+             * A fetch clears the platform's selection, so
+             * `getSelectedRecordIds()` answers `[]` after every `refresh()`
+             * and page turn. **Unmeasured**: `pcf-data-table`'s SPEC states
+             * it without a measurement behind it. Defaulted on because it is
+             * the direction that breaks a control trusting the platform's copy
+             * rather than keeping its own; turn it off to model a host that
+             * keeps the ids.
+             */
+            selectionDropsOnFetch: true,
             /** `totalResultCount` is -1 — common on large views. */
             uncounted: false,
             /**
@@ -661,6 +725,46 @@
      * assertion that two fetches had been made found none.
      */
     var hostsByUrl = {};
+
+    /**
+     * What `localStorage` answers, decided by the host whose context was
+     * handed out **last**.
+     *
+     * Storage has no origin argument to route by, the way `fetch` has a URL,
+     * so the rule is the nearest honest one: a control reads storage while
+     * handling the context it was just given, or from an event on a control
+     * that host mounted, and suites drive one host at a time. A suite that
+     * interleaves two hosts' events should give them the same `storageData`.
+     */
+    var activeStorage = null;
+
+    function installStorage(scope) {
+        if (scope.__pcfHostStorage) {
+            return;
+        }
+
+        var native;
+
+        try {
+            native = scope.localStorage;
+        } catch (error) {
+            native = undefined;
+        }
+
+        try {
+            Object.defineProperty(scope, 'localStorage', {
+                configurable: true,
+                get: function () {
+                    return activeStorage ? activeStorage(native) : native;
+                },
+            });
+            scope.__pcfHostStorage = true;
+        } catch (error) {
+            // A runtime whose own `localStorage` cannot be replaced keeps it,
+            // and the `storage` switch has no effect there. Said once.
+            scope.__pcfHostStorage = 'native';
+        }
+    }
     var hostCount = 0;
 
     function clientUrlFor(index) {
@@ -1258,6 +1362,68 @@
                 scope.fetch = scope.__pcfHostFetch;
             }
         })();
+
+        /*
+         * This host's `localStorage`, per the `storage` switch in DEFAULTS.
+         *
+         * A store of its own unless the suite hands one in, for the same
+         * reason the rows are copied: a width one host saved must not be
+         * found by the next host a suite creates, or an assertion about the
+         * default passes or fails on the order the tests ran in.
+         */
+        var storageData = o.storageData || {};
+
+        var store = {
+            getItem: function (key) {
+                return Object.prototype.hasOwnProperty.call(storageData, key) ? storageData[key] : null;
+            },
+            setItem: function (key, value) {
+                log('localStorage.setItem', key);
+
+                if (o.storage === 'full') {
+                    var full = new Error('Setting the value of \'' + key + '\' exceeded the quota.');
+                    full.name = 'QuotaExceededError';
+                    throw full;
+                }
+
+                storageData[key] = String(value);
+            },
+            removeItem: function (key) {
+                log('localStorage.removeItem', key);
+                delete storageData[key];
+            },
+            clear: function () {
+                Object.keys(storageData).forEach(function (key) {
+                    delete storageData[key];
+                });
+            },
+            key: function (index) {
+                var keys = Object.keys(storageData);
+
+                return index < keys.length ? keys[index] : null;
+            },
+            get length() {
+                return Object.keys(storageData).length;
+            },
+        };
+
+        function storageFor(native) {
+            if (o.storage === 'absent') {
+                return undefined;
+            }
+
+            if (o.storage === 'throws') {
+                var denied = new Error('Failed to read the \'localStorage\' property from \'Window\': Access is denied for this document.');
+                denied.name = 'SecurityError';
+                throw denied;
+            }
+
+            // A browser page asking for a working store gets the real one,
+            // so the harness shows a preference surviving a reload.
+            return o.storage === 'working' && native && !o.storageData ? native : store;
+        }
+
+        installStorage(typeof globalThis !== 'undefined' ? globalThis : root);
 
         /**
          * One `ConditionExpression` against one row.
@@ -2034,6 +2200,11 @@
 
             requestedColumns = [];
 
+            if (quirks.selectionDropsOnFetch && selected.length > 0) {
+                log('selection dropped by the fetch', selected.length);
+                selected = [];
+            }
+
             // Deletes the server has taken arrive with this fetch and not
             // before it. See the note on `removedPending`.
             removed = removed.concat(removedPending);
@@ -2530,6 +2701,8 @@
         }
 
         function createContext() {
+            activeStorage = storageFor;
+
             var parameters = {};
 
             parameters[o.datasetName] = dataset;
@@ -2715,17 +2888,46 @@
                                     : []);
                             }
                             : undefined,
+
+                        /**
+                         * About the user's roles, synchronously — see
+                         * `hasPrivilege` in DEFAULTS for the numbers and the
+                         * three shapes. Both arguments logged, because which
+                         * privilege a control asked about *is* the decision.
+                         */
+                        hasEntityPrivilege: function (entityTypeName, privilegeType, privilegeDepth) {
+                            log('utils.hasEntityPrivilege', {
+                                entityTypeName: entityTypeName,
+                                privilegeType: privilegeType,
+                                privilegeDepth: privilegeDepth,
+                            });
+
+                            if (o.hasPrivilege === 'throws') {
+                                throw new Error('hasEntityPrivilege: refused by the rig.');
+                            }
+
+                            return typeof o.hasPrivilege === 'function'
+                                ? Boolean(o.hasPrivilege(privilegeType, privilegeDepth, entityTypeName))
+                                : Boolean(o.hasPrivilege);
+                        },
                     }
                     : undefined,
 
                 /**
                  * `context.page`, which is not in the typings. Its
                  * `getClientUrl` is how a control finds the organisation for a
-                 * metadata `fetch`; absent on canvas and under `page: false`.
+                 * metadata `fetch`; absent under `page: false`, **present and
+                 * throwing on canvas** — see DEFAULTS.
                  */
-                page: o.page && o.host !== 'canvas'
+                page: o.page
                     ? {
                         getClientUrl: function () {
+                            log('page.getClientUrl');
+
+                            if (o.host === 'canvas') {
+                                throw new Error('getClientUrl: Method not implemented.');
+                            }
+
                             return CLIENT_URL;
                         },
                     }
@@ -3269,6 +3471,10 @@
             state: state,
             quirks: quirks,
             options: o,
+            /** What this host's `localStorage` holds — pass it to a second host to model a reload. */
+            storageData: function () {
+                return storageData;
+            },
             /** The server's many-to-many links as they stand, whatever the dataset has fetched. */
             links: function () {
                 return links.map(function (link) {

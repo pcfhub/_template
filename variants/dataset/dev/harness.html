@@ -330,6 +330,32 @@
             </label>
 
             <label>
+                The user's privileges
+                <select id="harness-privilege">
+                    <option value="all">Everything (an administrator)</option>
+                    <option value="nodelete">No Delete at any depth</option>
+                    <option value="none">Nothing</option>
+                    <option value="throws">Cannot say (throws)</option>
+                </select>
+                <span>What <code>utils.hasEntityPrivilege</code> answers.</span>
+            </label>
+
+            <label>
+                localStorage
+                <select id="harness-storage">
+                    <option value="working">Working (this browser's own)</option>
+                    <option value="throws">Reading it throws (blocked site data)</option>
+                    <option value="full">Full (writes throw)</option>
+                    <option value="absent">Absent</option>
+                </select>
+            </label>
+
+            <label class="is-switch">
+                <input type="checkbox" id="harness-selectiondrops" checked />
+                A fetch drops the platform selection (unmeasured)
+            </label>
+
+            <label>
                 Input properties
                 <textarea id="harness-inputs" rows="3" spellcheck="false">{}</textarea>
                 <span>JSON, merged into <code>parameters</code> as

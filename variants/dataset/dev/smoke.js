@@ -1061,6 +1061,130 @@ const metadataChecks = async () => {
 };
 
 
+/* ------------------------------ the surfaces Row Commands 0.2.0 taught it */
+
+/*
+ * A privilege, a stored preference, a selection across a fetch, and a canvas
+ * `page` that is there and refuses. Rig checks again: the scaffolded control
+ * uses none of them.
+ */
+{
+    const asked = host.createHost(fixture, { hasPrivilege: (type, depth) => type === 4 ? depth >= 2 : true });
+    const answer = (type, depth) => asked.context.utils.hasEntityPrivilege('account', type, depth);
+
+    check(
+        'hasEntityPrivilege answers by privilege and depth, synchronously, as a boolean',
+        answer(4, 0) === false && answer(4, 2) === true && answer(2, 0) === true,
+        `${answer(4, 0)} ${answer(4, 2)} ${answer(2, 0)}`,
+    );
+    check(
+        'and logs which privilege was asked about',
+        asked.state.calls.includes(
+            'utils.hasEntityPrivilege({"entityTypeName":"account","privilegeType":4,"privilegeDepth":2})',
+        ),
+    );
+
+    const refusing = host.createHost(fixture, { hasPrivilege: 'throws' });
+    let threw = false;
+
+    try {
+        refusing.context.utils.hasEntityPrivilege('account', 4, 0);
+    } catch {
+        threw = true;
+    }
+
+    check('hasPrivilege "throws" is a host that cannot say', threw);
+
+    /*
+     * Storage. Each host its own, one handed in to model a reload, and the
+     * three refusals — the first of which throws on *reading* the global.
+     */
+    const first = host.createHost(fixture, {});
+    first.nextContext();
+    globalThis.localStorage.setItem('k', 'v');
+
+    const second = host.createHost(fixture, {});
+    second.nextContext();
+
+    check(
+        'a host starts with empty storage, whatever an earlier host wrote',
+        globalThis.localStorage.getItem('k') === null && first.storageData().k === 'v',
+    );
+
+    const reloaded = host.createHost(fixture, { storageData: first.storageData() });
+    reloaded.nextContext();
+
+    check('the same storageData is the same browser after a reload', globalThis.localStorage.getItem('k') === 'v');
+
+    const denied = host.createHost(fixture, { storage: 'throws' });
+    denied.nextContext();
+    let deniedName = '';
+
+    try {
+        void globalThis.localStorage;
+    } catch (error) {
+        deniedName = error.name;
+    }
+
+    check('storage "throws" throws on reading localStorage itself', deniedName === 'SecurityError', deniedName);
+
+    const full = host.createHost(fixture, { storage: 'full' });
+    full.nextContext();
+    let fullName = '';
+
+    try {
+        globalThis.localStorage.setItem('k', 'v');
+    } catch (error) {
+        fullName = error.name;
+    }
+
+    check('storage "full" reads and refuses to write', fullName === 'QuotaExceededError', fullName);
+
+    const none = host.createHost(fixture, { storage: 'absent' });
+    none.nextContext();
+    check('storage "absent" is undefined', globalThis.localStorage === undefined);
+
+    // Leave a working store active for whatever runs next.
+    host.createHost(fixture, {}).nextContext();
+
+    /*
+     * The selection across a fetch. Unmeasured either way; the default is
+     * the direction that breaks a control trusting the platform's copy.
+     */
+    const picking = host.createHost(fixture, {});
+    picking.dataset.setSelectedRecordIds(['a01', 'a02']);
+    const before = picking.dataset.getSelectedRecordIds().length;
+    picking.dataset.refresh();
+
+    const keeping = host.createHost(fixture, { quirks: { selectionDropsOnFetch: false } });
+    keeping.dataset.setSelectedRecordIds(['a01']);
+    keeping.dataset.refresh();
+
+    check(
+        'a fetch drops the platform selection by default, and keeps it with the quirk off',
+        before === 2 && picking.dataset.getSelectedRecordIds().length === 0
+            && keeping.dataset.getSelectedRecordIds().length === 1,
+    );
+
+    /*
+     * Canvas publishes `page` and refuses from the call — measured
+     * 2026-09-22. A control that tested `typeof` passes here and fails there.
+     */
+    const onCanvas = host.createHost(fixture, { host: 'canvas' });
+    let canvasRefused = false;
+
+    try {
+        onCanvas.context.page.getClientUrl();
+    } catch {
+        canvasRefused = true;
+    }
+
+    check(
+        'canvas publishes page.getClientUrl and it throws',
+        typeof onCanvas.context.page.getClientUrl === 'function' && canvasRefused,
+    );
+}
+
 /* ------------------------------------------------------------ the counters */
 
 /*
