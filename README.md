@@ -5,6 +5,8 @@ __TAGLINE__
 [![Build](https://github.com/__OWNER__/__REPO__/actions/workflows/build.yml/badge.svg)](https://github.com/__OWNER__/__REPO__/actions/workflows/build.yml)
 [![Release](https://github.com/__OWNER__/__REPO__/actions/workflows/release.yml/badge.svg)](https://github.com/__OWNER__/__REPO__/actions/workflows/release.yml)
 
+[![Try it live on PCFHub](https://pcfhub.dev/badges/try-it-live.svg)](https://pcfhub.dev/components/__SLUG__)
+
 Documentation lives on [PCFHub](https://pcfhub.dev/components/__SLUG__), built
 from the `docs/` directory in this repository. Edit the Markdown here; the hub
 recompiles it.
@@ -13,6 +15,10 @@ recompiles it.
   This README is for someone standing in the repository — a maintainer, or
   somebody deciding whether to install the control. The hub publishes `docs/`,
   not this file, so do not duplicate the documentation here.
+
+  The PCFHub button above promises a live demo. If `demo.fidelity` in
+  `pcfhub.json` is `none`, point it at `badges/view-on-pcfhub.svg` and label it
+  "View on PCFHub" instead.
 
   The three sections below are the ones worth writing by hand. Everything after
   them is the same in every repository and needs no edits.
