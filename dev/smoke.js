@@ -872,8 +872,32 @@ async function rigSelfCheck() {
     check('rig: webResourceStatus 0 rejects with a TypeError (offline), 403 refuses', wrFault instanceof TypeError && wrDeniedReply.status === 403);
 
     checkModuleLoader();
+    checkDomCollections();
 
     disposeAll();
+}
+
+/*
+ * `dev/dom.js` hands back what a browser hands back, and no more: a control
+ * that calls `.map` on `querySelectorAll` or `.forEach` on `children` fails
+ * on a form, so it has to fail here too.
+ */
+function checkDomCollections() {
+    const root = dom.createElement('div');
+    const a = root.appendChild(dom.createElement('span'));
+    a.className = 'x';
+    root.appendChild(dom.createElement('span')).setAttribute('id', 'second');
+    a.appendChild(dom.createElement('span')).className = 'x';
+
+    const all = root.querySelectorAll('span');
+    check('rig: querySelectorAll is a NodeList — indexable, length, item, forEach, iterable', all.length === 3 && all[0] === a && typeof all.item === 'function' && all.item(5) === null
+        && typeof all.forEach === 'function' && Array.from(all).length === 3 && Object.prototype.toString.call(all) === '[object NodeList]');
+    check('rig: …with no Array methods, as in a browser', all.map === undefined && all.filter === undefined && all.find === undefined && !Array.isArray(all));
+    check('rig: querySelectorAll walks depth-first, in document order', Array.from(root.querySelectorAll('.x')).length === 2 && root.querySelector('.x') === a);
+
+    const kids = root.children;
+    check('rig: children is an HTMLCollection — indexable, item, namedItem, iterable, no forEach', kids.length === 2 && kids[1].getAttribute('id') === 'second'
+        && typeof kids.namedItem === 'function' && kids.namedItem('second') === kids[1] && [...kids].length === 2 && kids.forEach === undefined && kids.map === undefined);
 }
 
 /*

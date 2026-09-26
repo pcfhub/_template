@@ -16,6 +16,12 @@
  * silently absorbs calls is how a smoke suite goes green for a control that
  * does nothing.
  *
+ * **And never thicker.** A shim that does *more* than the browser certifies
+ * code the browser refuses: `querySelectorAll` and `children` return what a
+ * browser returns — a `NodeList` and an `HTMLCollection`, with no `map`,
+ * `filter` or `find` — so `el.children.forEach` fails here as it does on a
+ * form. A suite that wants an array writes `Array.from(...)` itself.
+ *
  * What it does not have, it does not pretend to have: nothing here can tell you
  * that a control *looks* right, that a stylesheet applies, or that focus and
  * keyboard order work. Those need `npm start`, `dev/harness.html`, or a real
@@ -72,6 +78,66 @@ ClassList.prototype.toggle = function (name, force) {
 ClassList.prototype.toString = function () {
     return this._names.join(' ');
 };
+
+/*
+ * The two collection shapes a browser hands back, as static snapshots:
+ * indexable, `length`, `item()`, iterable — and nothing an Array has that
+ * they do not. `NodeList` has `forEach` and the three iterators;
+ * `HTMLCollection` has neither `forEach` nor iterators beyond the default,
+ * and adds `namedItem`. (A browser's `children` is live; a snapshot is the
+ * safe direction, since a control relying on liveness is relying on
+ * something this cannot show.)
+ */
+function collection(proto, items) {
+    var list = Object.create(proto);
+
+    for (var i = 0; i < items.length; i += 1) {
+        list[i] = items[i];
+    }
+
+    Object.defineProperty(list, 'length', { value: items.length });
+    return list;
+}
+
+function values() {
+    return Array.prototype.values.call(this);
+}
+
+var NodeListPrototype = {
+    item: function (index) {
+        return this[index] || null;
+    },
+    forEach: function (callback, thisArg) {
+        for (var i = 0; i < this.length; i += 1) {
+            callback.call(thisArg, this[i], i, this);
+        }
+    },
+    entries: function () {
+        return Array.prototype.entries.call(this);
+    },
+    keys: function () {
+        return Array.prototype.keys.call(this);
+    },
+    values: values,
+};
+NodeListPrototype[Symbol.iterator] = values;
+NodeListPrototype[Symbol.toStringTag] = 'NodeList';
+
+var HTMLCollectionPrototype = {
+    item: function (index) {
+        return this[index] || null;
+    },
+    namedItem: function (name) {
+        for (var i = 0; i < this.length; i += 1) {
+            if (this[i].getAttribute('id') === name || this[i].getAttribute('name') === name) {
+                return this[i];
+            }
+        }
+        return null;
+    },
+};
+HTMLCollectionPrototype[Symbol.iterator] = values;
+HTMLCollectionPrototype[Symbol.toStringTag] = 'HTMLCollection';
 
 function Element(tagName) {
     this.tagName = String(tagName).toUpperCase();
@@ -224,7 +290,7 @@ Object.defineProperty(Element.prototype, 'dataset', {
 
 Object.defineProperty(Element.prototype, 'children', {
     get: function () {
-        return this.childNodes.slice();
+        return collection(HTMLCollectionPrototype, this.childNodes);
     },
 });
 
@@ -423,28 +489,31 @@ function matches(element, selector) {
     });
 }
 
-Element.prototype.querySelectorAll = function (selector) {
-    var found = [];
+function collect(element, selector, found) {
+    element.childNodes.forEach(function (child) {
+        if (matches(child, selector)) {
+            found.push(child);
+        }
 
+        collect(child, selector, found);
+    });
+
+    return found;
+}
+
+Element.prototype.querySelectorAll = function (selector) {
     // Checked before walking rather than per element, so an unsupported
     // selector throws on an empty tree too — otherwise it would return null on
     // a container that happens to have nothing in it, which reads as "no match"
     // and is the wrong answer for a selector this cannot evaluate at all.
     assertSupported(selector);
 
-    this.childNodes.forEach(function (child) {
-        if (matches(child, selector)) {
-            found.push(child);
-        }
-
-        found = found.concat(child.querySelectorAll(selector));
-    });
-
-    return found;
+    return collection(NodeListPrototype, collect(this, selector, []));
 };
 
 Element.prototype.querySelector = function (selector) {
-    return this.querySelectorAll(selector)[0] || null;
+    assertSupported(selector);
+    return collect(this, selector, [])[0] || null;
 };
 
 function createElement(tagName) {
