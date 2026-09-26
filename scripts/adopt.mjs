@@ -114,21 +114,22 @@ const controlType = /<data-set[\s>]/.test(manifestXml)
         : 'field';
 
 /*
- * `react` (bundled) is the case the manifest cannot express: a virtual control
- * declares platform libraries, but a control that packages React into its own
- * bundle looks exactly like a standard one from here. So it is read off
- * package.json dependencies — a runtime `react` dependency in a non-virtual
- * control is the signature — and reported rather than assumed.
+ * The hub knows two frameworks, `standard` and `react_virtual`, and rejects
+ * anything else. A control that packages React into its own bundle is
+ * control-type="standard", so the hub derives `standard` for it — there is no
+ * value that says "bundled", and writing one fails validation.
+ *
+ * Bundling is still worth knowing, and the manifest cannot show it: a virtual
+ * control declares platform libraries, a bundling one looks exactly like any
+ * other standard control. So it is read off package.json dependencies — a
+ * runtime `react` dependency in a non-virtual control is the signature — and
+ * reported as a note, never written as the framework.
  */
 const pkgPath = join(target, 'package.json');
 const pkg = existsSync(pkgPath) ? JSON.parse(readFileSync(pkgPath, 'utf8')) : {};
 const bundlesReact = Boolean(pkg.dependencies?.react);
 
-const framework = declaredType === 'virtual'
-    ? 'react_virtual'
-    : bundlesReact
-      ? 'react'
-      : 'standard';
+const framework = declaredType === 'virtual' ? 'react_virtual' : 'standard';
 
 const solutionDir = findSolutionDir(target);
 const solutionProject = solutionDir ? findSolutionProject(target, solutionDir) : null;
@@ -394,6 +395,15 @@ if (pcfproj && !/<PcfBuildMode>\s*production\s*<\/PcfBuildMode>/.test(readFileSy
         + 'ships a development bundle — eval-wrapped and roughly twice the size.');
 }
 
+// Outside the written/compared split below: bundling is a fact about the
+// repository, true whether or not this run wrote pcfhub.json.
+if (bundlesReact && framework === 'standard') {
+    notes.push('package.json has a runtime react dependency, so this control bundles its own React. '
+        + 'control.framework is "standard" all the same: the hub accepts only standard and react_virtual, '
+        + 'and a bundling control is standard. If the platform should supply React instead, make it a '
+        + 'virtual control (react_virtual) — say which in SPEC.md either way.');
+}
+
 /*
  * Everything below is about pcfhub.json, and which half applies depends on
  * whether this run wrote it. On a re-run — or on a repo that was adopted by
@@ -402,12 +412,6 @@ if (pcfproj && !/<PcfBuildMode>\s*production\s*<\/PcfBuildMode>/.test(readFileSy
  * is read back and compared against what discovery concluded instead.
  */
 if (written.includes('pcfhub.json')) {
-    if (framework === 'react') {
-        notes.push('control.framework was written as "react" (bundled) because package.json has a runtime '
-            + 'react dependency. If the platform supplies React instead, this should be react_virtual — say why '
-            + 'in SPEC.md either way.');
-    }
-
     notes.push('demo.fidelity was written as "none". Nothing here can tell whether the control can run in '
         + "the hub's harness — read the demo section of the skill and set it deliberately.");
 } else {
