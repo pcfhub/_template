@@ -1028,6 +1028,18 @@ function checkDomCursor() {
     dom.user.autofill(typed, '555-0100');
     check('rig: autofill replaces the value with an input that has no inputType and no beforeinput, then change', typed.value === '555-0100' && seen.join(' ') === 'input::: change:::', seen.join(' '));
 
+    seen.length = 0;
+    typed.setSelectionRange(4, 4);
+    check('rig: undo not cancelled changes nothing and leaves the cursor at 0, with an input historyUndo — as measured', dom.user.undo(typed) === false && typed.value === '555-0100' && typed.selectionStart === 0 && seen.join(' ') === 'beforeinput:historyUndo:null: input:historyUndo:null:', seen.join(' '));
+
+    const undone = dom.createElement('input');
+    undone.addEventListener('beforeinput', (event) => {
+        if (event.inputType === 'historyUndo') {
+            event.preventDefault();
+        }
+    });
+    check('rig: undo cancelled is reported and fires no input', dom.user.undo(undone) === true);
+
     const off = dom.createElement('input');
     off.disabled = true;
     check('rig: a disabled input takes no typing', dom.user.type(off, 'a') === false && off.value === '');
