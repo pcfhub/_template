@@ -22,6 +22,21 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
     private notifyOutputChanged!: () => void;
     private value = '';
 
+    /**
+     * Every value this control handed the platform recently, newest last.
+     *
+     * Each `notifyOutputChanged` comes back as an `updateView` carrying the value
+     * just written — and **not necessarily in order**: typing "pase laur" on a
+     * real form produced passes carrying "pase laur", "pase lau", "pase laur"
+     * (measured 2026-09-13). A guard comparing against the latest value alone
+     * adopts the late "pase lau" as a change from the form, writes it into the
+     * box, and the last character typed is gone. An incoming value found here is
+     * an echo whatever its order; one never written is the form's own — a
+     * script, a business rule, a refresh — and is taken, and the list starts
+     * again.
+     */
+    private written: string[] = [];
+
     public init(
         context: ComponentFramework.Context<IInputs>,
         notifyOutputChanged: () => void,
@@ -114,9 +129,12 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
         const incoming = parameter.raw ?? '';
 
-        // Guarded, not assigned unconditionally: writing `value` while the user
-        // is typing moves the caret to the end of the field on every keystroke.
-        if (incoming !== this.value) {
+        // Guarded twice. A browser moves the caret to the end whenever `value`
+        // is assigned something different from what the box holds, so a late
+        // echo of an earlier keystroke both loses what was typed after it and
+        // throws the user to the end of the field. See `written`.
+        if (incoming !== this.value && !this.written.includes(incoming)) {
+            this.written = [];
             this.value = incoming;
             this.input.value = incoming;
         }
@@ -185,6 +203,16 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
     private onInput = (): void => {
         this.value = this.input.value;
+
+        // Bounded: a form open all day should not keep every keystroke. 32
+        // is far more than the one-keystroke lag measured; an echo older than
+        // that would be taken as the form's.
+        this.written.push(this.value);
+
+        if (this.written.length > 32) {
+            this.written.shift();
+        }
+
         this.notifyOutputChanged();
     };
 }

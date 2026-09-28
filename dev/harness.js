@@ -111,9 +111,10 @@
      * It reads `getOutputs()`, keeps the answer as the column's new value, and
      * comes back through `updateView` with it. Modelling that round trip is
      * most of the value of this page: it is the loop in which a control that
-     * assigns `input.value` unconditionally moves the caret to the end on every
-     * keystroke, and the loop in which a control that re-adopts the platform's
-     * value without comparing it discards the edit that caused the call.
+     * re-adopts the platform's value without comparing it discards the edit
+     * that caused the call. This page echoes in order and at once; a real form
+     * echoes late and out of order, which only `dev/smoke.js` can stage — see
+     * the late-echo assertions there.
      *
      * Deferred rather than immediate, because the platform is asynchronous and
      * because calling back synchronously from inside the control's own event

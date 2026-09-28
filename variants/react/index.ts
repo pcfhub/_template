@@ -33,6 +33,20 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
      */
     private lastIncoming: string | undefined = undefined;
 
+    /**
+     * Every value this control handed the platform recently, newest last.
+     *
+     * `lastIncoming` alone is not enough, because the platform echoes writes
+     * back **out of order**: typing "pase laur" on a real form produced passes
+     * carrying "pase laur", "pase lau", "pase laur" (measured 2026-09-13). The
+     * late "pase lau" differs from the last value the platform sent, so it was
+     * adopted, handed down as a new `value` prop, and the component's resync
+     * effect put it in the box — the last character typed, gone. An incoming
+     * value found here is an echo whatever its order; one never written is the
+     * form's own, and is taken.
+     */
+    private written: string[] = [];
+
     public init(
         _context: ComponentFramework.Context<IInputs>,
         notifyOutputChanged: () => void,
@@ -47,7 +61,11 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
 
         if (incoming !== this.lastIncoming) {
             this.lastIncoming = incoming;
-            this.value = incoming;
+
+            if (!this.written.includes(incoming)) {
+                this.written = [];
+                this.value = incoming;
+            }
         }
 
         // Field-level security is NOT the form's read-only state, and
@@ -85,6 +103,13 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
             fallbackLabel: context.resources.getString('__CONTROL___Name'),
             onChange: (next: string): void => {
                 this.value = next;
+                // Bounded; 32 is far more than the one-keystroke lag measured.
+                this.written.push(next);
+
+                if (this.written.length > 32) {
+                    this.written.shift();
+                }
+
                 this.notifyOutputChanged();
             },
         };

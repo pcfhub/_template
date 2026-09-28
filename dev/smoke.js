@@ -406,6 +406,32 @@ if (plain.element !== undefined) {
         edited.outputs().value === 'Fabrikam',
         JSON.stringify(edited.outputs()),
     );
+
+    /*
+     * The platform echoes writes back late and **out of order** — typing "pase
+     * laur" on a real form produced passes carrying "pase laur", "pase lau",
+     * "pase laur". A control that adopts any value differing from the last one
+     * the platform sent hands the late echo down as a new prop, the
+     * component's resync effect puts it in the box, and the last character
+     * typed is gone.
+     */
+    const echoed = mount({ value: '' });
+
+    echoed.props().onChange('ab');
+    echoed.props().onChange('abc');
+    echoed.update({ value: 'abc' });
+    echoed.update({ value: 'ab' });
+
+    check(
+        'a late echo of an earlier keystroke is not handed down as a new value',
+        echoed.update({ value: 'ab' }).props.value === 'abc',
+        JSON.stringify(echoed.update({ value: 'ab' }).props.value),
+    );
+
+    check(
+        'but a value the control never wrote is taken from the form',
+        echoed.update({ value: 'Changed by a script' }).props.value === 'Changed by a script',
+    );
 } else {
     /* ------------------------------------------------ a standard control */
 
@@ -524,13 +550,19 @@ if (plain.element !== undefined) {
      * The edit path, end to end: the user types, the control notifies, and what
      * it hands back is what the platform will write to the column.
      */
-    const edited = mount({});
+    const edited = mount({ value: null });
     const input = edited.find('input');
 
-    input.value = 'Fabrikam';
-    input.dispatchEvent({ type: 'input', target: input });
+    // `dom.user` types the way a person does — beforeinput, the edit at the
+    // cursor, input — rather than assigning `value` and firing a bare event,
+    // which is a sequence no browser produces. See `dev/dom.js`.
+    dom.user.type(input, 'Fabrikam');
 
-    check('typing notifies the platform exactly once', edited.notifications() === 1, String(edited.notifications()));
+    check(
+        'typing notifies the platform once per keystroke',
+        edited.notifications() === 'Fabrikam'.length,
+        String(edited.notifications()),
+    );
 
     check(
         'and getOutputs hands back what was typed',
@@ -540,20 +572,55 @@ if (plain.element !== undefined) {
 
     /*
      * `updateView` runs on every change to any bound value, including ones this
-     * control caused itself — so a control that writes the input unconditionally
-     * moves the caret to the end of the field on every keystroke. The guard is
-     * invisible in a rendered form and visible here: a render that changes
-     * nothing must not touch the value the user is holding.
+     * control caused itself — and the platform's echoes of those changes arrive
+     * late and **out of order** (typing "pase laur" on a real form produced
+     * passes carrying "pase laur", "pase lau", "pase laur"). A browser moves the
+     * caret to the end whenever `value` is assigned something *different* from
+     * what the box holds, so a control that takes a late echo loses the
+     * characters typed after it and throws the user to the end of the field.
+     *
+     * Typed in the middle on purpose: at the end of the field a caret jump is
+     * invisible, which is how this passes a suite that only ever appends.
      */
-    const typing = mount({});
+    const typing = mount({ value: 'Contoso' });
     const held = typing.find('input');
 
-    held.value = 'Half-typed';
-    typing.update({});
+    held.setSelectionRange(3, 3);
+    dom.user.type(held, 'xyz');
+
+    // Every echo of what was typed — the earliest one last, as measured.
+    typing.update({ value: 'Conxyztoso' });
+    typing.update({ value: 'Conxytoso' });
+    typing.update({ value: 'Conxtoso' });
 
     check(
-        'a re-render with an unchanged value leaves what the user is typing alone',
-        held.value === 'Half-typed',
+        'a late echo of an earlier keystroke does not undo what was typed after it',
+        held.value === 'Conxyztoso',
+        held.value,
+    );
+
+    check(
+        'and leaves the caret where the user was typing',
+        held.selectionStart === 6 && held.selectionEnd === 6,
+        `${held.selectionStart}–${held.selectionEnd}`,
+    );
+
+    check(
+        'and getOutputs still hands back the latest value, not the echo',
+        typing.outputs().value === 'Conxyztoso',
+        JSON.stringify(typing.outputs()),
+    );
+
+    /*
+     * The other half of the guard: a value the control never wrote is the
+     * form's — a script, a business rule, a refresh — and must win, or the
+     * control shows a value the column no longer holds.
+     */
+    typing.update({ value: 'Changed by a script' });
+
+    check(
+        'a value the control never wrote is taken from the form',
+        held.value === 'Changed by a script',
         held.value,
     );
 }
@@ -873,8 +940,108 @@ async function rigSelfCheck() {
 
     checkModuleLoader();
     checkDomCollections();
+    checkDomCursor();
 
     disposeAll();
+}
+
+/*
+ * The text entry cursor and `dom.user`, proved on bare elements — every caret
+ * assertion a control's suite makes rests on these being a browser's rules
+ * (see *The text entry cursor* in `dev/dom.js`).
+ */
+function checkDomCursor() {
+    const box = dom.createElement('input');
+    box.type = 'text';
+    box.value = 'abcdef';
+
+    check('rig: assigning a different value moves the cursor to the end', box.selectionStart === 6 && box.selectionEnd === 6);
+
+    box.setSelectionRange(2, 2);
+    box.value = 'abcdef';
+    check('rig: assigning the same value leaves the cursor where it was', box.selectionStart === 2, String(box.selectionStart));
+
+    box.setSelectionRange(9, 4);
+    check('rig: setSelectionRange clamps to the length and pulls a start past the end back to it', box.selectionStart === 4 && box.selectionEnd === 4, `${box.selectionStart}–${box.selectionEnd}`);
+
+    box.value = 'one\ntwo';
+    check('rig: a single-line input strips line breaks, as its value sanitisation does', box.value === 'onetwo', JSON.stringify(box.value));
+
+    const email = dom.createElement('input');
+    email.type = 'email';
+    let refused = null;
+    try {
+        email.setSelectionRange(0, 0);
+    } catch (error) {
+        refused = error;
+    }
+    check('rig: an email input has no cursor — selectionStart null, setSelectionRange throws InvalidStateError', email.selectionStart === null && refused !== null && refused.name === 'InvalidStateError');
+
+    const seen = [];
+    const typed = dom.createElement('input');
+    ['beforeinput', 'input', 'focus', 'paste', 'change', 'compositionstart', 'compositionupdate', 'compositionend'].forEach((type) => {
+        typed.addEventListener(type, (event) => seen.push(`${type}:${event.inputType || ''}:${event.data === undefined ? '' : event.data}:${event.isComposing ? 'c' : ''}`));
+    });
+    typed.value = 'Contoso';
+    typed.setSelectionRange(3, 3);
+    dom.user.type(typed, 'xy');
+    check('rig: user.type edits at the cursor and leaves it after what was typed', typed.value === 'Conxytoso' && typed.selectionStart === 5, `${typed.value} @${typed.selectionStart}`);
+    check('rig: …focusing first, then beforeinput and input per character with inputType and data', seen.join(' ') === 'focus::: beforeinput:insertText:x: input:insertText:x: beforeinput:insertText:y: input:insertText:y:', seen.join(' '));
+
+    const blocked = dom.createElement('input');
+    blocked.addEventListener('beforeinput', (event) => event.preventDefault());
+    blocked.value = 'ab';
+    check('rig: preventDefault on beforeinput stops the edit', dom.user.type(blocked, 'c') === false && blocked.value === 'ab');
+
+    typed.setSelectionRange(3, 3);
+    dom.user.backspace(typed);
+    check('rig: backspace deletes the character before the cursor', typed.value === 'Coxytoso' && typed.selectionStart === 2, `${typed.value} @${typed.selectionStart}`);
+    typed.setSelectionRange(0, 0);
+    check('rig: backspace at the start deletes nothing and fires nothing', dom.user.backspace(typed) === false);
+    typed.setSelectionRange(2, 4);
+    dom.user.del(typed);
+    check('rig: delete removes a selection', typed.value === 'Cotoso', typed.value);
+
+    const limited = dom.createElement('input');
+    limited.maxLength = 3;
+    dom.user.type(limited, 'abcdef');
+    dom.user.paste(limited, 'zz');
+    check('rig: maxLength limits what the user types and pastes', limited.value === 'abc', limited.value);
+
+    typed.focus();
+    seen.length = 0;
+    typed.value = '';
+    dom.user.paste(typed, 'line one\nline two');
+    check('rig: paste fires paste, then beforeinput/input insertFromPaste, one line', typed.value === 'line oneline two' && seen[0].indexOf('paste:') === 0 && seen[1].indexOf('beforeinput:insertFromPaste:') === 0, seen.join(' | '));
+
+    seen.length = 0;
+    typed.value = '';
+    dom.user.compose(typed, ['k', 'ka'], 'か');
+    check('rig: compose replaces its own run, ending on the committed text', typed.value === 'か' && typed.selectionStart === 1, typed.value);
+    check(
+        'rig: …and the last input arrives, still composing, before compositionend — as in Chromium',
+        seen[0].indexOf('compositionstart') === 0 && seen[seen.length - 2] === 'input:insertCompositionText:か:c' && seen[seen.length - 1].indexOf('compositionend') === 0,
+        seen.join(' '),
+    );
+
+    seen.length = 0;
+    dom.user.autofill(typed, '555-0100');
+    check('rig: autofill replaces the value with an input that has no inputType and no beforeinput, then change', typed.value === '555-0100' && seen.join(' ') === 'input::: change:::', seen.join(' '));
+
+    const off = dom.createElement('input');
+    off.disabled = true;
+    check('rig: a disabled input takes no typing', dom.user.type(off, 'a') === false && off.value === '');
+
+    const focusLog = [];
+    const first = dom.createElement('input');
+    const second = dom.createElement('input');
+    first.addEventListener('blur', () => focusLog.push('first:blur'));
+    second.addEventListener('focus', () => focusLog.push('second:focus'));
+    first.focus();
+    second.focus();
+    second.focus();
+    check('rig: moving focus blurs what had it, and focusing twice fires once', focusLog.join(' ') === 'first:blur second:focus', focusLog.join(' '));
+    second.blur();
 }
 
 /*
