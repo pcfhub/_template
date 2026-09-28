@@ -80,6 +80,7 @@
  * reason.
  */
 
+import { execFileSync } from 'node:child_process';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -389,6 +390,16 @@ function isAhead(next, current) {
  * page when the number suggests it, says so, and never overwrites one that is
  * already there.
  */
+/** Whether any `v*` tag exists — i.e. whether this control has been released. */
+function hasReleaseTag() {
+    try {
+        return execFileSync('git', ['tag', '--list', 'v*'], { cwd: root, encoding: 'utf8' }).trim() !== '';
+    } catch {
+        // Not a git checkout, or no git: say nothing rather than guess.
+        return false;
+    }
+}
+
 function migrationPage() {
     const donor = join(root, 'scripts', 'templates', 'migration.md');
     const page = join(root, 'docs', 'migration.md');
@@ -413,6 +424,14 @@ function migrationPage() {
             (Number(parts[1]) === 0 && Number(parts[2]) > Number(before[2])));
 
     if (!breaking) {
+        return;
+    }
+
+    // A first release has nobody to migrate: 0.0.x probes were never tagged,
+    // and 0.0.4 → 0.1.0 is a "breaking" 0.x minor by the rule above, so
+    // pcf-input-mask's first release was handed a migration page for makers
+    // who could not exist. No release tag yet means no page.
+    if (!hasReleaseTag()) {
         return;
     }
 
