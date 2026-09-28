@@ -37,6 +37,18 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
      */
     private written: string[] = [];
 
+    /**
+     * The value the host handed over last time. A value equal to it is not
+     * news, whatever the control holds now: PCFHub's demo never writes a
+     * control's output back, and re-renders — on a width change, a theme or a
+     * locale — with the preset's value as it always was, which taken as the
+     * form's own change wipes whatever the visitor typed (measured on
+     * pcf-input-mask's demo, 2026-09-28). A form never repeats itself that
+     * way: every write comes back as a new value. The React scaffold has
+     * guarded on this from the start.
+     */
+    private lastIncoming: string | undefined = undefined;
+
     public init(
         context: ComponentFramework.Context<IInputs>,
         notifyOutputChanged: () => void,
@@ -133,7 +145,11 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         // is assigned something different from what the box holds, so a late
         // echo of an earlier keystroke both loses what was typed after it and
         // throws the user to the end of the field. See `written`.
-        if (incoming !== this.value && !this.written.includes(incoming)) {
+        const repeated = incoming === this.lastIncoming;
+
+        this.lastIncoming = incoming;
+
+        if (!repeated && incoming !== this.value && !this.written.includes(incoming)) {
             this.written = [];
             this.value = incoming;
             this.input.value = incoming;

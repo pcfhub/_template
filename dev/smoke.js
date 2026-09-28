@@ -612,6 +612,26 @@ if (plain.element !== undefined) {
     );
 
     /*
+     * PCFHub's demo never writes a control's output back, and re-renders — on
+     * a width change, a theme toggle, a locale — with the preset's value as it
+     * always was (measured on pcf-input-mask's demo, 2026-09-28). A host saying
+     * again what it said last time is not news, or every such re-render wipes
+     * what the visitor typed.
+     */
+    const demo = mount({ value: 'Contoso' });
+    const demoInput = demo.find('input');
+
+    demoInput.setSelectionRange(7, 7);
+    dom.user.type(demoInput, ' Ltd');
+    demo.update({ value: 'Contoso', dark: true });
+
+    check(
+        'a host repeating its last value does not undo the edit — the hub demo re-renders that way',
+        demoInput.value === 'Contoso Ltd' && demo.outputs().value === 'Contoso Ltd',
+        demoInput.value,
+    );
+
+    /*
      * The other half of the guard: a value the control never wrote is the
      * form's — a script, a business rule, a refresh — and must win, or the
      * control shows a value the column no longer holds.
