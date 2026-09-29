@@ -1375,6 +1375,23 @@
                     });
                 }
 
+                /*
+                 * The primary key an aggregate counts over — not always
+                 * `<table>id` (an activity's is `activityid`), which is why a
+                 * control reads it. `fixture.primaryIds` names the odd ones;
+                 * everything else answers `<table>id`. Before 2026-09-29 this
+                 * fell through to the relationships reply, and a control's
+                 * read quietly landed on its own guess.
+                 */
+                var primary = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)\?\$select=PrimaryIdAttribute$/i);
+
+                if (primary) {
+                    return reply(200, {
+                        LogicalName: primary[1],
+                        PrimaryIdAttribute: (fixture.primaryIds || {})[primary[1]] || primary[1] + 'id',
+                    });
+                }
+
                 var definition = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)(\?\$select=EntitySetName)?$/i);
 
                 if (definition) {
@@ -2495,9 +2512,19 @@
          * `fixture.tables` row wrapped to look like one.
          */
         function fetchRows(entityType) {
+            /*
+             * **The server answers from what it has**, which includes a write
+             * the dataset has not re-read yet: a query sent after
+             * `updateRecord` resolves counts the record where it now is. Rows
+             * are read through their committed values for that reason — until
+             * 2026-09-29 a total asked for right after a move counted the card
+             * in the lane it had left.
+             */
             if (entityType === fixture.targetEntityType) {
                 return allRecords.filter(function (row) {
                     return removed.indexOf(row.id) === -1;
+                }).map(function (row) {
+                    return row.committed ? { id: row.id, values: Object.assign({}, row.values, row.committed) } : row;
                 });
             }
 

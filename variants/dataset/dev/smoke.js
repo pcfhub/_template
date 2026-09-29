@@ -1503,6 +1503,17 @@ async function statusChecks() {
     const name = '@OData.Community.Display.V1.AttributeName';
     const formatted = '@OData.Community.Display.V1.FormattedValue';
 
+    // The paired write above is committed and not re-read; the server counts it anyway.
+    const inactive = aggregate.entities.find((entry) => entry.g0 === 1);
+    const before = withReasons.records.filter((entry) => entry.values.statecode === 1).length;
+
+    check('rig: an aggregate counts a write the dataset has not re-read', inactive && inactive.n === before + 1, `${inactive && inactive.n} vs ${before} + 1`);
+
+    const url = handle.context.page.getClientUrl();
+    const primary = await fetch(`${url}/api/data/v9.2/EntityDefinitions(LogicalName='account')?$select=PrimaryIdAttribute`).then((response) => response.json());
+
+    check('rig: the primary key is answered, not the relationships', primary.PrimaryIdAttribute === 'accountid', JSON.stringify(primary));
+
     check(
         'rig: an aggregate row carries AttributeName on every alias, and a formatted sum and count',
         row && row[`g0${name}`] === 'statecode' && row[`m0${name}`] === 'revenue' && row[`n${name}`] === 'accountid'
