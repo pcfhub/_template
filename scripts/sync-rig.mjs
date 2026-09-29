@@ -84,6 +84,23 @@ const MANAGED = [
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
     { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm, needs: 'dev/harness.html' },
+    /*
+     * Shared control code, not rig: the view-aggregate library — a view's own
+     * FetchXML rewritten as an aggregate, the subgrid's parent lookup
+     * resolved, the rows read back. Three controls carried a copy each
+     * (chart-view, data-table, kanban-board) before it lived here. Synced
+     * only into a control that has adopted it, which is the folder existing:
+     *
+     *   mkdir <Control>/lib/view-aggregate && node ../_template/scripts/sync-rig.mjs --into . --add-missing
+     *
+     * `__CONTROL__` in a path is the repository's first control, substituted
+     * like the file contents are.
+     */
+    ...['types', 'fetchXml', 'rows', 'parent', 'aggregate'].map((name) => ({
+        path: `__CONTROL__/lib/view-aggregate/${name}.ts`,
+        source: `variants/lib/view-aggregate/${name}.ts`,
+        needs: '__CONTROL__/lib/view-aggregate',
+    })),
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */
@@ -180,8 +197,16 @@ function sync(target) {
 function classify(target, shape) {
     const tokens = tokensFor(shape);
 
-    return MANAGED.filter((m) => (!m.when || m.when(shape)) && (!m.needs || existsSync(join(target, m.needs)))).map((m) => {
-        const source = m.source ?? m.path;
+    // A managed path may name the control (`__CONTROL__/lib/…`), so paths are substituted too.
+    const managed = MANAGED.map((m) => ({
+        ...m,
+        path: substitute(m.path, tokens),
+        needs: m.needs && substitute(m.needs, tokens),
+        source: m.source ?? m.path,
+    }));
+
+    return managed.filter((m) => (!m.when || m.when(shape)) && (!m.needs || existsSync(join(target, m.needs)))).map((m) => {
+        const source = m.source;
         const wanted = substitute(readFileSync(join(template, source), 'utf8'), tokens);
         const file = join(target, m.path);
 

@@ -161,6 +161,25 @@ never written; the report names the template file to compare them with.
 scripts, never replacing one. It refuses a dirty tree, so a sync is its own
 commit. `setup.mjs` deletes it on adoption, as it does `add-control.mjs`.
 
+### Shared control code: `lib/view-aggregate`
+
+One piece of **control** code is shared the same way:
+`variants/lib/view-aggregate/` — a view's own FetchXML rewritten as an
+aggregate (group, sum, count), the runtime filter translated, the subgrid's
+parent lookup resolved, and the rows read back. `pcf-chart-view`,
+`pcf-data-table` and `pcf-kanban-board` each carried a copy before it lived
+here. It is not scaffolded; a control adopts it by making the folder:
+
+```bash
+mkdir <Control>/lib/view-aggregate
+node ../_template/scripts/sync-rig.mjs --into . --add-missing
+```
+
+From then on `sync-rig` keeps it current like the rig, and an edited copy is
+reported and left alone. Import it as `./lib/view-aggregate/fetchXml` and so
+on; a suite loads the pure modules through `dev/modules.js`. The skill's
+*Aggregating a view through FetchXML* is what it implements.
+
 ### What `npm start` already covers
 
 **Use `npm start` for the happy path**, and know exactly what it is. Read off

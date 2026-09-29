@@ -31,7 +31,7 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -506,6 +506,31 @@ function verifySync() {
         writeFileSync(file('dev/smoke.js'), "const { createLoader } = require('./modules');\n");
         check('--add-missing restores a modules.js the suite requires, without the .js', /add\s+dev\/modules\.js/.test(planned()), planned());
         check('while dom.js, which that suite never loads, stays out', !/add\s+dev\/dom\.js/.test(planned()), planned());
+
+        /*
+         * The shared view-aggregate library is control code, not rig: it
+         * arrives only in a control that has adopted it — its folder exists —
+         * and lands under the control's own name.
+         */
+        const control = JSON.parse(repo.read('pcfhub.json')).control.constructor;
+        const libDir = `${control}/lib/view-aggregate`;
+
+        check('the view-aggregate library stays out of a control that has not adopted it', !/lib\/view-aggregate/.test(planned()), planned());
+
+        mkdirSync(file(libDir), { recursive: true });
+
+        const adopting = run(['--add-missing']);
+        const lifted = ['types', 'fetchXml', 'rows', 'parent', 'aggregate'];
+
+        check(
+            'and arrives under the control\'s own folder once that folder exists',
+            adopting.status === 0 && lifted.every((name) => existsSync(file(`${libDir}/${name}.ts`))),
+            adopting.out,
+        );
+        check(
+            'as the template\'s own copy',
+            lifted.every((name) => lf(repo.read(`${libDir}/${name}.ts`)) === lf(readFileSync(join(root, 'variants/lib/view-aggregate', `${name}.ts`), 'utf8'))),
+        );
     } finally {
         rmSync(repo.scratch, { recursive: true, force: true });
     }
