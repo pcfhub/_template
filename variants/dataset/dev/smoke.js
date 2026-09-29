@@ -1077,6 +1077,10 @@ const metadataChecks = async () => {
     );
 
     check('and getViewId answers undefined there', canvas.context.parameters.records.getViewId() === undefined);
+
+    const noForm = host.createHost(fixture, { openForm: false });
+
+    check('openForm: false leaves the method out, as the hub demo does, the bag still there', noForm.context.navigation && noForm.context.navigation.openForm === undefined && typeof noForm.context.navigation.openUrl === 'function');
 };
 
 

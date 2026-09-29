@@ -327,6 +327,16 @@
         openFile: true,
 
         /**
+         * Whether `context.navigation.openForm` exists at all. `false` is a
+         * host that leaves the method out — PCFHub's demo harness — which is
+         * not canvas: canvas publishes it and throws from the call. A control
+         * that guards on `typeof openForm` is right on this host and wrong on
+         * canvas, so a suite wants both (`pcf-calendar-view` carried this
+         * switch before the template did).
+         */
+        openForm: true,
+
+        /**
          * Whether `context.navigation` exists at all.
          *
          * Typed non-optional, which is a claim about the type definitions
@@ -2888,6 +2898,11 @@
 
                 return Promise.resolve(o.openFormReturns);
             };
+
+            // `openForm: false` — a host that leaves the method out (the hub's demo).
+            if (!o.openForm) {
+                delete navigation.openForm;
+            }
 
             // Documented model-driven apps only — and published on canvas
             // anyway, where it refuses from the call (see `onCanvas`).
