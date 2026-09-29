@@ -521,6 +521,29 @@ if (exists(join(root, docsPath))) {
             `${docsPath}/changelog.md is ignored — the hub builds the changelog from release notes.`,
         );
     }
+
+    /*
+     * The migration page `npm run bump` writes is the template's, unfilled,
+     * and it says so — but only on the console of the bump. pcf-kanban-board
+     * 0.4.0's bump wrote one on a minor bump that broke nothing, `git add
+     * docs` took it into the commit, and this check passed it: tagged, the hub
+     * would have published "The breaking change, in one sentence." for 0.4.0.
+     * An unfilled page is refused here; fill it in or delete it.
+     */
+    const migration = join(root, docsPath, 'migration.md');
+
+    if (exists(migration)) {
+        const text = readFileSync(migration, 'utf8');
+        const unfilled = ['The breaking change, in one sentence.', 'The concrete step.']
+            .filter((line) => text.includes(line));
+
+        if (unfilled.length > 0) {
+            problems.push(
+                `${docsPath}/migration.md is the template's page, unfilled (${unfilled.map((line) => `"${line}"`).join(', ')}). ` +
+                    'Write what changed and what to do, or delete the page if nothing broke — the hub publishes it as it stands.',
+            );
+        }
+    }
 } else {
     problems.push(`No ${docsPath}/ directory, so this component would publish with no documentation.`);
 }
