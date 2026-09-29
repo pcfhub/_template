@@ -1492,6 +1492,23 @@ async function statusChecks() {
     const paired = await reason(handle.context.webAPI.updateRecord(withReasons.targetEntityType, active, { statecode: 1, statuscode: 2 }));
 
     check('rig: …and accepted with its statecode beside it', paired === 'resolved', JSON.stringify(paired));
+
+    // An aggregate row names every alias's column and formats it, as the form's did.
+    const aggregate = await handle.context.webAPI.retrieveMultipleRecords(
+        withReasons.targetEntityType,
+        "?fetchXml=<fetch aggregate='true'><entity name='account'><attribute name='statecode' groupby='true' alias='g0'/>"
+            + "<attribute name='revenue' aggregate='sum' alias='m0'/><attribute name='accountid' aggregate='count' alias='n'/></entity></fetch>",
+    );
+    const row = aggregate.entities.find((entry) => entry.g0 === 0);
+    const name = '@OData.Community.Display.V1.AttributeName';
+    const formatted = '@OData.Community.Display.V1.FormattedValue';
+
+    check(
+        'rig: an aggregate row carries AttributeName on every alias, and a formatted sum and count',
+        row && row[`g0${name}`] === 'statecode' && row[`m0${name}`] === 'revenue' && row[`n${name}`] === 'accountid'
+            && /^\$[\d,]+\.\d\d$/.test(row[`m0${formatted}`]) && row[`n${formatted}`] === String(row.n),
+        JSON.stringify(row),
+    );
 }
 
 metadataChecks().then(rejectionChecks).then(statusChecks).then(report, (error) => {

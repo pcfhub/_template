@@ -2667,6 +2667,7 @@
                         }
 
                         out[a.alias] = key;
+                        out[a.alias + '@OData.Community.Display.V1.AttributeName'] = a.name;
 
                         var label = a.dategrouping ? undefined : groupLabel(a.name, group.rows[0].values[a.name]);
 
@@ -2707,8 +2708,23 @@
                                 result = undefined;
                         }
 
+                        /*
+                         * **Every alias names its column and carries a
+                         * formatted value** — measured 2026-09-29
+                         * (`pcf-kanban-board` 0.3.6, A2): a Money sum
+                         * `m0: 25` beside "$25.00", a count `n: 10` beside
+                         * "10", each with `AttributeName`. The rig left
+                         * them out until then, so `describesPlan` — the one
+                         * integrity check on this route — passed vacuously
+                         * in every suite. Money is formatted in dollars
+                         * here; the server uses the record's currency.
+                         */
                         if (result !== undefined) {
                             out[a.alias] = result;
+                            out[a.alias + '@OData.Community.Display.V1.AttributeName'] = a.name;
+                            out[a.alias + '@OData.Community.Display.V1.FormattedValue'] = typeOf(a.name) === 'Currency'
+                                ? '$' + Number(result).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',')
+                                : String(result);
                         }
                     });
 
