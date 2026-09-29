@@ -1048,17 +1048,35 @@ const metadataChecks = async () => {
     );
 
     /*
-     * Canvas has neither. `utils` and `openForm` go together on that host,
-     * whatever the options say — the rule a control has to follow is "detect
-     * the method", and this is the rig refusing to hand it one.
+     * **Canvas publishes them and refuses the call** — fifteen of fifteen
+     * surfaces present on a real canvas app (2026-09-22), the callable ones
+     * throwing `Method not implemented.` synchronously. This asserted the
+     * opposite until 2026-09-29, and so certified "detect the method" as the
+     * rule, which on canvas always passes. The rule is to test an answer.
      */
     const canvas = host.createHost(fixture, { host: 'canvas', utils: true });
+    const throwsNow = (call) => {
+        try {
+            call();
+
+            return 'returned';
+        } catch (error) {
+            return error.message;
+        }
+    };
 
     check(
-        'canvas has no utils and no openForm, whatever the options say',
-        canvas.context.utils === undefined && canvas.context.navigation.openForm === undefined,
-        `utils ${typeof canvas.context.utils}, openForm ${typeof canvas.context.navigation.openForm}`,
+        'canvas publishes utils, webAPI and openForm, and each throws from the call',
+        typeof canvas.context.utils.getEntityMetadata === 'function'
+            && typeof canvas.context.webAPI.updateRecord === 'function'
+            && typeof canvas.context.navigation.openForm === 'function'
+            && /Method not implemented/.test(throwsNow(() => canvas.context.utils.getEntityMetadata(fixture.targetEntityType, [])))
+            && /Method not implemented/.test(throwsNow(() => canvas.context.webAPI.updateRecord(fixture.targetEntityType, 'x', {})))
+            && /Method not implemented/.test(throwsNow(() => canvas.context.navigation.openForm({}))),
+        `${throwsNow(() => canvas.context.utils.getEntityMetadata(fixture.targetEntityType, []))}`,
     );
+
+    check('and getViewId answers undefined there', canvas.context.parameters.records.getViewId() === undefined);
 };
 
 
@@ -1416,7 +1434,36 @@ disposeAll();
         && typeof kids.namedItem === 'function' && kids.namedItem('second') === kids[1] && [...kids].length === 2 && kids.forEach === undefined && kids.map === undefined);
 })();
 
-metadataChecks().then(report, (error) => {
+/*
+ * A refused write rejects with the platform's shape on both routes, and
+ * `rejection` replaces it on both — so a suite can hand the control a
+ * plugin's sentence, or a bare string, and see what it prints.
+ */
+async function rejectionChecks() {
+    const reason = (promise) => promise.then(() => 'resolved', (error) => error);
+    const firstId = fixture.records[0].id;
+    const saving = host.createHost(fixture, { quirks: { saveRejects: true } });
+    const record = saving.context.parameters.records.records[firstId];
+
+    record.setValue('name', 'x');
+
+    const saved = await reason(record.save());
+
+    check('rig: a refused save rejects with a plain object carrying a message, not an Error', !(saved instanceof Error) && typeof saved.message === 'string', String(saved && saved.message));
+
+    const told = host.createHost(fixture, { quirks: { saveRejects: true }, rejection: 'a bare string' });
+    const toldRecord = told.context.parameters.records.records[firstId];
+
+    toldRecord.setValue('name', 'x');
+    check('rig: rejection replaces what a refused save rejects with', (await reason(toldRecord.save())) === 'a bare string');
+
+    const updating = host.createHost(fixture, { webApiFails: true, rejection: { message: 'Only a team lead can resolve this.' } });
+    const updated = await reason(updating.context.webAPI.updateRecord(fixture.targetEntityType, firstId, { name: 'x' }));
+
+    check('rig: …and what a refused updateRecord rejects with', updated && updated.message === 'Only a team lead can resolve this.', JSON.stringify(updated));
+}
+
+metadataChecks().then(rejectionChecks).then(report, (error) => {
     check('the asynchronous rig checks ran at all', false, String((error && error.stack) || error));
     report();
 });

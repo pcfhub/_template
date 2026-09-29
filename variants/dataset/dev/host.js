@@ -393,6 +393,23 @@
         webApiFails: false,
 
         /**
+         * What a refused write rejects with — `record.save()` under
+         * `quirks.saveRejects`, and `createRecord`, `updateRecord` and
+         * `deleteRecord` under `webApiFails` — or `null` for each route's
+         * measured default.
+         *
+         * A control that prints the reason has to survive whatever the
+         * server's sentence is, and a plugin's or a business rule's is
+         * anything at all: `{ message: 'Only a team lead can resolve a work
+         * item.' }`, or not an object at all — `'a bare string'` is how a
+         * control printing `[object Object]` is caught. One switch for both
+         * routes, because a control's rollback must not care which one
+         * refused (`pcf-kanban-board`, which carried this before the
+         * template did).
+         */
+        rejection: null,
+
+        /**
          * A `FilterExpression` the **host** holds on the view, which the
          * control never set — a quick-find typed into the grid's own box —
          * that narrows the rows and comes back from `filtering.getFilter()`
@@ -1062,6 +1079,42 @@
 
         function log(name, argument) {
             state.calls.push(argument === undefined ? name : name + '(' + JSON.stringify(argument) + ')');
+        }
+
+        /**
+         * A bag as a canvas app publishes it: **every method present, and
+         * each one throwing `Method not implemented.` from the call itself** —
+         * a synchronous throw, not a rejection.
+         *
+         * Measured on a real canvas app 2026-09-22 (`pcf-data-table` SPEC,
+         * *The canvas host, measured*): fifteen of fifteen surfaces present,
+         * and `getEntityMetadata`, `retrieveRecord`, `retrieveMultipleRecords`
+         * and `page.getClientUrl` threw when called. The writes, `openForm`,
+         * `openFile` and `lookupObjects` were not called — they would change
+         * data or take the screen — and are modelled the same way, unmeasured.
+         *
+         * This rig withheld `utils`, `webAPI` and `openForm` on canvas until
+         * 2026-09-29, which certified the rule the measurement disproved:
+         * `typeof x.method === 'function'` is no capability test on canvas.
+         * A control has to test an *answer* — see `page.getClientUrl` below.
+         */
+        function onCanvas(owner, bag) {
+            if (o.host !== 'canvas' || !bag) {
+                return bag;
+            }
+
+            var refusing = {};
+
+            Object.keys(bag).forEach(function (name) {
+                refusing[name] = typeof bag[name] !== 'function'
+                    ? bag[name]
+                    : function () {
+                        log(owner + '.' + name + ' (canvas: not implemented)');
+                        throw new Error(name + ': Method not implemented.');
+                    };
+            });
+
+            return refusing;
         }
 
         /*
@@ -1926,7 +1979,11 @@
                 if (quirks.saveRejects) {
                     row.staged = {};
 
-                    return Promise.reject(new Error('The platform refused this write.'));
+                    // A plain object, like `updateRecord`'s: a refused save
+                    // is the platform's shape, never an `Error`.
+                    return Promise.reject(o.rejection !== null
+                        ? o.rejection
+                        : webApiFault(2147746581, 'Access Is Denied', 'The platform refused this write.'));
                 }
 
                 /*
@@ -2145,8 +2202,14 @@
              * The bound view's id. Typed `string`; measured `null` on the
              * dataset under a bound lookup. A control reads it to fetch the
              * view's own FetchXML from `savedquery` — see `retrieveRecord`.
+             * **`undefined` on canvas** (measured 2026-09-22), whatever
+             * `viewId` says: a canvas table has no saved view to name.
              */
             getViewId: function () {
+                if (o.host === 'canvas') {
+                    return undefined;
+                }
+
                 return o.viewId === undefined ? fixture.viewId || null : o.viewId;
             },
 
@@ -2631,34 +2694,42 @@
                 },
             };
 
-            // Model-driven only, on the same rule as `openFile` below.
-            if (o.host !== 'canvas') {
-                /**
-                 * Logged in full, **both arguments**, because the options
-                 * *are* the behaviour: whether `useQuickCreateForm` was set,
-                 * whether `createFromEntity` named the parent, whether
-                 * `entityId` was left out for a create — and what the second
-                 * argument carried. `openForm(options, parameters)` takes a
-                 * `{ [column]: string }` of field values the form opens
-                 * with, and it is how a quick create arrives with a column
-                 * already set (`pcf-kanban-board`'s "+" passes the lane).
-                 * A stub that logged the options alone would certify a
-                 * button that opens a blank form. Logged as one object so a
-                 * suite can `JSON.parse` the call. Resolves
-                 * `o.openFormReturns` — see DEFAULTS for the measured shapes.
-                 */
-                navigation.openForm = function (formOptions, parameters) {
-                    log('navigation.openForm', { options: formOptions, parameters: parameters });
+            /**
+             * Logged in full, **both arguments**, because the options *are*
+             * the behaviour: whether `useQuickCreateForm` was set, whether
+             * `createFromEntity` named the parent, whether `entityId` was left
+             * out for a create — and what the second argument carried.
+             * `openForm(options, parameters)` takes a `{ [column]: string }`
+             * of field values the form opens with, and it is how a quick
+             * create arrives with a column already set (`pcf-kanban-board`'s
+             * "+" passes the lane). A stub that logged the options alone would
+             * certify a button that opens a blank form. Logged as one object
+             * so a suite can `JSON.parse` the call. Resolves
+             * `o.openFormReturns` — see DEFAULTS for the measured shapes.
+             *
+             * Published on canvas too, where it refuses from the call — see
+             * `onCanvas`.
+             */
+            navigation.openForm = function (formOptions, parameters) {
+                if (o.host === 'canvas') {
+                    log('navigation.openForm (canvas: not implemented)');
+                    throw new Error('openForm: Method not implemented.');
+                }
 
-                    return Promise.resolve(o.openFormReturns);
-                };
-            }
+                log('navigation.openForm', { options: formOptions, parameters: parameters });
 
-            // Documented model-driven apps only, and a canvas host has no
-            // switch to say otherwise — `openFile: true` under `host: 'canvas'`
-            // would be a host that does not exist.
-            if (o.openFile && o.host !== 'canvas') {
+                return Promise.resolve(o.openFormReturns);
+            };
+
+            // Documented model-driven apps only — and published on canvas
+            // anyway, where it refuses from the call (see `onCanvas`).
+            if (o.openFile) {
                 navigation.openFile = function (file, fileOptions) {
+                    if (o.host === 'canvas') {
+                        log('navigation.openFile (canvas: not implemented)');
+                        throw new Error('openFile: Method not implemented.');
+                    }
+
                     log('navigation.openFile', {
                         fileName: (file || {}).fileName,
                         fileSize: (file || {}).fileSize,
@@ -2832,8 +2903,8 @@
                  * column the fixture says nothing about — what a real node
                  * does for a column that is not a choice or a lookup.
                  */
-                utils: o.utils && o.host !== 'canvas'
-                    ? {
+                utils: o.utils
+                    ? onCanvas('utils', {
                         getEntityMetadata: function (entityName, attributes) {
                             log('utils.getEntityMetadata', { entity: entityName, attributes: attributes });
 
@@ -2947,7 +3018,7 @@
                                 ? Boolean(o.hasPrivilege(privilegeType, privilegeDepth, entityTypeName))
                                 : Boolean(o.hasPrivilege);
                         },
-                    }
+                    })
                     : undefined,
 
                 /**
@@ -2991,13 +3062,14 @@
                  * an `Error` would pass a control that renders the string
                  * "[object Object]" where the platform's explanation belongs.
                  */
-                // Forced absent on canvas however the switch is set, on the
-                // same rule as `utils` and `page`: WebAPI is Dataverse-dependent
-                // and is not available in canvas apps, whatever the manifest
-                // declares. A rig that could be told "canvas, with a Web API"
-                // would pass a control that works nowhere.
-                webAPI: o.webAPI && o.host !== 'canvas'
-                    ? {
+                // Published on canvas and refusing from every call, on the
+                // same rule as `utils` and `page` — see `onCanvas`. WebAPI is
+                // Dataverse-dependent and does not *work* in canvas apps,
+                // whatever the manifest declares; that is not the same as
+                // being absent there, and a control that feature-detects
+                // `updateRecord` offers a write canvas can only refuse.
+                webAPI: o.webAPI
+                    ? onCanvas('webAPI', {
                         /**
                          * **The row arrives on the next fetch, not on the
                          * call.** `createRecord` resolves with the new id and
@@ -3040,7 +3112,7 @@
                             log('webAPI.createRecord', { entity: entityType, data: logged });
 
                             if (o.webApiFails) {
-                                return Promise.reject(webApiFault(
+                                return Promise.reject(o.rejection !== null ? o.rejection : webApiFault(
                                     2147746581,
                                     '',
                                     'The record could not be created.',
@@ -3235,7 +3307,9 @@
                             log('webAPI.updateRecord', { entity: entityType, id: id, data: data });
 
                             if (o.webApiFails) {
-                                return Promise.reject(webApiFault(2147781913, '', PAYLOAD_FAULT));
+                                return Promise.reject(o.rejection !== null
+                                    ? o.rejection
+                                    : webApiFault(2147781913, '', PAYLOAD_FAULT));
                             }
 
                             var row = allRecords.filter(function (candidate) {
@@ -3394,7 +3468,7 @@
                             log('webAPI.deleteRecord', entityType + ' ' + id);
 
                             if (o.webApiFails) {
-                                return Promise.reject({
+                                return Promise.reject(o.rejection !== null ? o.rejection : {
                                     errorCode: 2147746581,
                                     message: 'The record could not be deleted.',
                                 });
@@ -3422,7 +3496,7 @@
                                 name: gone && primary ? formatted(gone.values[primary.name]) : '',
                             });
                         },
-                    }
+                    })
                     : undefined,
 
                 navigation: buildNavigation(),
