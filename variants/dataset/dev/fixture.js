@@ -98,8 +98,8 @@
                 options: [
                     // `color` becomes `Color` on the descriptor array only —
                     // never on the map — and an option without one has no key.
-                    { value: 0, label: 'Active', color: '#107C10' },
-                    { value: 1, label: 'Inactive' },
+                    { value: 0, label: 'Active', color: '#107C10', defaultStatus: 1 },
+                    { value: 1, label: 'Inactive', defaultStatus: 2 },
                 ],
             },
             /*

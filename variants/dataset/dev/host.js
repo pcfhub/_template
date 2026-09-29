@@ -1803,7 +1803,30 @@
 
             if (entry.options && entry.shape === 'descriptor') {
                 node.attributeDescriptor.OptionSet = entry.options.map(function (option) {
-                    var described = { Label: option.label, Value: option.value, IsHidden: false };
+                    /*
+                     * The keys measured 2026-09-29 (`pcf-kanban-board` 0.3.6
+                     * probe, `cll_task`): **`TransitionData` on every
+                     * option** — `null` where no transitions are defined; a
+                     * Status Reason option carries its **`State`** (a number),
+                     * a Status option its **`DefaultStatus`** and
+                     * `InvariantName`. Neither of those two has a `Color` key.
+                     * `state` / `defaultStatus` in the fixture turn them on.
+                     */
+                    var described = {
+                        Label: option.label,
+                        Value: option.value,
+                        TransitionData: option.transitionData === undefined ? null : option.transitionData,
+                        IsHidden: false,
+                    };
+
+                    if (typeof option.state === 'number') {
+                        described.State = option.state;
+                    }
+
+                    if (typeof option.defaultStatus === 'number') {
+                        described.DefaultStatus = option.defaultStatus;
+                        described.InvariantName = option.invariantName || option.label;
+                    }
 
                     /*
                      * **`Color` is on the descriptor array only, never on the
@@ -1846,6 +1869,42 @@
             }
 
             return node;
+        }
+
+        /**
+         * Whether an update names a Status Reason outside the state the record
+         * will be in — which the server refuses rather than repairs.
+         *
+         * Measured 2026-09-29 (`pcf-kanban-board` 0.3.6 probe, T4/T5 on
+         * `cll_task`): `{ statuscode }` alone into a reason of the **other**
+         * state is refused with 2147779592 and a message naming neither — the
+         * server does **not** infer the state; `{ statecode, statuscode }`
+         * together is accepted; `{ statuscode }` within the record's own state
+         * is accepted. Decidable only where the fixture gives each reason its
+         * `state`, so a fixture without one accepts everything, as before.
+         */
+        function statusMismatch(row, data) {
+            var has = function (bag, key) {
+                return Boolean(bag) && Object.prototype.hasOwnProperty.call(bag, key);
+            };
+
+            if (!has(data, 'statuscode')) {
+                return false;
+            }
+
+            var reasons = ((fixture.metadata || {}).statuscode || {}).options || [];
+            var reason = reasons.filter(function (option) {
+                return String(option.value) === String(data.statuscode);
+            })[0];
+
+            if (!reason || typeof reason.state !== 'number') {
+                return false;
+            }
+
+            var current = has(row.committed, 'statecode') ? row.committed.statecode : row.values.statecode;
+            var state = has(data, 'statecode') ? data.statecode : current;
+
+            return state !== undefined && state !== null && Number(state) !== reason.state;
         }
 
         /** The label a Choice's integer renders as, from `fixture.metadata`. */
@@ -3321,6 +3380,14 @@
                                     2147746327,
                                     'Record Is Unavailable',
                                     'The requested record was not found.',
+                                ));
+                            }
+
+                            if (statusMismatch(row, data)) {
+                                return Promise.reject(webApiFault(
+                                    2147779592,
+                                    'State code or status code is invalid.',
+                                    'State code is invalid or state code is valid but status code is invalid for a specified state code.',
                                 ));
                             }
 

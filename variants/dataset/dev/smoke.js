@@ -1463,7 +1463,38 @@ async function rejectionChecks() {
     check('rig: …and what a refused updateRecord rejects with', updated && updated.message === 'Only a team lead can resolve this.', JSON.stringify(updated));
 }
 
-metadataChecks().then(rejectionChecks).then(report, (error) => {
+/*
+ * Status Reasons as a form answered them (pcf-kanban-board 0.3.6, 29 Sep):
+ * each reason carries its `State`, and a bare `statuscode` into the other
+ * state is refused — the server does not infer the state — while the pair
+ * together is accepted.
+ */
+async function statusChecks() {
+    const reason = (promise) => promise.then(() => 'resolved', (error) => error);
+    const withReasons = {
+        ...fixture,
+        metadata: {
+            ...fixture.metadata,
+            statuscode: { shape: 'descriptor', options: [{ value: 1, label: 'Active', state: 0 }, { value: 2, label: 'Inactive', state: 1 }] },
+        },
+    };
+    const active = withReasons.records.find((row) => row.values.statecode === 0).id;
+    const handle = host.createHost(withReasons, {});
+    const metadata = await handle.context.utils.getEntityMetadata(withReasons.targetEntityType, ['statuscode']);
+    const options = metadata.Attributes.get('statuscode').attributeDescriptor.OptionSet;
+
+    check('rig: a Status Reason option carries its State, and TransitionData null', options[1].State === 1 && options[1].TransitionData === null && !('Color' in options[1]), JSON.stringify(options[1]));
+
+    const bare = await reason(handle.context.webAPI.updateRecord(withReasons.targetEntityType, active, { statuscode: 2 }));
+
+    check('rig: a bare statuscode into the other state is refused, 2147779592', bare && bare.errorCode === 2147779592, JSON.stringify(bare));
+
+    const paired = await reason(handle.context.webAPI.updateRecord(withReasons.targetEntityType, active, { statecode: 1, statuscode: 2 }));
+
+    check('rig: …and accepted with its statecode beside it', paired === 'resolved', JSON.stringify(paired));
+}
+
+metadataChecks().then(rejectionChecks).then(statusChecks).then(report, (error) => {
     check('the asynchronous rig checks ran at all', false, String((error && error.stack) || error));
     report();
 });
