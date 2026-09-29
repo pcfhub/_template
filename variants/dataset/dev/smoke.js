@@ -1541,6 +1541,16 @@ async function statusChecks() {
     const inactive = aggregate.entities.find((entry) => entry.g0 === 1);
     const before = withReasons.records.filter((entry) => entry.values.statecode === 1).length;
 
+    // A refresh starts again at page one, as a form's did after Load more.
+    const paged = host.createHost(fixture, { pageSize: 5 });
+    const pagedSet = paged.context.parameters.records;
+
+    pagedSet.paging.loadNextPage();
+    const grown = pagedSet.sortedRecordIds.length;
+
+    pagedSet.refresh();
+    check('rig: a refresh drops the pages Load more brought in', grown === 10 && pagedSet.sortedRecordIds.length === 5, `${grown} then ${pagedSet.sortedRecordIds.length}`);
+
     check('rig: an aggregate counts a write the dataset has not re-read', inactive && inactive.n === before + 1, `${inactive && inactive.n} vs ${before} + 1`);
 
     const url = handle.context.page.getClientUrl();

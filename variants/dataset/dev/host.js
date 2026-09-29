@@ -599,6 +599,12 @@
              * because that is what a real form does.
              */
             accumulatePages: true,
+            /**
+             * `refresh()` keeps the pages loaded so far. **Off**, because a
+             * real form does not: a refresh after Load more brought back the
+             * first page alone (`pcf-kanban-board`, 2026-09-29).
+             */
+            refreshKeepsPages: false,
             /** `hasPreviousPage` never becomes true. Observed on a real form. */
             previousPageStuck: true,
             /**
@@ -2336,6 +2342,21 @@
 
             refresh: function () {
                 log('refresh');
+
+                /*
+                 * **A refresh starts the view again at its first page.**
+                 * Observed on a form 2026-09-29 (`pcf-kanban-board` 0.4.0):
+                 * after Load more twice or three times, the refresh a move
+                 * ended with brought back the first page alone, and every card
+                 * past it vanished until Load more was pressed again. This rig
+                 * kept the loaded range across a refresh until then, which is a
+                 * host on which that bug cannot happen. `refreshKeepsPages`
+                 * restores the old behaviour, for a suite that needs it.
+                 */
+                if (!quirks.refreshKeepsPages) {
+                    state.page = 1;
+                }
+
                 fetched();
             },
 
