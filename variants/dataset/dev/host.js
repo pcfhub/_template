@@ -1383,6 +1383,23 @@
                  * fell through to the relationships reply, and a control's
                  * read quietly landed on its own guess.
                  */
+                /*
+                 * Whether the table's Status Reason transitions are applied
+                 * — `false` while they are merely defined, measured
+                 * 2026-09-29 (`pcf-kanban-board` 0.3.7): `TransitionData`
+                 * was filled in on every reason and this still answered
+                 * `false` until *Enable Status Reason Transitions* was
+                 * ticked. `fixture.enforceStateTransitions` turns it on.
+                 */
+                var enforce = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)\?\$select=(?:LogicalName,)?EnforceStateTransitions$/i);
+
+                if (enforce) {
+                    return reply(200, {
+                        LogicalName: enforce[1],
+                        EnforceStateTransitions: enforce[1] === fixture.targetEntityType && fixture.enforceStateTransitions === true,
+                    });
+                }
+
                 var primary = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)\?\$select=PrimaryIdAttribute$/i);
 
                 if (primary) {
@@ -1922,6 +1939,34 @@
             var state = has(data, 'statecode') ? data.statecode : current;
 
             return state !== undefined && state !== null && Number(state) !== reason.state;
+        }
+
+        /**
+         * Whether an enforced Status Reason transition refuses this update.
+         *
+         * Measured 2026-09-29 (`pcf-kanban-board` 0.3.7, T6, *Enable Status
+         * Reason Transitions* on): **the server enforces a transition only
+         * where the state changes.** Active → Inactive, not allowed, was
+         * refused with 2147807246 and the sentence below, verbatim; Cancelled
+         * → Inactive, not allowed but within one state, was **accepted**.
+         * A reason's `transitionData` in the fixture is the list of reasons
+         * it may move to, the shape `getEntityMetadata` hands over.
+         */
+        function transitionRefused(row, data) {
+            if (fixture.enforceStateTransitions !== true || !data || !Object.prototype.hasOwnProperty.call(data, 'statuscode')) {
+                return false;
+            }
+
+            var reasons = ((fixture.metadata || {}).statuscode || {}).options || [];
+            var current = row.committed && row.committed.statuscode !== undefined ? row.committed.statuscode : row.values.statuscode;
+            var from = reasons.filter(function (option) { return String(option.value) === String(current); })[0];
+            var to = reasons.filter(function (option) { return String(option.value) === String(data.statuscode); })[0];
+
+            if (!from || !to || !Array.isArray(from.transitionData) || from.state === to.state) {
+                return false;
+            }
+
+            return from.transitionData.map(String).indexOf(String(to.value)) === -1;
         }
 
         /** The label a Choice's integer renders as, from `fixture.metadata`. */
@@ -3431,6 +3476,14 @@
                                     2147779592,
                                     'State code or status code is invalid.',
                                     'State code is invalid or state code is valid but status code is invalid for a specified state code.',
+                                ));
+                            }
+
+                            if (transitionRefused(row, data)) {
+                                return Promise.reject(webApiFault(
+                                    2147807246,
+                                    '',
+                                    'Action could not be taken for few records before of status reason transition restrictions.',
                                 ));
                             }
 

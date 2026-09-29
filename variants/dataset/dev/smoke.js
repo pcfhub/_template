@@ -1493,6 +1493,40 @@ async function statusChecks() {
 
     check('rig: …and accepted with its statecode beside it', paired === 'resolved', JSON.stringify(paired));
 
+    /*
+     * Enforced transitions (0.3.7, T6): a disallowed move that changes the
+     * state is refused with 2147807246; one within a state goes through.
+     */
+    const enforced = {
+        ...withReasons,
+        enforceStateTransitions: true,
+        metadata: {
+            ...withReasons.metadata,
+            statuscode: {
+                shape: 'descriptor',
+                options: [
+                    { value: 1, label: 'Active', state: 0, transitionData: [3] },
+                    { value: 3, label: 'In Progress', state: 0, transitionData: [1, 2] },
+                    { value: 2, label: 'Inactive', state: 1, transitionData: [1] },
+                    { value: 4, label: 'Cancelled', state: 1, transitionData: [1] },
+                ],
+            },
+        },
+        records: withReasons.records.map((entry) => ({ ...entry, values: { ...entry.values, statuscode: entry.values.statecode === 1 ? 4 : 1 } })),
+    };
+    const guarded = host.createHost(enforced, {});
+    const activeRow = enforced.records.find((entry) => entry.values.statecode === 0).id;
+    const cancelledRow = enforced.records.find((entry) => entry.values.statecode === 1).id;
+    const flag = await fetch(`${guarded.context.page.getClientUrl()}/api/data/v9.2/EntityDefinitions(LogicalName='account')?$select=EnforceStateTransitions`).then((response) => response.json());
+    const acrossState = await reason(guarded.context.webAPI.updateRecord('account', activeRow, { statecode: 1, statuscode: 2 }));
+    const withinState = await reason(guarded.context.webAPI.updateRecord('account', cancelledRow, { statuscode: 2 }));
+    const descriptor = (await guarded.context.utils.getEntityMetadata('account', ['statuscode'])).Attributes.get('statuscode').attributeDescriptor.OptionSet[0];
+
+    check('rig: EnforceStateTransitions is answered from the fixture', flag.EnforceStateTransitions === true, JSON.stringify(flag));
+    check('rig: TransitionData on the descriptor is the list of next reasons', JSON.stringify(descriptor.TransitionData) === '[3]', JSON.stringify(descriptor));
+    check('rig: an enforced, disallowed move across states is refused, 2147807246', acrossState && acrossState.errorCode === 2147807246, JSON.stringify(acrossState));
+    check('rig: …and one within a state goes through, as the server let it', withinState === 'resolved', JSON.stringify(withinState));
+
     // An aggregate row names every alias's column and formats it, as the form's did.
     const aggregate = await handle.context.webAPI.retrieveMultipleRecords(
         withReasons.targetEntityType,
