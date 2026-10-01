@@ -90,19 +90,49 @@ if (problems.length > 0) {
      *
      * A repository that has not been through setup carries placeholders
      * everywhere. A repository that has carries them only where a human still
-     * has to write something — the README's three hand-written sections. Both
-     * are placeholders; telling the second one to run `npm run setup` sends
-     * somebody to re-run a script that will not help.
+     * has to write something — the README's three hand-written sections, and
+     * the summary in pcfhub.json. Both are placeholders; telling the second one
+     * to run `npm run setup` sends somebody to re-run a script that will not
+     * help.
+     *
+     * The summary is matched as the whole finding, not by its file: a
+     * pcfhub.json that has not been through setup carries a dozen other tokens
+     * and is the first case, not this one.
      */
-    const onlyProse = problems.every((problem) => problem.startsWith('README.md'));
+    const SUMMARY_UNWRITTEN = 'pcfhub.json still contains __SUMMARY__';
 
-    console.error(onlyProse
-        ? '\nThe README still has sections to write. Replace each placeholder with\n'
-            + 'prose, and delete the comment explaining what belongs there:\n'
-        : '\nThis repository is still the template. Run:\n\n  npm run setup\n');
+    const onlyProse = problems.every(
+        (problem) => problem.startsWith('README.md') || problem === SUMMARY_UNWRITTEN,
+    );
+
+    const readmeUnwritten = problems.some((problem) => problem.startsWith('README.md'));
+
+    if (!onlyProse) {
+        console.error('\nThis repository is still the template. Run:\n\n  npm run setup\n');
+    } else if (readmeUnwritten) {
+        console.error('\nThere is still prose only you can write. Replace each placeholder, and in\n'
+            + 'the README delete the comment explaining what belongs there:\n');
+    } else {
+        console.error('\nThe summary in pcfhub.json is still to write. Replace its placeholder:\n');
+    }
 
     for (const problem of problems) {
         console.error(`  ${problem}`);
+    }
+
+    /*
+     * Said here because nothing else in an adopted repository says it: the
+     * guide that documents the key is removed at adoption, and the hub's own
+     * validator is not asked until the placeholders are gone.
+     */
+    if (onlyProse && problems.includes(SUMMARY_UNWRITTEN)) {
+        console.error(
+            '\n  The summary is what the hub shows under "Overview" on the component page,\n'
+            + '  above the screenshots: what the control does, for somebody deciding whether\n'
+            + '  to install it. One or two paragraphs, 2,000 characters at most, written as a\n'
+            + '  JSON string with \\n\\n between blocks. The page renders paragraphs, "- "\n'
+            + '  lists, **bold** and `code`; a link or a heading is shown as typed.',
+        );
     }
 
     console.error('');

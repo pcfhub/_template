@@ -10,6 +10,10 @@ order: 1
   The landing page for the component on PCFHub. Answer, in this order: what it
   does, who it is for, and what makes it different from doing it another way.
 
+  `summary` in pcfhub.json is the short version of this page — the paragraph or
+  two the component page shows under "Overview", above the screenshots. Write it
+  once this page is written.
+
   Frontmatter above is read by the hub:
     title        the page heading and the nav label
     description  the meta description and the search snippet

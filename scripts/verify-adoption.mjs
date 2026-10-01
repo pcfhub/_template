@@ -59,10 +59,15 @@ const SKIP_DIRS = new Set(['.git', 'node_modules', 'out', 'bin', 'obj', 'generat
  * Placeholders the author is *supposed* to be left holding.
  *
  * README.md ships prompts for the three sections nobody but the author can
- * write, and `check-template.mjs` fails until they are replaced. They are the
- * one case where a surviving token means the template worked.
+ * write, and pcfhub.json one for the summary the hub shows under "Overview".
+ * `check-template.mjs` fails until they are replaced. They are the one case
+ * where a surviving token means the template worked.
+ *
+ * The summary joined them on 2026-10-01. Until the hub read that key the field
+ * could only be typed into its admin form, and twenty-seven of twenty-eight
+ * published components had none: nothing in a repository said it was missing.
  */
-const AUTHORING_PROMPTS = new Set(['__WHAT_IT_DOES__', '__PROPERTIES__', '__ON_THE_HUB__']);
+const AUTHORING_PROMPTS = new Set(['__WHAT_IT_DOES__', '__PROPERTIES__', '__ON_THE_HUB__', '__SUMMARY__']);
 
 const PLACEHOLDER = /__[A-Z][A-Z0-9_]*__/g;
 
@@ -802,8 +807,8 @@ function verifySibling() {
          *
          * `check-template.mjs` walks for placeholders first and exits 1 the
          * moment it finds any — so on a freshly adopted repository, whose README
-         * still carries its three authoring prompts, **it never reaches the
-         * per-control checks at all**. Asserting "it did not complain about the
+         * and pcfhub.json still carry their authoring prompts, **it never reaches
+         * the per-control checks at all**. Asserting "it did not complain about the
          * sibling" above is therefore true whatever those checks do, including
          * nothing.
          *
@@ -816,6 +821,10 @@ function verifySibling() {
         writeFileSync(
             join(repo.scratch, 'README.md'),
             repo.read('README.md').replace(/__WHAT_IT_DOES__|__PROPERTIES__|__ON_THE_HUB__/g, 'Written by the author.'),
+        );
+        writeFileSync(
+            join(repo.scratch, 'pcfhub.json'),
+            repo.read('pcfhub.json').replace('__SUMMARY__', 'Written by the author.'),
         );
 
         /*
@@ -1041,17 +1050,18 @@ function main() {
         }
 
         check(
-            'no placeholder survives adoption except the README authoring prompts',
+            'no placeholder survives adoption except the authoring prompts',
             leftovers.length === 0,
             leftovers.join('\n          '),
         );
 
         // --- the adopted repository's own gate still works ----------------
         //
-        // It must still fail, and for exactly one reason: the README sections
-        // only the author can write. A pass here would mean the gate stopped
-        // gating; a failure naming anything else would mean adoption left work
-        // behind that it should have finished.
+        // It must still fail, and for exactly one reason: the prose only the
+        // author can write — the README's sections and pcfhub.json's summary. A
+        // pass here would mean the gate stopped gating; a failure naming
+        // anything else would mean adoption left work behind that it should
+        // have finished.
         let gate = { status: 0, out: '' };
 
         try {
@@ -1066,9 +1076,23 @@ function main() {
 
         check('check-template still fails on a freshly adopted repository', gate.status === 1);
         check(
-            'and fails only on the README sections the author must write',
-            gate.status === 1 && /README\.md/.test(gate.out) && !/still contains __(?!WHAT_IT_DOES|PROPERTIES|ON_THE_HUB)/.test(gate.out),
+            'and fails only on the prose the author must write',
+            gate.status === 1 && /README\.md/.test(gate.out) && !/still contains __(?!WHAT_IT_DOES|PROPERTIES|ON_THE_HUB|SUMMARY)/.test(gate.out),
             gate.out.trim().split('\n').slice(0, 6).join('\n          '),
+        );
+
+        /*
+         * The summary is the one prompt outside the README, so it is the one
+         * that can be mistaken for a repository that never ran setup — whose
+         * pcfhub.json is full of tokens — and be told to run a script that
+         * will not help.
+         */
+        check(
+            'names the unwritten summary, says what belongs there, and does not send the author back to setup',
+            /pcfhub\.json still contains __SUMMARY__/.test(gate.out)
+                && /under "Overview"/.test(gate.out)
+                && !/npm run setup/.test(gate.out),
+            gate.out.trim().split('\n').slice(0, 12).join('\n          '),
         );
     } finally {
         rmSync(scratch, { recursive: true, force: true });

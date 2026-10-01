@@ -775,11 +775,43 @@ the next import creates a *second* solution instead of upgrading the first.
 Generated rather than asked for: both project GUIDs, and the publisher's
 option-value prefix.
 
+### The four setup leaves for you
+
+Setup does not answer these, because only the author can. `npm run check` fails
+while one remains, and says so in words rather than sending you back to
+`npm run setup`:
+
+| Token | Where | What belongs there |
+| --- | --- | --- |
+| `__WHAT_IT_DOES__` | `README.md` | A few paragraphs: what the built-in control does not do |
+| `__PROPERTIES__` | `README.md` | The configuration surface, read out of the manifest |
+| `__ON_THE_HUB__` | `README.md` | What `demo.fidelity` is, and why |
+| `__SUMMARY__` | `pcfhub.json` | The paragraph or two the hub shows under "Overview" |
+
+**The summary** is the block above the screenshots on the component page: what
+the control does, for somebody deciding whether to install it. Write it from
+`docs/overview.md` once that page exists — it is the short version of it, not
+the tagline again.
+
+- Up to 2,000 characters, as one JSON string with `\n\n` between blocks.
+- The page renders paragraphs, `- ` lists, `**bold**` and `` `code` ``, and
+  nothing else: a link, a heading or italics is shown as typed.
+- A list is a block of its own. A line of prose directly above the first `- `
+  turns the whole block into one paragraph with hyphens in it.
+- It is read from the default branch on every sync, like the tagline, so a
+  correction needs no release. Edited in the hub's admin panel, it is locked
+  there until somebody hands it back.
+
+It is also ten points of the hub's quality score, which search ranks by, and
+what the hub's full-text index and MCP tools read beyond the tagline. Until
+2026-10-01 nothing in a repository could supply it, and twenty-seven of
+twenty-eight published components had none.
+
 ## What the hub reads, and when
 
 | What | From | When |
 | --- | --- | --- |
-| Identity, links, docs path | `pcfhub.json` | Every sync, from the default branch |
+| Identity, tagline, summary, links, docs path | `pcfhub.json` | Every sync, from the default branch |
 | API reference | `ControlManifest.Input.xml` | Once per release, **at that release's tag** |
 | Doc pages | `docs/*.md` | Every sync, from the default branch |
 | Versions, release notes, downloads | GitHub Releases | Every sync |

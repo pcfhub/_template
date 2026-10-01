@@ -405,6 +405,16 @@ if (bundlesReact && framework === 'standard') {
 }
 
 /*
+ * Not written as a placeholder, unlike the template's own pcfhub.json: this
+ * script's promise is that `npm run check` passes on the result, and nothing
+ * here can write the paragraph. The hub says the same thing as an advisory on
+ * every check until the key is there.
+ */
+const SUMMARY_NOTE = 'pcfhub.json has no "summary": the paragraph or two the hub shows under "Overview" on the '
+    + 'component page. Write it from docs/overview.md, right after "tagline" — up to 2,000 characters, in '
+    + 'paragraphs, "- " lists, **bold** and `code`. Without it the page has only the tagline.';
+
+/*
  * Everything below is about pcfhub.json, and which half applies depends on
  * whether this run wrote it. On a re-run — or on a repo that was adopted by
  * hand — it did not, and saying "written as none" about a file left untouched
@@ -414,6 +424,7 @@ if (bundlesReact && framework === 'standard') {
 if (written.includes('pcfhub.json')) {
     notes.push('demo.fidelity was written as "none". Nothing here can tell whether the control can run in '
         + "the hub's harness — read the demo section of the skill and set it deliberately.");
+    notes.push(SUMMARY_NOTE);
 } else {
     notes.push(...comparePcfhubJson());
 }
@@ -581,6 +592,10 @@ function comparePcfhubJson() {
         found.push(`pcfhub.json still tags ${retired.map((t) => `"${t}"`).join(', ')}. `
             + 'Those are no longer tags on the hub: canvas and model-driven belong in "hosts", '
             + 'and dataset is what control.type already says.');
+    }
+
+    if (existing.summary === undefined) {
+        found.push(SUMMARY_NOTE);
     }
 
     if (existing.hosts === undefined) {

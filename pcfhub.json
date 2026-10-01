@@ -4,6 +4,7 @@
   "slug": "__SLUG__",
   "name": "__TITLE__",
   "tagline": "__TAGLINE__",
+  "summary": "__SUMMARY__",
   "category": "__CATEGORY__",
   "hosts": ["model-driven"],
   "tags": [],

@@ -487,7 +487,10 @@ Next:
      which fails outright without it, and this template ships none.
   3. npm run build
   4. Fill in docs/*.md. Every file there becomes a page on the hub; the ones you
-     do not write simply do not appear.
+     do not write simply do not appear. Then write the "summary" in pcfhub.json
+     from the overview: it is what the component page shows under "Overview",
+     and npm run check fails until its placeholder is replaced, as it does for
+     the README's three sections.
   5. Replace media/logo.svg and media/logo.png — the ones here are the
      template's placeholder, and nothing in CI checks what they look like.
      media/README.md has the house style; the mark has to read at 24px.
