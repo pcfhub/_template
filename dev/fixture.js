@@ -347,6 +347,98 @@
             'new_/config/settings.json': '{ "pageSize": 25, "columns": ["name", "revenue"] }',
         },
 
+        /**
+         * The table definitions, for a control that reads them — the table
+         * list, a table's columns, its relationships, a choice's options —
+         * in the kinds a form showed (pcf-code-editor SPEC.md, the 1.4.9
+         * probe, 2026-10-01): a **shadow** column (`of`: no label, logical,
+         * taken by FetchXML), one **not valid for read**, a multi-select
+         * (`Virtual` underneath), a File column, a table with two languages
+         * and an **intersect table with no label**, and a private table the
+         * `IsPrivate eq false` list leaves out. A label is a string (1033) or
+         * `{ 1033: …, 3082: … }`; an option is `[value, label, extra]`, and a
+         * Yes/No lists its true option first. One-to-many and many-to-one
+         * come from `relationships` above; many-to-many from `manyToMany`.
+         */
+        metadata: {
+            tables: {
+                account: {
+                    label: { 1033: 'Account', 3082: 'Cuenta' },
+                    entitySet: 'accounts',
+                    primaryId: 'accountid',
+                    primaryName: 'name',
+                    columns: [
+                        { name: 'accountid', type: 'Uniqueidentifier', label: 'Account' },
+                        { name: 'name', type: 'String', label: { 1033: 'Account Name', 3082: 'Nombre de cuenta' }, description: 'Type the company or business name.' },
+                        { name: 'accountnumber', type: 'String', label: 'Account Number' },
+                        { name: 'parentaccountid', type: 'Lookup', label: 'Parent Account' },
+                        { name: 'parentaccountidname', type: 'Virtual', typeName: 'VirtualType', of: 'parentaccountid' },
+                        { name: 'primarycontactid', type: 'Lookup', label: 'Primary Contact' },
+                        { name: 'primarycontactidname', type: 'Virtual', typeName: 'VirtualType', of: 'primarycontactid' },
+                        { name: 'industrycode', type: 'Picklist', label: 'Industry', options: [[1, 'Accounting'], [2, 'Agriculture and Non-petrol Natural Resource Extraction'], [3, 'Broadcasting Printing and Publishing']] },
+                        { name: 'industrycodename', type: 'Virtual', typeName: 'VirtualType', of: 'industrycode' },
+                        { name: 'statecode', type: 'State', label: 'Status', options: [[0, 'Active', { DefaultStatus: 1, InvariantName: 'Active' }], [1, 'Inactive', { DefaultStatus: 2, InvariantName: 'Inactive' }]] },
+                        { name: 'statuscode', type: 'Status', label: 'Status Reason', options: [[1, 'Active', { State: 0 }], [2, 'Inactive', { State: 1 }]] },
+                        { name: 'donotemail', type: 'Boolean', label: 'Do not allow Emails', options: [[1, 'Do Not Allow'], [0, 'Allow']] },
+                        { name: 'cll_classification', type: 'Virtual', typeName: 'MultiSelectPicklistType', label: 'Classification', options: [[1, 'Customer'], [2, 'Partner'], [3, 'Supplier']] },
+                        { name: 'revenue', type: 'Money', label: 'Annual Revenue' },
+                        { name: 'numberofemployees', type: 'Integer', label: 'Number of Employees' },
+                        { name: 'createdon', type: 'DateTime', label: 'Created On' },
+                        { name: 'ownerid', type: 'Owner', label: 'Owner' },
+                        { name: 'owneridtype', type: 'EntityName', label: 'Owner Type' },
+                        { name: 'address1_composite', type: 'Memo', label: 'Address 1', logical: true },
+                        { name: 'cll_filenative', type: 'Virtual', typeName: 'FileType', label: 'File' },
+                        { name: 'isprivate', type: 'Boolean', label: 'Is Private', readable: false, options: [[1, 'Yes'], [0, 'No']] },
+                    ],
+                },
+                contact: {
+                    label: 'Contact',
+                    entitySet: 'contacts',
+                    primaryId: 'contactid',
+                    primaryName: 'fullname',
+                    columns: [
+                        { name: 'contactid', type: 'Uniqueidentifier', label: 'Contact' },
+                        { name: 'fullname', type: 'String', label: 'Full Name' },
+                        { name: 'emailaddress1', type: 'String', label: 'Email' },
+                        { name: 'parentcustomerid', type: 'Customer', label: 'Company Name' },
+                        { name: 'birthdate', type: 'DateTime', label: 'Birthday' },
+                        { name: 'statecode', type: 'State', label: 'Status', options: [[0, 'Active', { DefaultStatus: 1, InvariantName: 'Active' }], [1, 'Inactive', { DefaultStatus: 2, InvariantName: 'Inactive' }]] },
+                    ],
+                },
+                cll_tag: {
+                    label: 'Tag',
+                    entitySet: 'cll_tags',
+                    primaryId: 'cll_tagid',
+                    primaryName: 'cll_name',
+                    columns: [
+                        { name: 'cll_tagid', type: 'Uniqueidentifier', label: 'Tag' },
+                        { name: 'cll_name', type: 'String', label: 'Name' },
+                    ],
+                },
+                cll_account_tag: {
+                    label: null,
+                    entitySet: 'cll_account_tagset',
+                    primaryId: 'cll_account_tagid',
+                    intersect: true,
+                    columns: [
+                        { name: 'cll_account_tagid', type: 'Uniqueidentifier', label: null },
+                        { name: 'accountid', type: 'Uniqueidentifier', label: null },
+                        { name: 'cll_tagid', type: 'Uniqueidentifier', label: null },
+                    ],
+                },
+                cll_internal: {
+                    label: 'Internal',
+                    entitySet: 'cll_internals',
+                    primaryId: 'cll_internalid',
+                    private: true,
+                    columns: [],
+                },
+            },
+            manyToMany: [
+                { schemaName: 'cll_account_tag', entity1: 'account', entity2: 'cll_tag', intersect: 'cll_account_tag', attribute1: 'accountid', attribute2: 'cll_tagid' },
+            ],
+        },
+
         /** The record most suites sit on, and its parent as the bound lookup would hand it over. */
         current: 'c1',
         parentLookup: [{ id: 'p1', name: NAMES.p1, entityType: 'account' }],

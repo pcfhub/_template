@@ -413,6 +413,26 @@
         relationshipsStatus: 200,
 
         /**
+         * What the table-definition reads answer, as the HTTP status — the
+         * table list (`EntityDefinitions?$select=…&$filter=…`), a table's
+         * columns (`…/Attributes`), its relationships in one `$expand`, and a
+         * choice's options through a cast segment
+         * (`…/Attributes(LogicalName='x')/Microsoft.Dynamics.CRM.
+         * PicklistAttributeMetadata?…`). `200` answers from
+         * `fixture.metadata` in the shapes a form returned (pcf-code-editor
+         * SPEC.md, the 1.4.9 probe, 2026-10-01); any other status is a refusal
+         * body, and **`0` rejects with a `TypeError`**, the offline shape. What
+         * a user without customizer rights is answered is unmeasured.
+         */
+        metadataStatus: 200,
+
+        /**
+         * `userSettings.languageId`, and the language a metadata Label's
+         * `UserLocalizedLabel` is in. 1033 unless a suite says otherwise.
+         */
+        languageId: 1033,
+
+        /**
          * What a same-origin `fetch` of `<clientUrl>/WebResources/<name>`
          * answers — the route a control takes to read its configuration out
          * of a web resource, which needs no `<uses-feature>`. `null` answers
@@ -706,6 +726,398 @@
                 return Promise.resolve(JSON.stringify(body));
             },
         });
+    }
+
+    /* ------------------------------------------------- table definitions */
+
+    /*
+     * What the table-definition reads answer, from `fixture.metadata` — the
+     * shapes measured on a form by pcf-code-editor's 1.4.9 probe (its SPEC.md,
+     * 2026-10-01). The rules the answers keep, because a control that reads
+     * them leans on each:
+     *
+     *   - Only what `$select` names comes back, beside `MetadataId` — so a
+     *     control that reads a property it did not ask for gets `undefined`
+     *     here, as it would on a form.
+     *   - A Label is `{ LocalizedLabels, UserLocalizedLabel }`;
+     *     `LabelLanguages=<lcid>` narrows `LocalizedLabels` to that language,
+     *     and `UserLocalizedLabel` is the label in `languageId`, or `null`
+     *     where there is none — 86 of 860 tables and every shadow column had
+     *     none on the form.
+     *   - A shadow column (`AttributeOf` set — `accountcategorycodename`) has
+     *     no label, is `IsLogical`, and FetchXML takes it; a column not valid
+     *     for read is listed and refused by a query (`0x80041a08`).
+     */
+
+    /** `a=1&b=2` → `{ a: '1', b: '2' }`, decoded — a control may encode or not. */
+    function queryOf(search) {
+        var out = {};
+
+        String(search || '').split('&').forEach(function (pair) {
+            var eq = pair.indexOf('=');
+
+            if (eq > 0) {
+                var value = pair.slice(eq + 1);
+
+                try {
+                    value = decodeURIComponent(value);
+                } catch (e) {
+                    // A literal % that was never encoded.
+                }
+                out[pair.slice(0, eq)] = value;
+            }
+        });
+
+        return out;
+    }
+
+    /** The `metadataStatus` switch, around an answer built only when it is 200. */
+    function metadataReply(o, build) {
+        var status = o.metadataStatus;
+
+        if (status === 0) {
+            return Promise.reject(new TypeError('Failed to fetch'));
+        }
+        if (status !== 200) {
+            return reply(status, { error: { code: '0x80040220', message: 'Refused by the rig (metadataStatus ' + status + ').' } });
+        }
+
+        var answer = build();
+
+        return reply(answer.status, answer.body);
+    }
+
+    /** A stable GUID-shaped id from a seed, so two reads of one thing agree. */
+    function metadataId(seed) {
+        var hash = 0;
+        var text = String(seed);
+
+        for (var i = 0; i < text.length; i++) {
+            hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+        }
+
+        var hex = ('00000000' + hash.toString(16)).slice(-8);
+
+        return hex + '-0000-4000-8000-' + ('000000000000' + (text.length * 7919).toString(16)).slice(-12);
+    }
+
+    /**
+     * A Label from the fixture's text: a string is the 1033 label, an object
+     * maps language codes to labels, `null` is no label at all.
+     */
+    function labelOf(text, o, query) {
+        var map = text === null || text === undefined ? {} : typeof text === 'string' ? { 1033: text } : text;
+        var only = query && query.LabelLanguages ? Number(query.LabelLanguages) : null;
+        var labels = Object.keys(map)
+            .map(Number)
+            .filter(function (code) { return only === null || code === only; })
+            .map(function (code) {
+                return { Label: map[code], LanguageCode: code, IsManaged: true, MetadataId: metadataId('label:' + code + ':' + map[code]), HasChanged: null };
+            });
+
+        return {
+            LocalizedLabels: labels,
+            UserLocalizedLabel: labels.filter(function (label) { return label.LanguageCode === o.languageId; })[0] || null,
+        };
+    }
+
+    /** A row narrowed to what `$select` named — the server's rule. */
+    function pick(row, select) {
+        if (!select) {
+            return row;
+        }
+
+        var out = {};
+
+        ['@odata.type', 'MetadataId'].concat(select).forEach(function (key) {
+            if (row[key] !== undefined) {
+                out[key] = row[key];
+            }
+        });
+
+        return out;
+    }
+
+    function selectOf(query) {
+        return query && query.$select ? query.$select.split(',').map(function (s) { return s.trim(); }) : null;
+    }
+
+    function metadataTable(fixture, name) {
+        return ((fixture.metadata || {}).tables || {})[name];
+    }
+
+    function primaryIdOf(fixture, name) {
+        var table = metadataTable(fixture, name);
+
+        if (table && table.primaryId) {
+            return table.primaryId;
+        }
+
+        var hierarchy = (fixture.hierarchy || {})[name];
+
+        return hierarchy && hierarchy.id ? hierarchy.id : name + 'id';
+    }
+
+    /** An intersect table is not valid for Advanced Find (1.4.9 P1: 0 of 689). */
+    function advancedFindOf(table) {
+        return table.advancedFind !== undefined ? Boolean(table.advancedFind) : !table.intersect;
+    }
+
+    function tableListAnswer(fixture, o, query) {
+        var tables = (fixture.metadata || {}).tables || {};
+        var filter = (query.$filter || '').trim();
+        var tests = {
+            '': function () { return true; },
+            'IsPrivate eq false': function (table) { return !table.private; },
+            'IsValidForAdvancedFind eq true': advancedFindOf,
+        };
+
+        if (!tests[filter]) {
+            return { status: 400, body: { error: { code: '0x80060888', message: 'The rig answers $filter=IsPrivate eq false or IsValidForAdvancedFind eq true, not: ' + filter } } };
+        }
+
+        var select = selectOf(query);
+
+        return {
+            status: 200,
+            body: {
+                value: Object.keys(tables).sort().filter(function (name) { return tests[filter](tables[name]); }).map(function (name) {
+                    var table = tables[name];
+
+                    return pick({
+                        MetadataId: metadataId('table:' + name),
+                        LogicalName: name,
+                        DisplayName: labelOf(table.label, o, query),
+                        EntitySetName: table.entitySet,
+                        PrimaryIdAttribute: primaryIdOf(fixture, name),
+                        PrimaryNameAttribute: table.primaryName === undefined ? null : table.primaryName,
+                        IsIntersect: Boolean(table.intersect),
+                        IsValidForAdvancedFind: advancedFindOf(table),
+                        IsPrivate: Boolean(table.private),
+                    }, select);
+                }),
+            },
+        };
+    }
+
+    /**
+     * A table's columns: `fixture.metadata`'s, then every name only
+     * `fixture.labels` or `fixture.notUpdatable` knows — the older fixtures'
+     * columns, typed by their name as the rig always typed them.
+     */
+    function columnsOf(fixture, entity) {
+        var table = metadataTable(fixture, entity);
+        var columns = (table && table.columns ? table.columns : []).slice();
+        var known = columns.map(function (column) { return column.name; });
+        var labelled = (fixture.labels || {})[entity] || {};
+        var legacy = Object.keys(labelled).concat((fixture.notUpdatable || {})[entity] || []);
+
+        legacy.forEach(function (name) {
+            if (known.indexOf(name) === -1) {
+                known.push(name);
+                columns.push({
+                    name: name,
+                    type: /_composite$/.test(name) ? 'Memo' : /^_|_value$|id$/.test(name) ? 'Lookup' : 'String',
+                    label: labelled[name] === undefined ? null : labelled[name],
+                    legacy: true,
+                });
+            }
+        });
+
+        return columns;
+    }
+
+    /** `MultiSelectPicklistType` is `Virtual` underneath; every other kind is its `AttributeType`. */
+    function kindOf(column) {
+        return column.typeName === 'MultiSelectPicklistType' ? 'MultiSelectPicklist' : column.type;
+    }
+
+    function attributesAnswer(fixture, o, entity, query) {
+        var columns = columnsOf(fixture, entity);
+
+        if (columns.length === 0) {
+            return { status: 404, body: { error: { code: '0x80060888', message: "Could not find a property named '" + entity + "'." } } };
+        }
+
+        var frozen = (fixture.notUpdatable || {})[entity] || [];
+        var select = selectOf(query);
+
+        return {
+            status: 200,
+            body: {
+                value: columns.map(function (column) {
+                    return pick({
+                        '@odata.type': '#Microsoft.Dynamics.CRM.AttributeMetadata',
+                        MetadataId: metadataId('column:' + entity + '.' + column.name),
+                        LogicalName: column.name,
+                        AttributeType: column.type,
+                        AttributeTypeName: { Value: column.typeName || column.type + 'Type' },
+                        DisplayName: labelOf(column.label, o, query),
+                        Description: labelOf(column.description, o, query),
+                        IsValidForRead: column.readable !== false,
+                        IsValidForUpdate: frozen.indexOf(column.name) === -1 && column.updatable !== false,
+                        AttributeOf: column.of || null,
+                        IsLogical: Boolean(column.logical || column.of),
+                    }, select);
+                }),
+            },
+        };
+    }
+
+    /**
+     * The relationships a table takes part in, from `fixture.relationships`
+     * (`one`: rows pointing at it; `many`: its own lookups) and
+     * `fixture.metadata.manyToMany` (`both`).
+     */
+    function relationshipRows(fixture, o, entity, direction) {
+        if (direction === 'both') {
+            return ((fixture.metadata || {}).manyToMany || [])
+                .filter(function (row) { return row.entity1 === entity || row.entity2 === entity; })
+                .map(function (row) {
+                    return {
+                        MetadataId: metadataId('m2m:' + row.schemaName),
+                        SchemaName: row.schemaName,
+                        Entity1LogicalName: row.entity1,
+                        Entity2LogicalName: row.entity2,
+                        IntersectEntityName: row.intersect,
+                        Entity1IntersectAttribute: row.attribute1,
+                        Entity2IntersectAttribute: row.attribute2,
+                    };
+                });
+        }
+
+        return (fixture.relationships || [])
+            .filter(function (row) {
+                return direction === 'one' ? row.target === entity : row.entity === entity;
+            })
+            .map(function (row) {
+                return {
+                    MetadataId: metadataId('rel:' + (row.schemaName || row.entity + '_' + row.column)),
+                    SchemaName: row.schemaName || (row.entity + '_' + row.column),
+                    ReferencingAttribute: row.column,
+                    ReferencingEntity: row.entity,
+                    ReferencedEntity: row.target,
+                    ReferencedAttribute: primaryIdOf(fixture, row.target),
+                    ReferencingEntityNavigationPropertyName: row.navigationProperty,
+                    IsHierarchical: typeof o.hierarchical === 'boolean'
+                        ? (o.hierarchical && row.entity === row.target)
+                        : Boolean(row.hierarchical),
+                };
+            });
+    }
+
+    /** `A($select=x,y),B($select=z)` → `[{ name: 'A', query: { $select: 'x,y' } }, …]`. */
+    function expandItems(expand) {
+        var items = [];
+        var depth = 0;
+        var start = 0;
+
+        for (var i = 0; i <= expand.length; i++) {
+            var c = expand.charAt(i);
+
+            if (c === '(') {
+                depth++;
+            } else if (c === ')') {
+                depth--;
+            } else if ((c === ',' && depth === 0) || i === expand.length) {
+                var item = expand.slice(start, i).trim();
+                var open = item.indexOf('(');
+
+                if (item !== '') {
+                    items.push({
+                        name: open === -1 ? item : item.slice(0, open),
+                        query: open === -1 ? {} : queryOf(item.slice(open + 1, item.lastIndexOf(')')).replace(/;/g, '&')),
+                    });
+                }
+                start = i + 1;
+            }
+        }
+
+        return items;
+    }
+
+    function expandAnswer(fixture, o, entity, query) {
+        if (!metadataTable(fixture, entity) && !(fixture.entitySets || {})[entity]) {
+            return { status: 404, body: { error: { code: '0x80060888', message: "Could not find a property named '" + entity + "'." } } };
+        }
+
+        var kinds = { ManyToOneRelationships: 'many', OneToManyRelationships: 'one', ManyToManyRelationships: 'both' };
+        var body = pick({ MetadataId: metadataId('table:' + entity), LogicalName: entity }, selectOf(query));
+        var items = expandItems(query.$expand);
+
+        for (var i = 0; i < items.length; i++) {
+            if (!kinds[items[i].name]) {
+                return { status: 400, body: { error: { code: '0x80060888', message: "The rig expands the three relationship kinds, not '" + items[i].name + "'." } } };
+            }
+            body[items[i].name] = relationshipRows(fixture, o, entity, kinds[items[i].name]).map(function (row) {
+                return pick(row, selectOf(items[i].query));
+            });
+        }
+
+        return { status: 200, body: body };
+    }
+
+    /** One option in the shape a form gave it — State and Status options carry more. */
+    function optionRow(entity, column, kind, option, o, query) {
+        var extra = option[2] || {};
+        var row = {
+            Color: extra.Color === undefined ? null : extra.Color,
+            Description: labelOf(null, o, query),
+            ExternalValue: null,
+            HasChanged: null,
+            IsHidden: false,
+            IsManaged: true,
+            Label: labelOf(option[1], o, query),
+            MetadataId: metadataId('option:' + entity + '.' + column.name + '.' + option[0]),
+            ParentValues: [],
+            Tag: null,
+            Value: option[0],
+        };
+
+        if (kind === 'State') {
+            row['@odata.type'] = '#Microsoft.Dynamics.CRM.StateOptionMetadata';
+            row.DefaultStatus = extra.DefaultStatus;
+            row.InvariantName = extra.InvariantName || option[1];
+        }
+        if (kind === 'Status') {
+            row['@odata.type'] = '#Microsoft.Dynamics.CRM.StatusOptionMetadata';
+            row.State = extra.State;
+            row.TransitionData = null;
+        }
+
+        return row;
+    }
+
+    /**
+     * A choice's options. A Yes/No answers `TrueOption`/`FalseOption` — its
+     * fixture lists the true option first — and every other kind `Options`.
+     * A cast that is not the column's kind is answered 404; what the server
+     * says to one is unmeasured.
+     */
+    function optionsAnswer(fixture, o, entity, name, cast, query) {
+        var column = columnsOf(fixture, entity).filter(function (c) { return c.name === name; })[0];
+
+        if (!column || kindOf(column) !== cast) {
+            return { status: 404, body: { error: { code: '0x80060888', message: "Could not find an attribute named '" + name + "' of type " + cast + '.' } } };
+        }
+
+        var options = column.options || [];
+        var expand = query.$expand || '';
+        var body = { MetadataId: metadataId('column:' + entity + '.' + name), LogicalName: name };
+
+        if (/\bOptionSet\b/.test(expand.replace(/GlobalOptionSet/g, ''))) {
+            body.OptionSet = cast === 'Boolean'
+                ? {
+                    TrueOption: options[0] ? optionRow(entity, column, cast, options[0], o, query) : null,
+                    FalseOption: options[1] ? optionRow(entity, column, cast, options[1], o, query) : null,
+                }
+                : { Options: options.map(function (option) { return optionRow(entity, column, cast, option, o, query); }) };
+        }
+        if (/\bGlobalOptionSet\b/.test(expand)) {
+            body.GlobalOptionSet = null;
+        }
+
+        return { status: 200, body: body };
     }
 
     /**
@@ -1653,6 +2065,16 @@
                 });
             }
 
+            // ---- EntityDefinitions?… — the table list ---------------------------
+            // The whole list in one answer, as a form gave it (pcf-code-editor
+            // 1.4.9 P1: 860 tables, no paging, `no-cache`), sorted by logical
+            // name, with only what `$select` names. See `tableListAnswer`.
+            if (path.indexOf('EntityDefinitions?') === 0) {
+                return metadataReply(o, function () {
+                    return tableListAnswer(fixture, o, queryOf(path.slice('EntityDefinitions?'.length)));
+                });
+            }
+
             // ---- EntityDefinitions(LogicalName='x') … --------------------------
             var definitionPrefix = "EntityDefinitions(LogicalName='";
 
@@ -1662,11 +2084,29 @@
 
             var rest = path.slice(definitionPrefix.length);
             var entity = (rest.match(/^([a-z0-9_]+)'\)/i) || [])[1];
-            var definition = rest.match(/^[a-z0-9_]+'\)(\?\$select=([A-Za-z,]+))?$/i);
 
-            if (definition) {
-                var set = (fixture.entitySets || {})[entity];
-                var selected = (definition[2] || 'EntitySetName').split(',');
+            if (!entity) {
+                return Promise.reject(new Error('No fetch for ' + address));
+            }
+
+            var afterName = rest.slice(entity.length + 2);
+            var at = afterName.indexOf('?');
+            var tail = at === -1 ? afterName : afterName.slice(0, at);
+            var query = queryOf(at === -1 ? '' : afterName.slice(at + 1));
+
+            // ---- …?$expand=…Relationships(…) — all three kinds in one call -----
+            // Measured accepted in one request (1.4.9 P3: 22 + 60 + 5 on
+            // account, 22 KB, 102 ms), each kind with its own `$select`.
+            if (tail === '' && query.$expand !== undefined) {
+                return metadataReply(o, function () {
+                    return expandAnswer(fixture, o, entity, query);
+                });
+            }
+
+            if (tail === '') {
+                var set = (fixture.entitySets || {})[entity] || (metadataTable(fixture, entity) || {}).entitySet;
+                var table = metadataTable(fixture, entity) || {};
+                var selected = (query.$select || 'EntitySetName').split(',');
 
                 if (set === undefined) {
                     return reply(404, {
@@ -1677,6 +2117,18 @@
                 var body = { LogicalName: entity };
                 if (selected.indexOf('EntitySetName') !== -1) {
                     body.EntitySetName = set;
+                }
+                if (selected.indexOf('PrimaryIdAttribute') !== -1) {
+                    body.PrimaryIdAttribute = primaryIdOf(fixture, entity);
+                }
+                if (selected.indexOf('PrimaryNameAttribute') !== -1) {
+                    body.PrimaryNameAttribute = table.primaryName === undefined ? null : table.primaryName;
+                }
+                if (selected.indexOf('DisplayName') !== -1) {
+                    body.DisplayName = labelOf(table.label, o, query);
+                }
+                if (selected.indexOf('IsIntersect') !== -1) {
+                    body.IsIntersect = Boolean(table.intersect);
                 }
                 if (selected.indexOf('IsAuditEnabled') !== -1) {
                     body.IsAuditEnabled = {
@@ -1691,35 +2143,28 @@
             // ---- EntityDefinitions(LogicalName='x')/Attributes?$select=… ------
             // Every column's IsValidForUpdate — measured (pcf-audit-history
             // R6) as the only place it lives: getEntityMetadata's items do
-            // not carry it. Listed from fixture.labels[table] plus
-            // fixture.notUpdatable[table]; a table the fixture does not
-            // name is a 404, as the server answers.
-            if (/^[a-z0-9_]+'\)\/Attributes(\?|$)/i.test(rest)) {
-                var labelled = Object.keys((fixture.labels || {})[entity] || {});
-                var frozen = (fixture.notUpdatable || {})[entity] || [];
-
-                if (labelled.length === 0 && frozen.length === 0) {
-                    return reply(404, {
-                        error: { code: '0x80060888', message: "Could not find a property named '" + entity + "'." },
-                    });
-                }
-
-                var names = labelled.concat(frozen.filter(function (name) { return labelled.indexOf(name) === -1; }));
-
-                return reply(200, {
-                    value: names.map(function (name) {
-                        return {
-                            '@odata.type': '#Microsoft.Dynamics.CRM.AttributeMetadata',
-                            MetadataId: '00000000-0000-0000-0000-' + ('000000000000' + names.indexOf(name)).slice(-12),
-                            AttributeType: /_composite$/.test(name) ? 'Memo' : /^_|_value$|id$/.test(name) ? 'Lookup' : 'String',
-                            IsValidForUpdate: frozen.indexOf(name) === -1,
-                            LogicalName: name,
-                        };
-                    }),
+            // not carry it — and, for a table in `fixture.metadata`, its
+            // type, labels, readability and shadow (1.4.9 P2). See
+            // `attributesAnswer`; a table the fixture does not name is a 404,
+            // as the server answers.
+            if (tail === '/Attributes') {
+                return metadataReply(o, function () {
+                    return attributesAnswer(fixture, o, entity, query);
                 });
             }
 
-            var direction = /\/OneToManyRelationships/.test(rest) ? 'one' : /\/ManyToOneRelationships/.test(rest) ? 'many' : null;
+            // ---- …/Attributes(LogicalName='y')/Microsoft.Dynamics.CRM.<T>AttributeMetadata
+            // A choice's options, one cast per type (1.4.9 P4: every cast took
+            // the nested `$select`). See `optionsAnswer`.
+            var cast = tail.match(/^\/Attributes\(LogicalName='([a-z0-9_]+)'\)\/Microsoft\.Dynamics\.CRM\.(\w+)AttributeMetadata$/i);
+
+            if (cast) {
+                return metadataReply(o, function () {
+                    return optionsAnswer(fixture, o, entity, cast[1], cast[2], query);
+                });
+            }
+
+            var direction = { '/OneToManyRelationships': 'one', '/ManyToOneRelationships': 'many', '/ManyToManyRelationships': 'both' }[tail];
 
             if (!direction) {
                 return Promise.reject(new Error('No fetch for ' + address));
@@ -1731,28 +2176,9 @@
                 return Promise.reject(new TypeError('Failed to fetch'));
             }
 
-            var body = status === 200
-                ? {
-                    value: (fixture.relationships || [])
-                        .filter(function (row) {
-                            return direction === 'one' ? row.target === entity : row.entity === entity;
-                        })
-                        .map(function (row) {
-                            return {
-                                SchemaName: row.schemaName || (row.entity + '_' + row.column),
-                                ReferencingAttribute: row.column,
-                                ReferencingEntity: row.entity,
-                                ReferencedEntity: row.target,
-                                ReferencingEntityNavigationPropertyName: row.navigationProperty,
-                                IsHierarchical: typeof o.hierarchical === 'boolean'
-                                    ? (o.hierarchical && row.entity === row.target)
-                                    : Boolean(row.hierarchical),
-                            };
-                        }),
-                }
-                : { error: { code: '0x80040220', message: 'Refused by the rig.' } };
-
-            return reply(status, body);
+            return reply(status, status === 200
+                ? { value: relationshipRows(fixture, o, entity, direction) }
+                : { error: { code: '0x80040220', message: 'Refused by the rig.' } });
         };
 
         if (!scope.__pcfHostFetch) {
@@ -2605,7 +3031,7 @@
 
             userSettings: {
                 isRTL: o.rtl,
-                languageId: 1033,
+                languageId: o.languageId,
                 userId: o.userId,
                 userName: o.userName,
                 // Read by any control that formats a number or a date.

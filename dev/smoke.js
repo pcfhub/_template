@@ -775,6 +775,97 @@ disposeAll();
  *  a sibling repository's rig before it was an assertion here.
  * ======================================================================== */
 
+/*
+ * The table-definition reads, in the shapes a form gave them
+ * (pcf-code-editor SPEC.md, the 1.4.9 probe, 2026-10-01). A control that
+ * completes or validates names leans on each of these; the rig is proven
+ * here before any control relies on it.
+ */
+async function metadataSelfCheck() {
+    const ctx = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
+    const api = `${ctx.page.getClientUrl()}/api/data/v9.2/`;
+    const get = async (path, context = ctx) => {
+        const r = await fetch(`${context.page.getClientUrl()}/api/data/v9.2/${path}`);
+        return { status: r.status, body: await r.json() };
+    };
+
+    const list = await get("EntityDefinitions?$select=LogicalName,DisplayName,PrimaryIdAttribute,IsIntersect&$filter=IsPrivate eq false&LabelLanguages=1033");
+    const names = list.body.value.map((t) => t.LogicalName);
+    check(
+        'rig: the table list is every non-private table, sorted, with only what $select named beside MetadataId',
+        list.status === 200 && names.join(',') === 'account,cll_account_tag,cll_tag,contact'
+            && list.body.value.every((t) => typeof t.MetadataId === 'string' && t.EntitySetName === undefined),
+        names.join(','),
+    );
+    const account = list.body.value.find((t) => t.LogicalName === 'account');
+    const intersect = list.body.value.find((t) => t.LogicalName === 'cll_account_tag');
+    check(
+        "rig: LabelLanguages narrows a Label to that language; a table with no label has UserLocalizedLabel null (1.4.9 P5)",
+        account.DisplayName.UserLocalizedLabel.Label === 'Account' && account.DisplayName.LocalizedLabels.length === 1
+            && intersect.DisplayName.UserLocalizedLabel === null && intersect.IsIntersect === true,
+    );
+    const everyLanguage = await get('EntityDefinitions?$select=LogicalName,DisplayName&$filter=IsPrivate eq false');
+    check('rig: …and without it every language comes back', everyLanguage.body.value.find((t) => t.LogicalName === 'account').DisplayName.LocalizedLabels.length === 2);
+    const spanish = host.createContext({ fixture, clientUrl: host.nextClientUrl(), languageId: 3082 });
+    const inSpanish = await get('EntityDefinitions?$select=LogicalName,DisplayName&$filter=IsPrivate eq false', spanish);
+    check(
+        "rig: UserLocalizedLabel is the user's language (languageId), and missing where the table has no label in it",
+        spanish.userSettings.languageId === 3082
+            && inSpanish.body.value.find((t) => t.LogicalName === 'account').DisplayName.UserLocalizedLabel.Label === 'Cuenta'
+            && inSpanish.body.value.find((t) => t.LogicalName === 'contact').DisplayName.UserLocalizedLabel === null,
+    );
+    const advanced = await get('EntityDefinitions?$select=LogicalName&$filter=IsValidForAdvancedFind eq true');
+    check('rig: the Advanced Find list leaves the intersect table out (1.4.9 P1: 0 of 689)', !advanced.body.value.some((t) => t.LogicalName === 'cll_account_tag'), advanced.body.value.map((t) => t.LogicalName).join(','));
+
+    const columns = await get("EntityDefinitions(LogicalName='account')/Attributes?$select=LogicalName,AttributeType,AttributeTypeName,DisplayName,IsValidForRead,AttributeOf,IsLogical&LabelLanguages=1033");
+    const column = (name) => columns.body.value.find((c) => c.LogicalName === name);
+    check(
+        'rig: a shadow column has AttributeOf, IsLogical and no label; one not valid for read says so; a multi-select is Virtual underneath (1.4.9 P2)',
+        column('primarycontactidname').AttributeOf === 'primarycontactid' && column('primarycontactidname').IsLogical === true
+            && column('primarycontactidname').DisplayName.UserLocalizedLabel === null
+            && column('isprivate').IsValidForRead === false
+            && column('cll_classification').AttributeType === 'Virtual' && column('cll_classification').AttributeTypeName.Value === 'MultiSelectPicklistType'
+            && column('name').IsValidForUpdate === undefined,
+    );
+
+    const relationships = await get("EntityDefinitions(LogicalName='account')?$select=LogicalName&$expand=ManyToOneRelationships($select=SchemaName,ReferencedEntity,ReferencedAttribute,ReferencingAttribute),OneToManyRelationships($select=SchemaName,ReferencingEntity,ReferencingAttribute),ManyToManyRelationships($select=SchemaName,Entity1LogicalName,Entity2LogicalName,IntersectEntityName,Entity1IntersectAttribute,Entity2IntersectAttribute)");
+    const m2o = relationships.body.ManyToOneRelationships.find((r) => r.ReferencingAttribute === 'primarycontactid');
+    check(
+        'rig: the three relationship kinds answer in one $expand, each narrowed by its own $select (1.4.9 P3)',
+        relationships.status === 200 && m2o.ReferencedEntity === 'contact' && m2o.ReferencedAttribute === 'contactid' && m2o.ReferencingEntityNavigationPropertyName === undefined
+            && relationships.body.OneToManyRelationships.some((r) => r.ReferencingAttribute === 'parentaccountid')
+            && relationships.body.ManyToManyRelationships[0].IntersectEntityName === 'cll_account_tag',
+    );
+    const m2m = await get("EntityDefinitions(LogicalName='cll_tag')/ManyToManyRelationships");
+    check('rig: …and many-to-many alone lists the relationship from either side', m2m.status === 200 && m2m.body.value[0].Entity1LogicalName === 'account');
+
+    const cast = (columnName, type, inner = '$select=Options') => get(`EntityDefinitions(LogicalName='account')/Attributes(LogicalName='${columnName}')/Microsoft.Dynamics.CRM.${type}AttributeMetadata?$select=LogicalName&$expand=OptionSet(${inner}),GlobalOptionSet(${inner})&LabelLanguages=1033`);
+    const industry = await cast('industrycode', 'Picklist');
+    const state = await cast('statecode', 'State');
+    const status = await cast('statuscode', 'Status');
+    const yesNo = await cast('donotemail', 'Boolean', '$select=TrueOption,FalseOption');
+    const multi = await cast('cll_classification', 'MultiSelectPicklist');
+    check(
+        "rig: a choice's options come through its cast, in the measured keys; State and Status options carry more (1.4.9 P4)",
+        industry.body.OptionSet.Options.length === 3 && industry.body.GlobalOptionSet === null
+            && Object.keys(industry.body.OptionSet.Options[0]).sort().join() === 'Color,Description,ExternalValue,HasChanged,IsHidden,IsManaged,Label,MetadataId,ParentValues,Tag,Value'
+            && industry.body.OptionSet.Options[0].Label.UserLocalizedLabel.Label === 'Accounting'
+            && state.body.OptionSet.Options[0].DefaultStatus === 1 && status.body.OptionSet.Options[1].State === 1
+            && yesNo.body.OptionSet.TrueOption.Value === 1 && yesNo.body.OptionSet.FalseOption.Label.UserLocalizedLabel.Label === 'Allow'
+            && multi.body.OptionSet.Options.length === 3,
+    );
+    const wrongCast = await cast('statecode', 'Picklist');
+    check("rig: a cast that is not the column's kind is refused (unmeasured on a form)", wrongCast.status === 404);
+
+    const refused = host.createContext({ fixture, clientUrl: host.nextClientUrl(), metadataStatus: 403 });
+    const offline = host.createContext({ fixture, clientUrl: host.nextClientUrl(), metadataStatus: 0 });
+    const refusal = await get('EntityDefinitions?$select=LogicalName&$filter=IsPrivate eq false', refused);
+    let fault = null;
+    await fetch(`${offline.page.getClientUrl()}/api/data/v9.2/EntityDefinitions(LogicalName='account')/Attributes?$select=LogicalName`).catch((e) => { fault = e; });
+    check('rig: metadataStatus 403 refuses with an error body, 0 rejects with a TypeError', refusal.status === 403 && refusal.body.error && fault instanceof TypeError);
+    check('rig: a canvas host has no context.page, so nothing can address the table definitions', host.createContext({ fixture, host: 'canvas' }).page === undefined && api.startsWith('https://'));
+}
+
 async function rigSelfCheck() {
     const relationships = (url) => `${url}/api/data/v9.2/EntityDefinitions(LogicalName='account')/OneToManyRelationships`;
 
@@ -957,6 +1048,8 @@ async function rigSelfCheck() {
     const wrDenied = host.createContext({ fixture, clientUrl: host.nextClientUrl(), webResourceStatus: 403 });
     const wrDeniedReply = await fetch(`${wrDenied.page.getClientUrl()}/WebResources/new_/config/settings.json`);
     check('rig: webResourceStatus 0 rejects with a TypeError (offline), 403 refuses', wrFault instanceof TypeError && wrDeniedReply.status === 403);
+
+    await metadataSelfCheck();
 
     checkModuleLoader();
     checkDomCollections();
