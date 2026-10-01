@@ -828,11 +828,11 @@ async function metadataSelfCheck() {
             && column('name').IsValidForUpdate === undefined,
     );
 
-    const relationships = await get("EntityDefinitions(LogicalName='account')?$select=LogicalName&$expand=ManyToOneRelationships($select=SchemaName,ReferencedEntity,ReferencedAttribute,ReferencingAttribute),OneToManyRelationships($select=SchemaName,ReferencingEntity,ReferencingAttribute),ManyToManyRelationships($select=SchemaName,Entity1LogicalName,Entity2LogicalName,IntersectEntityName,Entity1IntersectAttribute,Entity2IntersectAttribute)");
+    const relationships = await get("EntityDefinitions(LogicalName='account')?$select=LogicalName,PrimaryIdAttribute&$expand=ManyToOneRelationships($select=SchemaName,ReferencedEntity,ReferencedAttribute,ReferencingAttribute),OneToManyRelationships($select=SchemaName,ReferencingEntity,ReferencingAttribute),ManyToManyRelationships($select=SchemaName,Entity1LogicalName,Entity2LogicalName,IntersectEntityName,Entity1IntersectAttribute,Entity2IntersectAttribute)");
     const m2o = relationships.body.ManyToOneRelationships.find((r) => r.ReferencingAttribute === 'primarycontactid');
     check(
         'rig: the three relationship kinds answer in one $expand, each narrowed by its own $select (1.4.9 P3)',
-        relationships.status === 200 && m2o.ReferencedEntity === 'contact' && m2o.ReferencedAttribute === 'contactid' && m2o.ReferencingEntityNavigationPropertyName === undefined
+        relationships.status === 200 && relationships.body.PrimaryIdAttribute === 'accountid' && relationships.body.EntitySetName === undefined && m2o.ReferencedEntity === 'contact' && m2o.ReferencedAttribute === 'contactid' && m2o.ReferencingEntityNavigationPropertyName === undefined
             && relationships.body.OneToManyRelationships.some((r) => r.ReferencingAttribute === 'parentaccountid')
             && relationships.body.ManyToManyRelationships[0].IntersectEntityName === 'cll_account_tag',
     );

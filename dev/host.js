@@ -1042,7 +1042,14 @@
         }
 
         var kinds = { ManyToOneRelationships: 'many', OneToManyRelationships: 'one', ManyToManyRelationships: 'both' };
-        var body = pick({ MetadataId: metadataId('table:' + entity), LogicalName: entity }, selectOf(query));
+        var table = metadataTable(fixture, entity) || {};
+        var body = pick({
+            MetadataId: metadataId('table:' + entity),
+            LogicalName: entity,
+            EntitySetName: table.entitySet || (fixture.entitySets || {})[entity],
+            PrimaryIdAttribute: primaryIdOf(fixture, entity),
+            PrimaryNameAttribute: table.primaryName === undefined ? null : table.primaryName,
+        }, selectOf(query));
         var items = expandItems(query.$expand);
 
         for (var i = 0; i < items.length; i++) {
