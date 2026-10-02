@@ -653,7 +653,14 @@
              * `loadExactPage` makes: typed as always present, which is a
              * statement about the type definitions rather than about the host,
              * so a control that calls it unguarded is worth being able to break
-             * here. Canvas is the known case.
+             * here.
+             *
+             * **No host is known to lack it.** This said "Canvas is the known
+             * case" until 2026-10-02, when `pcf-sparkline`'s Expand was seen
+             * opening a full-screen panel in a played canvas app, with the
+             * platform's own close button on it. Nobody had checked, and
+             * Microsoft's reference lists the call for both hosts. The switch
+             * stays for the unguarded call, not for canvas.
              */
             hasFullScreen: true,
 
@@ -997,7 +1004,11 @@
             renderOwed: false,
             /** Every mutator the control called, in order, with its argument. */
             calls: [],
-            /** Inputs `setInput` changed since the last context — what the next `updatedProperties` names. */
+            /**
+             * What the next `updatedProperties` names: the inputs `setInput`
+             * changed since the last context, and the full-screen transitions
+             * the host made (`fullscreen_open`, `fullscreen_close`).
+             */
             changedInputs: [],
         };
 
@@ -3051,8 +3062,19 @@
                     trackContainerResize: function (value) {
                         log('trackContainerResize', value);
                     },
+                    /*
+                     * Answered the way the platform answers. Nothing changes
+                     * inside the call: full screen has no getter, and the
+                     * control learns it happened from its next `updateView`,
+                     * which names the transition in `updatedProperties`
+                     * (Microsoft's canvas dataset tutorial reads it there).
+                     * So the call owes a render, and the next context says
+                     * which way it went.
+                     */
                     setFullScreen: function (value) {
                         log('setFullScreen', value);
+                        state.changedInputs.push(value ? 'fullscreen_open' : 'fullscreen_close');
+                        state.renderOwed = true;
                     },
                     allocatedWidth: o.width,
                     // Pinned at -1 under `heightUnmeasured`, whatever `height`
@@ -3730,10 +3752,10 @@
 
                 /*
                  * What changed since the last pass, the way the platform says
-                 * it: the names `setInput` set since the previous context,
-                 * handed over once and then cleared. Empty on every pass a
-                 * caller did not change an input before, which is what the
-                 * first call carries too.
+                 * it: the names `setInput` set since the previous context, and
+                 * a full-screen transition if there was one, handed over once
+                 * and then cleared. Empty on every pass nothing changed
+                 * before, which is what the first call carries too.
                  */
                 updatedProperties: state.changedInputs.splice(0),
             };
@@ -3776,6 +3798,21 @@
             setInput: function (name, value) {
                 o.inputs[name] = value;
                 state.changedInputs.push(name);
+                state.renderOwed = true;
+            },
+            /**
+             * The host leaves full screen **without being asked** — the
+             * close button on a canvas app's full-screen panel, which is the
+             * platform's and not the control's.
+             *
+             * Nothing calls `setFullScreen(false)`. The next context names
+             * `fullscreen_close`, and a control that only remembers what it
+             * asked for goes on believing it is expanded: `pcf-sparkline` 0.1.0
+             * kept reading Collapse until its button was pressed once for
+             * nothing. Assert on the control after `settle()`.
+             */
+            closeFullScreen: function () {
+                state.changedInputs.push('fullscreen_close');
                 state.renderOwed = true;
             },
             state: state,
