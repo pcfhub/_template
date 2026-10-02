@@ -869,9 +869,15 @@ async function metadataSelfCheck() {
 /*
  * A File or Image column through the Web API — `GET …/$value`, `PATCH`,
  * `DELETE` — the route Learn documents for a column no manifest can bind.
- * Learn's shapes until pcf-file-preview's probe measures them; see
- * `fileAnswer` in `dev/host.js` for which parts are guesses.
+ * Measured on a form by pcf-file-preview's probe (2026-10-02); `fileAnswer`
+ * in `dev/host.js` says which parts are still Learn's.
  */
+const dispositionName = (header) => {
+    const word = /filename="=\?utf-8\?B\?([^?]*)\?="/i.exec(header || '');
+
+    return word ? Buffer.from(word[1], 'base64').toString('utf8') : (/filename=([^;]+)/.exec(header || '') || [])[1];
+};
+
 async function fileColumnSelfCheck() {
     const ctx = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
     const base = `${ctx.page.getClientUrl()}/api/data/v9.2/`;
@@ -881,20 +887,30 @@ async function fileColumnSelfCheck() {
     const pdfBytes = new Uint8Array(await pdf.arrayBuffer());
     const pdfBlob = await (await call('accounts(c1)/cll_filenative/$value')).blob();
     check(
-        'rig: a File column downloads its bytes with x-ms-file-name, x-ms-file-size and mimetype — and an untyped blob, which a control types from mimetype',
-        pdf.status === 200 && pdf.headers.get('mimetype') === 'application/pdf' && pdf.headers.get('x-ms-file-name') === 'Contoso DE — Rahmenvertrag 2026.pdf'
+        'rig: a File column downloads its bytes with x-ms-file-size, mimetype and its name — and an untyped blob, which a control types from mimetype',
+        pdf.status === 200 && pdf.headers.get('mimetype') === 'application/pdf'
             && Number(pdf.headers.get('x-ms-file-size')) === pdfBytes.byteLength && String.fromCharCode(...pdfBytes.slice(0, 5)) === '%PDF-'
             && pdfBlob.type === 'application/octet-stream' && pdfBlob.size === pdfBytes.byteLength,
         `${pdf.status} ${pdf.headers.get('mimetype')} ${pdfBlob.type}`,
     );
+    check(
+        'rig: a name outside ASCII is mangled in x-ms-file-name and right in Content-Disposition, as measured; an ASCII one is bare in both',
+        dispositionName(pdf.headers.get('content-disposition')) === 'Contoso DE — Rahmenvertrag 2026.pdf'
+            // "—" as the probe saw it: Ã¢â¬â plus three invisible C1 controls.
+            && pdf.headers.get('x-ms-file-name') === 'Contoso DE Ã¢â\u0082¬â\u0080\u009d Rahmenvertrag 2026.pdf',
+        `${pdf.headers.get('x-ms-file-name')} | ${pdf.headers.get('content-disposition')}`,
+    );
 
     const empty = await call('accounts(k1)/cll_filenative/$value');
+    const emptyImage = await call('accounts(k1)/cll_photo/$value');
+    const emptyFull = await call('accounts(k1)/cll_photo/$value?size=full');
     const nobody = await call('accounts(nosuch)/cll_filenative/$value');
     const notFile = await call('accounts(c1)/name/$value').then(() => 'answered', (e) => e.message);
     check(
-        "rig: an empty column is a 404 (unmeasured), a record that is not there another, and a column that is not a file is the stub's refusal",
-        empty.status === 404 && (await empty.json()).error.code === '0x80040217' && nobody.status === 404 && /No fetch for/.test(notFile),
-        `${empty.status} ${nobody.status} ${notFile}`,
+        "rig: an empty File column is 404 0x80040217 and an empty Image column 204 to both requests (measured), a record that is not there 404, and a column that is not a file the stub's refusal",
+        empty.status === 404 && (await empty.json()).error.code === '0x80040217' && emptyImage.status === 204 && emptyFull.status === 204
+            && nobody.status === 404 && /No fetch for/.test(notFile),
+        `${empty.status} ${emptyImage.status} ${emptyFull.status} ${nobody.status} ${notFile}`,
     );
 
     const thumb = await call('accounts(c1)/cll_photo/$value');
@@ -924,11 +940,14 @@ async function fileColumnSelfCheck() {
     const after = await call('accounts(k1)/cll_filenative/$value');
     const nonAscii = await call(`accounts(k2)/cll_filenative?x-ms-file-name=${encodeURIComponent('Übersicht.txt')}`, { method: 'PATCH', body: 'ü' });
     const named = await call('accounts(k2)/cll_filenative/$value');
+    const inHeader = await call('accounts(k2)/cll_filenative', { method: 'PATCH', headers: { 'x-ms-file-name': 'Отчёт.txt' }, body: 'x' }).then(() => 'sent', (e) => e);
     check(
-        'rig: a PATCH answers 204 and the next GET has the new bytes and name; the name may come in the query instead of the header',
+        'rig: a PATCH answers 204 and the next GET has the new bytes and name; a non-ASCII name goes in the query, because a header holding one never leaves the browser',
         put.status === 204 && after.status === 200 && (await after.text()) === 'Neue Fassung' && after.headers.get('x-ms-file-name') === 'v2.txt'
-            && after.headers.get('mimetype') === 'text/plain' && nonAscii.status === 204 && named.headers.get('x-ms-file-name') === 'Übersicht.txt',
-        `${put.status} ${after.status} ${nonAscii.status}`,
+            && after.headers.get('content-disposition') === 'inline; filename=v2.txt'
+            && after.headers.get('mimetype') === 'text/plain' && nonAscii.status === 204
+            && dispositionName(named.headers.get('content-disposition')) === 'Übersicht.txt' && inHeader instanceof TypeError,
+        `${put.status} ${after.status} ${nonAscii.status} ${inHeader}`,
     );
 
     const big = await call('accounts(k1)/cll_photo', { method: 'PATCH', headers: { 'x-ms-file-name': 'huge.png' }, body: new Uint8Array(10240 * 1024 + 1) });

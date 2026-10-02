@@ -2027,17 +2027,30 @@
      * What `<set>(<id>)/<column>[/$value]` answers, for a column whose kind is
      * File or Image — the route Learn documents (*Use file column data*,
      * *Use image column data*) and the only one from a control, since no
-     * manifest can bind either kind. From Learn, not yet measured on a form
-     * (pcf-file-preview's probe asks): the three headers on a download
-     * (`x-ms-file-name`, `x-ms-file-size`, `mimetype`), `204` for an Image
-     * column's `?size=full` when it keeps no full-size copy, `0x80044a02` for
-     * a file over the column's `MaxSizeInKB`, `204` from a single `PATCH` and
-     * a `DELETE`. Modelled on no evidence yet, and the first things the probe
-     * is to correct: the empty column's answer (404, `0x80040217`), the
-     * blocked-extension fault, the `Content-Type` of a download — taken as
-     * `application/octet-stream`, so a `blob()` is untyped and a control has
-     * to type it from `mimetype` before a browser will draw it — and the
-     * `mimetype` a `PATCH` leaves behind, guessed here from the extension.
+     * manifest can bind either kind. **Measured on a form on 2026-10-02**
+     * (pcf-file-preview's probe, its SPEC.md):
+     *
+     * - a download is `application/octet-stream` — a `blob()` is untyped, and
+     *   a control types it from `mimetype` before a browser will draw it;
+     * - the size is `x-ms-file-size`; `Content-Length` is not always sent;
+     * - **a name outside ASCII is mangled in `x-ms-file-name`** (UTF-8 read as
+     *   Windows-1252, encoded again, handed over as Latin-1) and **correct in
+     *   `Content-Disposition`** as an RFC 2047 word, `filename="=?utf-8?B?…?="`;
+     *   an ASCII name comes bare in both;
+     * - an empty File column is 404 `0x80040217`; **an empty Image column is
+     *   204**, to the full and the plain request alike;
+     * - a blocked type is 400 `0x80043e09`, over `MaxSizeInKB` 400
+     *   `0x80044a02`; `PATCH` and `DELETE` answer 204; a name in the query
+     *   parameter is stored right.
+     *
+     * Still Learn's, not measured: 204 for `?size=full` on an Image column
+     * that keeps no full-size copy, and the fault for a non-image into an
+     * Image column (the rig's own code below). The `mimetype` a `PATCH`
+     * leaves behind is guessed from the extension.
+     *
+     * A browser refuses a request header holding a character above U+00FF —
+     * `fetch` rejects with a TypeError before anything is sent — so the rig
+     * does too: that is why a non-ASCII name travels in the query.
      *
      * `fixture.files` is keyed `'<table>|<id>|<column>'`:
      *
@@ -2091,6 +2104,45 @@
         }
 
         return out;
+    }
+
+    // Windows-1252's 0x80–0x9F; the five it leaves undefined pass through.
+    var CP1252_HIGH = [
+        0x20ac, 0x81, 0x201a, 0x192, 0x201e, 0x2026, 0x2020, 0x2021, 0x2c6, 0x2030, 0x160, 0x2039, 0x152, 0x8d, 0x17d, 0x8f,
+        0x90, 0x2018, 0x2019, 0x201c, 0x201d, 0x2022, 0x2013, 0x2014, 0x2dc, 0x2122, 0x161, 0x203a, 0x153, 0x9d, 0x17e, 0x178,
+    ];
+
+    function latin1Of(bytes) {
+        var out = '';
+
+        for (var i = 0; i < bytes.length; i++) {
+            out += String.fromCharCode(bytes[i]);
+        }
+
+        return out;
+    }
+
+    /**
+     * `x-ms-file-name` as the service sends it: `Übersicht — 2026.pdf`
+     * arrives as `Ã\u0083Å\u0093bersicht Ã¢â\u0082¬â\u0080\u009d 2026.pdf`. Measured.
+     */
+    function mangledName(name) {
+        var once = '';
+
+        new TextEncoder().encode(name).forEach(function (b) {
+            once += String.fromCharCode(b >= 0x80 && b <= 0x9f ? CP1252_HIGH[b - 0x80] : b);
+        });
+
+        return latin1Of(new TextEncoder().encode(once));
+    }
+
+    /** `Content-Disposition` as the service sends it: bare when ASCII, an RFC 2047 word when not. Measured. */
+    function dispositionOf(name) {
+        if (/^[\x20-\x7e]*$/.test(name)) {
+            return 'inline; filename=' + name;
+        }
+
+        return 'inline; filename="=?utf-8?B?' + btoa(latin1Of(new TextEncoder().encode(name))) + '?="';
     }
 
     /** A response with a binary body — what `fetch` hands back for `$value`. */
@@ -2216,17 +2268,25 @@
                 return binaryReply(204, new Uint8Array(0), {});
             }
             if (!entry) {
-                return noFile();
+                // Measured: an empty Image column is 204, an empty File column 404.
+                return kind === 'Image' ? binaryReply(204, new Uint8Array(0), {}) : noFile();
             }
 
             var bytes = fileBytes(entry, kind === 'Image' && !full);
 
             return binaryReply(200, bytes, {
                 'Content-Type': 'application/octet-stream',
-                'x-ms-file-name': entry.name,
+                'Content-Disposition': dispositionOf(entry.name),
+                'x-ms-file-name': mangledName(entry.name),
                 'x-ms-file-size': bytes.byteLength,
                 mimetype: entry.mimeType || 'application/octet-stream',
             });
+        }
+
+        var headerName = headerOf(init, 'x-ms-file-name');
+
+        if (headerName !== null && /[^\x00-\xff]/.test(String(headerName))) {
+            return Promise.reject(new TypeError("Failed to execute 'fetch': String contains non ISO-8859-1 code point."));
         }
 
         if ((method === 'PATCH' || method === 'PUT' || method === 'DELETE') && !isValue) {
@@ -2248,7 +2308,7 @@
                 return binaryReply(204, new Uint8Array(0), {});
             }
 
-            var name = headerOf(init, 'x-ms-file-name') || query['x-ms-file-name'] || '';
+            var name = headerName || query['x-ms-file-name'] || '';
             var limitKb = column.maxSizeInKB !== undefined ? column.maxSizeInKB : kind === 'File' ? 32768 : 10240;
             var blocked = String(o.blockedAttachments || '').toLowerCase().split(';').filter(Boolean);
 
