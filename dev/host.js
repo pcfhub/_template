@@ -447,6 +447,37 @@
         webResourceStatus: null,
 
         /**
+         * What a File or Image column answers on the `fetch` stub — `GET
+         * <set>(<id>)/<column>/$value` (`?size=full` for an Image column's
+         * full-size copy), `PATCH <set>(<id>)/<column>` with the bytes, and
+         * `DELETE <set>(<id>)/<column>` — the documented route to a column no
+         * manifest can bind (Learn, *Use file column data*). `null` answers
+         * from `fixture.files`; any other number is that status with an error
+         * body on every one of the three; **`0` rejects with a `TypeError`**,
+         * the offline shape. See `fileAnswer` for what each answers and which
+         * parts are measured.
+         */
+        filesStatus: null,
+
+        /**
+         * Whether a `PATCH` or `DELETE` of a File or Image column goes
+         * through. `false` is the user without Write on the table: the
+         * server's 403 with the missing-privilege fault. The read still
+         * answers, because the two are different privileges.
+         */
+        fileWrite: true,
+
+        /**
+         * `organization.blockedattachments` — the extensions a File column
+         * refuses, as the organisation row carries them: one string,
+         * semicolon-separated, no dots. What the synthesised `organization`
+         * row answers, and what a `PATCH` is checked against. Dataverse's
+         * shipped default; an organisation may have changed it, which is why
+         * a control reads it rather than keeping its own list.
+         */
+        blockedAttachments: 'ade;adp;app;asa;ashx;asmx;asp;bas;bat;cdx;cer;chm;class;cmd;com;config;cpl;crt;csh;dll;exe;fxp;hlp;hta;htr;htw;ida;idc;idq;inf;ins;isp;its;jar;js;jse;ksh;lnk;mad;maf;mag;mam;maq;mar;mas;mat;mau;mav;maw;mda;mdb;mde;mdt;mdw;mdz;msc;msh;msh1;msh1xml;msh2;msh2xml;mshxml;msi;msp;mst;ops;pcd;pif;prf;prg;printer;pst;reg;rem;scf;scr;sct;shb;shs;shtm;shtml;soap;stm;tmp;url;vb;vbe;vbs;vsmacros;vss;vst;vsw;ws;wsc;wsf;wsh',
+
+        /**
          * What the two audit **functions** answer on the `fetch` stub —
          * `audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails` (bound to
          * the audit row) and `RetrieveRecordChangeHistory(Target=@t,
@@ -679,7 +710,13 @@
         }
 
         if (!fixturesByUrl[clientUrl]) {
-            var copy = Object.assign({}, base, { tables: {}, audits: Object.assign({}, base.audits, { details: Object.assign({}, (base.audits || {}).details) }) });
+            // `files` one level deep too: a write replaces an entry, never
+            // mutates one, so the shared entries stay as the fixture has them.
+            var copy = Object.assign({}, base, {
+                tables: {},
+                audits: Object.assign({}, base.audits, { details: Object.assign({}, (base.audits || {}).details) }),
+                files: Object.assign({}, base.files),
+            });
 
             Object.keys(base.tables || {}).forEach(function (table) {
                 copy.tables[table] = base.tables[table].map(function (row) { return Object.assign({}, row); });
@@ -719,6 +756,11 @@
         return Promise.resolve({
             ok: status >= 200 && status < 300,
             status: status,
+            headers: {
+                get: function (name) {
+                    return String(name).toLowerCase() === 'content-type' ? 'application/json; odata.metadata=minimal' : null;
+                },
+            },
             json: function () {
                 return Promise.resolve(body);
             },
@@ -927,9 +969,15 @@
         return columns;
     }
 
-    /** `MultiSelectPicklistType` is `Virtual` underneath; every other kind is its `AttributeType`. */
+    /**
+     * `MultiSelectPicklistType`, `FileType` and `ImageType` are `Virtual`
+     * underneath, each with a cast of its own; every other kind is its
+     * `AttributeType`.
+     */
+    var VIRTUAL_KINDS = { MultiSelectPicklistType: 'MultiSelectPicklist', FileType: 'File', ImageType: 'Image' };
+
     function kindOf(column) {
-        return column.typeName === 'MultiSelectPicklistType' ? 'MultiSelectPicklist' : column.type;
+        return VIRTUAL_KINDS[column.typeName] || column.type;
     }
 
     function attributesAnswer(fixture, o, entity, query) {
@@ -1108,9 +1156,33 @@
             return { status: 404, body: { error: { code: '0x80060888', message: "Could not find an attribute named '" + name + "' of type " + cast + '.' } } };
         }
 
+        var body = { MetadataId: metadataId('column:' + entity + '.' + name), LogicalName: name };
+
+        // A File or Image column's limits, through its own cast — the read
+        // Learn documents for `MaxSizeInKB` (*Check maximum file size*), and
+        // `CanStoreFullImage`, which decides whether `?size=full` answers
+        // anything. Only what `$select` names, as everywhere else. The
+        // defaults are the platform's: 32 MB for a File column, 10 MB for an
+        // Image column, and an Image column keeps no full-size copy unless
+        // someone said so.
+        if (cast === 'File' || cast === 'Image') {
+            Object.assign(body, {
+                MaxSizeInKB: column.maxSizeInKB !== undefined ? column.maxSizeInKB : cast === 'File' ? 32768 : 10240,
+            });
+            if (cast === 'Image') {
+                Object.assign(body, {
+                    CanStoreFullImage: Boolean(column.canStoreFullImage),
+                    IsPrimaryImage: Boolean(column.primaryImage),
+                    MaxHeight: 144,
+                    MaxWidth: 144,
+                });
+            }
+
+            return { status: 200, body: pick(body, selectOf(query)) };
+        }
+
         var options = column.options || [];
         var expand = query.$expand || '';
-        var body = { MetadataId: metadataId('column:' + entity + '.' + name), LogicalName: name };
 
         if (/\bOptionSet\b/.test(expand.replace(/GlobalOptionSet/g, ''))) {
             body.OptionSet = cast === 'Boolean'
@@ -1713,7 +1785,11 @@
         if (entity === 'organization' && rows.length === 0 && o.auditEnabled) {
             // One row, and only the columns a control has been seen to ask
             // for. A fixture that ships an `organization` table wins.
-            rows = [{ organizationid: '00000000-0000-0000-0000-00000000000f', isauditenabled: Boolean(o.auditEnabled.org) }];
+            rows = [{
+                organizationid: '00000000-0000-0000-0000-00000000000f',
+                isauditenabled: Boolean(o.auditEnabled.org),
+                blockedattachments: o.blockedAttachments,
+            }];
         }
         var h = hierarchyOf(fixture, entity);
         var q;
@@ -1937,6 +2013,270 @@
     }
 
     /** Whether the request carried `Prefer: odata.include-annotations`. */
+    /* ------------------------------------------------ File and Image columns */
+
+    /*
+     * What `<set>(<id>)/<column>[/$value]` answers, for a column whose kind is
+     * File or Image — the route Learn documents (*Use file column data*,
+     * *Use image column data*) and the only one from a control, since no
+     * manifest can bind either kind. From Learn, not yet measured on a form
+     * (pcf-file-preview's probe asks): the three headers on a download
+     * (`x-ms-file-name`, `x-ms-file-size`, `mimetype`), `204` for an Image
+     * column's `?size=full` when it keeps no full-size copy, `0x80044a02` for
+     * a file over the column's `MaxSizeInKB`, `204` from a single `PATCH` and
+     * a `DELETE`. Modelled on no evidence yet, and the first things the probe
+     * is to correct: the empty column's answer (404, `0x80040217`), the
+     * blocked-extension fault, the `Content-Type` of a download — taken as
+     * `application/octet-stream`, so a `blob()` is untyped and a control has
+     * to type it from `mimetype` before a browser will draw it — and the
+     * `mimetype` a `PATCH` leaves behind, guessed here from the extension.
+     *
+     * `fixture.files` is keyed `'<table>|<id>|<column>'`:
+     *
+     *   { name: 'brief.pdf', mimeType: 'application/pdf',
+     *     content: '<base64>' | 'text', encoding: 'base64' | 'text',
+     *     thumbnail?: '<base64>' }      // an Image column's 144 px copy
+     *
+     * and each host writes to its own copy of it (see `fixtureFor`).
+     */
+    var FILE_PATH = /^([a-z0-9_]+)\(([0-9a-z{}-]+)\)\/([a-z0-9_]+)(\/\$value)?(?:\?(.*))?$/i;
+
+    var MIME_BY_EXTENSION = {
+        pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+        webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml', txt: 'text/plain', csv: 'text/csv',
+        json: 'application/json', xml: 'text/xml', html: 'text/html', md: 'text/markdown',
+        docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        zip: 'application/zip', mp4: 'video/mp4', mp3: 'audio/mpeg',
+    };
+
+    function extensionOf(name) {
+        var dot = String(name || '').lastIndexOf('.');
+
+        return dot === -1 ? '' : String(name).slice(dot + 1).toLowerCase();
+    }
+
+    function tableOfSet(fixture, set) {
+        var sets = fixture.entitySets || {};
+        var tables = (fixture.metadata || {}).tables || {};
+        var named = Object.keys(sets).filter(function (table) { return sets[table] === set; })[0];
+
+        return named || Object.keys(tables).filter(function (table) { return tables[table].entitySet === set; })[0] || null;
+    }
+
+    function fileBytes(entry, thumbnail) {
+        if (entry.bytes) {
+            return thumbnail && entry.thumbnailBytes ? entry.thumbnailBytes : entry.bytes;
+        }
+
+        var content = thumbnail && entry.thumbnail !== undefined ? entry.thumbnail : entry.content || '';
+
+        if (entry.encoding === 'text') {
+            return new TextEncoder().encode(content);
+        }
+
+        var raw = atob(content);
+        var out = new Uint8Array(raw.length);
+
+        for (var i = 0; i < raw.length; i++) {
+            out[i] = raw.charCodeAt(i);
+        }
+
+        return out;
+    }
+
+    /** A response with a binary body — what `fetch` hands back for `$value`. */
+    function binaryReply(status, bytes, headers) {
+        var lower = {};
+
+        Object.keys(headers || {}).forEach(function (key) {
+            lower[key.toLowerCase()] = String(headers[key]);
+        });
+
+        return Promise.resolve({
+            ok: status >= 200 && status < 300,
+            status: status,
+            headers: {
+                get: function (name) {
+                    var value = lower[String(name).toLowerCase()];
+
+                    return value === undefined ? null : value;
+                },
+            },
+            arrayBuffer: function () {
+                return Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));
+            },
+            // A browser types a blob from Content-Type, never from `mimetype`.
+            blob: function () {
+                return Promise.resolve(new Blob([bytes], { type: lower['content-type'] || '' }));
+            },
+            text: function () {
+                return Promise.resolve(new TextDecoder().decode(bytes));
+            },
+            json: function () {
+                return new Promise(function (resolve) {
+                    resolve(JSON.parse(new TextDecoder().decode(bytes)));
+                });
+            },
+        });
+    }
+
+    function headerOf(init, name) {
+        var headers = (init && init.headers) || {};
+
+        if (typeof headers.get === 'function') {
+            return headers.get(name);
+        }
+
+        var key = Object.keys(headers).filter(function (k) { return k.toLowerCase() === name.toLowerCase(); })[0];
+
+        return key === undefined ? null : headers[key];
+    }
+
+    /** The request's body as bytes: a File, a Blob, an ArrayBuffer, a typed array or a string. */
+    function bodyBytes(body) {
+        if (body === null || body === undefined) {
+            return Promise.resolve(new Uint8Array(0));
+        }
+        if (typeof body === 'string') {
+            return Promise.resolve(new TextEncoder().encode(body));
+        }
+        if (body instanceof ArrayBuffer) {
+            return Promise.resolve(new Uint8Array(body));
+        }
+        if (ArrayBuffer.isView(body)) {
+            return Promise.resolve(new Uint8Array(body.buffer, body.byteOffset, body.byteLength));
+        }
+        if (typeof body.arrayBuffer === 'function') {
+            return body.arrayBuffer().then(function (buffer) { return new Uint8Array(buffer); });
+        }
+
+        return Promise.reject(new TypeError('The rig cannot read this body.'));
+    }
+
+    /**
+     * The answer to a File or Image column request, or `null` when the path
+     * is not one — a column the fixture's metadata does not type as File or
+     * Image falls through to the rest of the stub, which refuses it.
+     */
+    function fileAnswer(fixture, o, method, path, init) {
+        var m = path.match(FILE_PATH);
+
+        if (!m) {
+            return null;
+        }
+
+        var table = tableOfSet(fixture, m[1]);
+        var columnName = m[3].toLowerCase();
+        var column = table && columnsOf(fixture, table).filter(function (c) { return c.name === columnName; })[0];
+        var kind = column && kindOf(column);
+
+        if (kind !== 'File' && kind !== 'Image') {
+            return null;
+        }
+
+        var status = o.filesStatus;
+
+        if (status === 0) {
+            return Promise.reject(new TypeError('Failed to fetch'));
+        }
+        if (status !== null && status !== undefined && status !== 200) {
+            return reply(status, { error: { code: '0x80040220', message: 'Refused by the rig (filesStatus ' + status + ').' } });
+        }
+
+        var id = bareId(m[2]);
+        var rows = (fixture.tables || {})[table];
+        var key = table + '|' + id + '|' + columnName;
+        var query = queryOf(m[5] || '');
+        var entry = (fixture.files || {})[key];
+        var isValue = Boolean(m[4]);
+
+        if (rows && !rows.some(function (row) { return bareId(row[primaryIdOf(fixture, table)]) === id; })) {
+            return reply(404, { error: { code: '0x80040217', message: table + ' With Id = ' + id + ' Does Not Exist' } });
+        }
+
+        function noFile() {
+            return reply(404, { error: { code: '0x80040217', message: 'No file attachment found for attribute: ' + columnName + ' EntityId: ' + id + '.' } });
+        }
+
+        if (method === 'GET' && isValue) {
+            var full = query.size === 'full';
+
+            // Before the empty check: Learn has a column that keeps no
+            // full-size copy answer 204, whatever it holds.
+            if (kind === 'Image' && full && !column.canStoreFullImage) {
+                return binaryReply(204, new Uint8Array(0), {});
+            }
+            if (!entry) {
+                return noFile();
+            }
+
+            var bytes = fileBytes(entry, kind === 'Image' && !full);
+
+            return binaryReply(200, bytes, {
+                'Content-Type': 'application/octet-stream',
+                'x-ms-file-name': entry.name,
+                'x-ms-file-size': bytes.byteLength,
+                mimetype: entry.mimeType || 'application/octet-stream',
+            });
+        }
+
+        if ((method === 'PATCH' || method === 'PUT' || method === 'DELETE') && !isValue) {
+            if (!o.fileWrite) {
+                return reply(403, {
+                    error: {
+                        code: '0x80040220',
+                        message: 'Principal user (Id=' + bareId(o.userId) + ', type=8) is missing prvWrite' + table + ' privilege.',
+                    },
+                });
+            }
+
+            if (method === 'DELETE') {
+                if (!entry) {
+                    return noFile();
+                }
+                delete fixture.files[key];
+
+                return binaryReply(204, new Uint8Array(0), {});
+            }
+
+            var name = headerOf(init, 'x-ms-file-name') || query['x-ms-file-name'] || '';
+            var limitKb = column.maxSizeInKB !== undefined ? column.maxSizeInKB : kind === 'File' ? 32768 : 10240;
+            var blocked = String(o.blockedAttachments || '').toLowerCase().split(';').filter(Boolean);
+
+            if (name === '') {
+                return reply(400, { error: { code: '0x80060891', message: 'The x-ms-file-name header or query parameter is required.' } });
+            }
+            if (blocked.indexOf(extensionOf(name)) !== -1) {
+                return reply(400, {
+                    error: {
+                        code: '0x80043e09',
+                        message: 'The attachment is either not a valid type or is too large. It cannot be uploaded or downloaded.',
+                    },
+                });
+            }
+
+            return bodyBytes(init && init.body).then(function (written) {
+                if (written.byteLength > limitKb * 1024) {
+                    return reply(400, { error: { code: '0x80044a02', message: 'Attachment file size is too big.' } });
+                }
+
+                fixture.files = fixture.files || {};
+                fixture.files[key] = {
+                    name: name,
+                    mimeType: MIME_BY_EXTENSION[extensionOf(name)] || 'application/octet-stream',
+                    bytes: written,
+                    // The platform crops a thumbnail; the rig keeps the bytes.
+                    thumbnailBytes: kind === 'Image' ? written : undefined,
+                };
+
+                return binaryReply(204, new Uint8Array(0), {});
+            });
+        }
+
+        return reply(405, { error: { code: '0x80060888', message: 'The rig answers GET …/$value, PATCH and DELETE on a file column, not ' + method + ' ' + path + '.' } });
+    }
+
     function wantsAnnotations(init) {
         var headers = (init && init.headers) || {};
         var prefer = headers.Prefer || headers.prefer || '';
@@ -1960,6 +2300,9 @@
      * The function answers carry an `AuditRecord` on every `AuditDetail`,
      * as the form does (SPEC.md P13/P14) and Learn says it does not; see
      * `auditDetailOf`.
+     *
+     * A File or Image column is answered first, by method — `GET …/$value`,
+     * `PATCH`, `DELETE`; see `fileAnswer`.
      */
     function installFetch(clientUrl, o, log, hostFixture) {
         var scope = typeof globalThis !== 'undefined' ? globalThis : (typeof window !== 'undefined' ? window : null);
@@ -1985,10 +2328,20 @@
                 return Promise.reject(new Error('No fetch for ' + address));
             }
 
-            log('fetch', address.slice(clientUrl.length));
+            var method = String((init && init.method) || 'GET').toUpperCase();
+
+            // A GET logs as it always has; anything else carries its verb.
+            log('fetch', (method === 'GET' ? '' : method + ' ') + address.slice(clientUrl.length));
 
             var path = address.slice(prefix.length);
             var refusal;
+
+            // ---- <set>(<id>)/<file or image column>[/$value] ----------------
+            var file = fileAnswer(fixture, o, method, path, init);
+
+            if (file) {
+                return file;
+            }
 
             // ---- audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails ----
             var bound = path.match(/^audits\(([0-9a-z{}-]+)\)\/Microsoft\.Dynamics\.CRM\.RetrieveAuditDetails$/i);

@@ -866,6 +866,111 @@ async function metadataSelfCheck() {
     check('rig: a canvas host has no context.page, so nothing can address the table definitions', host.createContext({ fixture, host: 'canvas' }).page === undefined && api.startsWith('https://'));
 }
 
+/*
+ * A File or Image column through the Web API — `GET …/$value`, `PATCH`,
+ * `DELETE` — the route Learn documents for a column no manifest can bind.
+ * Learn's shapes until pcf-file-preview's probe measures them; see
+ * `fileAnswer` in `dev/host.js` for which parts are guesses.
+ */
+async function fileColumnSelfCheck() {
+    const ctx = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
+    const base = `${ctx.page.getClientUrl()}/api/data/v9.2/`;
+    const call = (path, init, context = ctx) => fetch(`${context.page.getClientUrl()}/api/data/v9.2/${path}`, init);
+
+    const pdf = await call('accounts(c1)/cll_filenative/$value');
+    const pdfBytes = new Uint8Array(await pdf.arrayBuffer());
+    const pdfBlob = await (await call('accounts(c1)/cll_filenative/$value')).blob();
+    check(
+        'rig: a File column downloads its bytes with x-ms-file-name, x-ms-file-size and mimetype — and an untyped blob, which a control types from mimetype',
+        pdf.status === 200 && pdf.headers.get('mimetype') === 'application/pdf' && pdf.headers.get('x-ms-file-name') === 'Contoso DE — Rahmenvertrag 2026.pdf'
+            && Number(pdf.headers.get('x-ms-file-size')) === pdfBytes.byteLength && String.fromCharCode(...pdfBytes.slice(0, 5)) === '%PDF-'
+            && pdfBlob.type === 'application/octet-stream' && pdfBlob.size === pdfBytes.byteLength,
+        `${pdf.status} ${pdf.headers.get('mimetype')} ${pdfBlob.type}`,
+    );
+
+    const empty = await call('accounts(k1)/cll_filenative/$value');
+    const nobody = await call('accounts(nosuch)/cll_filenative/$value');
+    const notFile = await call('accounts(c1)/name/$value').then(() => 'answered', (e) => e.message);
+    check(
+        "rig: an empty column is a 404 (unmeasured), a record that is not there another, and a column that is not a file is the stub's refusal",
+        empty.status === 404 && (await empty.json()).error.code === '0x80040217' && nobody.status === 404 && /No fetch for/.test(notFile),
+        `${empty.status} ${nobody.status} ${notFile}`,
+    );
+
+    const thumb = await call('accounts(c1)/cll_photo/$value');
+    const full = await call('accounts(c1)/cll_photo/$value?size=full');
+    const noFull = await call('accounts(c1)/entityimage/$value?size=full');
+    check(
+        'rig: an Image column answers its thumbnail by default and the full copy with ?size=full — 204 where it keeps none',
+        thumb.status === 200 && full.status === 200 && (await thumb.arrayBuffer()).byteLength < (await full.arrayBuffer()).byteLength
+            && noFull.status === 204,
+        `${thumb.status} ${full.status} ${noFull.status}`,
+    );
+
+    const limits = await (await call("EntityDefinitions(LogicalName='account')/Attributes(LogicalName='cll_photo')/Microsoft.Dynamics.CRM.ImageAttributeMetadata?$select=MaxSizeInKB,CanStoreFullImage")).json();
+    const fileLimit = await (await call("EntityDefinitions(LogicalName='account')/Attributes(LogicalName='cll_filenative')/Microsoft.Dynamics.CRM.FileAttributeMetadata?$select=MaxSizeInKB")).json();
+    const org = await ctx.webAPI.retrieveMultipleRecords('organization', '?$select=blockedattachments');
+    check(
+        "rig: MaxSizeInKB and CanStoreFullImage come through the column's cast, and blockedattachments off the organisation row",
+        limits.MaxSizeInKB === 10240 && limits.CanStoreFullImage === true && fileLimit.MaxSizeInKB === 32768 && fileLimit.CanStoreFullImage === undefined
+            && /(^|;)exe(;|$)/.test(org.entities[0].blockedattachments),
+        JSON.stringify([limits, fileLimit]),
+    );
+
+    // The round trip, and the name in the query when it is not ASCII.
+    const upload = new Blob(['Neue Fassung'], { type: 'text/plain' });
+    const put = await call('accounts(k1)/cll_filenative', { method: 'PATCH', headers: { 'Content-Type': 'application/octet-stream', 'x-ms-file-name': 'v2.txt' }, body: upload });
+    const after = await call('accounts(k1)/cll_filenative/$value');
+    const nonAscii = await call(`accounts(k2)/cll_filenative?x-ms-file-name=${encodeURIComponent('Übersicht.txt')}`, { method: 'PATCH', body: 'ü' });
+    const named = await call('accounts(k2)/cll_filenative/$value');
+    check(
+        'rig: a PATCH answers 204 and the next GET has the new bytes and name; the name may come in the query instead of the header',
+        put.status === 204 && after.status === 200 && (await after.text()) === 'Neue Fassung' && after.headers.get('x-ms-file-name') === 'v2.txt'
+            && after.headers.get('mimetype') === 'text/plain' && nonAscii.status === 204 && named.headers.get('x-ms-file-name') === 'Übersicht.txt',
+        `${put.status} ${after.status} ${nonAscii.status}`,
+    );
+
+    const big = await call('accounts(k1)/cll_photo', { method: 'PATCH', headers: { 'x-ms-file-name': 'huge.png' }, body: new Uint8Array(10240 * 1024 + 1) });
+    const blocked = await call('accounts(k1)/cll_filenative', { method: 'PATCH', headers: { 'x-ms-file-name': 'setup.EXE' }, body: 'MZ' });
+    const unnamed = await call('accounts(k1)/cll_filenative', { method: 'PATCH', body: 'x' });
+    const denied = host.createContext({ fixture, clientUrl: host.nextClientUrl(), fileWrite: false });
+    const deniedPut = await call('accounts(k1)/cll_filenative', { method: 'PATCH', headers: { 'x-ms-file-name': 'a.txt' }, body: 'x' }, denied);
+    const deniedRead = await call('accounts(c1)/cll_filenative/$value', undefined, denied);
+    check(
+        "rig: a PATCH over MaxSizeInKB is 0x80044a02, a blocked extension is refused whatever its case, a nameless one 400, and without Write it is 403 while the read still answers",
+        big.status === 400 && (await big.json()).error.code === '0x80044a02' && blocked.status === 400 && unnamed.status === 400
+            && deniedPut.status === 403 && deniedRead.status === 200,
+        [big.status, blocked.status, unnamed.status, deniedPut.status, deniedRead.status].join(' '),
+    );
+
+    const removed = await call('accounts(c1)/cll_filenative', { method: 'DELETE' });
+    const gone = await call('accounts(c1)/cll_filenative/$value');
+    const again = await call('accounts(c1)/cll_filenative', { method: 'DELETE' });
+    const elsewhere = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
+    const untouched = await call('accounts(c1)/cll_filenative/$value', undefined, elsewhere);
+    check(
+        "rig: a DELETE answers 204 and empties the column; a second one finds nothing; another host's copy still has the file",
+        removed.status === 204 && gone.status === 404 && again.status === 404 && untouched.status === 200 && fixture.files['account|c1|cll_filenative'] !== undefined,
+        [removed.status, gone.status, again.status, untouched.status].join(' '),
+    );
+
+    const offline = host.createContext({ fixture, clientUrl: host.nextClientUrl(), filesStatus: 0 });
+    const refusing = host.createContext({ fixture, clientUrl: host.nextClientUrl(), filesStatus: 503 });
+    let fault = null;
+    await call('accounts(c1)/cll_filenative/$value', undefined, offline).catch((e) => { fault = e; });
+    const unavailable = await call('accounts(c1)/cll_filenative/$value', undefined, refusing);
+    const calls = [];
+    const logged = host.createContext({ fixture, clientUrl: host.nextClientUrl(), calls });
+    await call('accounts(c1)/cll_filenative/$value', undefined, logged);
+    await call('accounts(k1)/cll_filenative', { method: 'DELETE' }, logged);
+    check(
+        'rig: filesStatus 0 rejects with a TypeError, another number refuses; the log carries the verb of anything but a GET',
+        fault instanceof TypeError && unavailable.status === 503 && base.startsWith('https://')
+            && calls.join() === 'fetch("/api/data/v9.2/accounts(c1)/cll_filenative/$value"),fetch("DELETE /api/data/v9.2/accounts(k1)/cll_filenative")',
+        calls.join(),
+    );
+}
+
 async function rigSelfCheck() {
     const relationships = (url) => `${url}/api/data/v9.2/EntityDefinitions(LogicalName='account')/OneToManyRelationships`;
 
@@ -1050,6 +1155,7 @@ async function rigSelfCheck() {
     check('rig: webResourceStatus 0 rejects with a TypeError (offline), 403 refuses', wrFault instanceof TypeError && wrDeniedReply.status === 403);
 
     await metadataSelfCheck();
+    await fileColumnSelfCheck();
 
     checkModuleLoader();
     checkDomCollections();

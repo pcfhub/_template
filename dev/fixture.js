@@ -348,6 +348,37 @@
         },
 
         /**
+         * What a File or Image column holds, keyed `'<table>|<id>|<column>'`
+         * — what `GET <set>(<id>)/<column>/$value` answers (see `fileAnswer`
+         * in `host.js`). `content` is base64 unless `encoding` says `text`; an
+         * Image column's `thumbnail` is what the plain GET answers and
+         * `content` what `?size=full` does, where the column keeps one. `c1`
+         * has a PDF in its File column and a photo; `p1` has a text file and
+         * no photo; every other record has neither.
+         */
+        files: {
+            'account|c1|cll_filenative': {
+                name: 'Contoso DE — Rahmenvertrag 2026.pdf',
+                mimeType: 'application/pdf',
+                // A one-page PDF with a real xref, small enough to read.
+                content: 'JVBERi0xLjQKMSAwIG9iago8PC9UeXBlL0NhdGFsb2cvUGFnZXMgMiAwIFI+PgplbmRvYmoKMiAwIG9iago8PC9UeXBlL1BhZ2VzL0tpZHNbMyAwIFJdL0NvdW50IDE+PgplbmRvYmoKMyAwIG9iago8PC9UeXBlL1BhZ2UvUGFyZW50IDIgMCBSL01lZGlhQm94WzAgMCAzMDAgMTIwXS9Db250ZW50cyA0IDAgUi9SZXNvdXJjZXM8PC9Gb250PDwvRjEgNSAwIFI+Pj4+Pj4KZW5kb2JqCjQgMCBvYmoKPDwvTGVuZ3RoIDQ4Pj4Kc3RyZWFtCkJUIC9GMSAyMCBUZiAzMCA2MCBUZCAoUmFobWVudmVydHJhZyAyMDI2KSBUaiBFVAplbmRzdHJlYW0KZW5kb2JqCjUgMCBvYmoKPDwvVHlwZS9Gb250L1N1YnR5cGUvVHlwZTEvQmFzZUZvbnQvSGVsdmV0aWNhPj4KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAKMDAwMDAwMDAwOSAwMDAwMCBuIAowMDAwMDAwMDU0IDAwMDAwIG4gCjAwMDAwMDAxMDUgMDAwMDAgbiAKMDAwMDAwMDIxNyAwMDAwMCBuIAowMDAwMDAwMzEzIDAwMDAwIG4gCnRyYWlsZXIKPDwvU2l6ZSA2L1Jvb3QgMSAwIFI+PgpzdGFydHhyZWYKMzc2CiUlRU9GCg==',
+            },
+            'account|c1|cll_photo': {
+                name: 'storefront.png',
+                mimeType: 'image/png',
+                // 8×6 and 2×2 PNGs: the full copy and its thumbnail differ, as they do.
+                content: 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAGCAIAAABxZ0isAAAAcUlEQVR4nAXBoQEAIQwDQCZhDdZAdwNMh4h+HYNBR1dHY9jp71qPO8IzaoUQZwcrvhdoPe9Iz6yVQp6drPxeonXcAU/UgoCzwcL3gNZ5Bz1ZiwLPJovfI1rXHfJULQk6Wyx9T2jdd9jTtSz4bLP8PeMH8JVPOVeM57gAAAAASUVORK5CYII=',
+                thumbnail: 'iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAEklEQVR4nGOwqdhiU7GFAUIBACWOBaG2HkywAAAAAElFTkSuQmCC',
+            },
+            'account|p1|cll_filenative': {
+                name: 'notes.txt',
+                mimeType: 'text/plain',
+                encoding: 'text',
+                content: 'Contoso Europe — renewal notes.\nCall back in Q1.\n',
+            },
+        },
+
+        /**
          * The table definitions, for a control that reads them — the table
          * list, a table's columns, its relationships, a choice's options —
          * in the kinds a form showed (pcf-code-editor SPEC.md, the 1.4.9
@@ -387,7 +418,11 @@
                         { name: 'ownerid', type: 'Owner', label: 'Owner' },
                         { name: 'owneridtype', type: 'EntityName', label: 'Owner Type' },
                         { name: 'address1_composite', type: 'Memo', label: 'Address 1', logical: true },
-                        { name: 'cll_filenative', type: 'Virtual', typeName: 'FileType', label: 'File' },
+                        { name: 'cll_filenative', type: 'Virtual', typeName: 'FileType', label: 'File', maxSizeInKB: 32768 },
+                        // A File column's name lives in a column of its own (Learn).
+                        { name: 'cll_filenative_name', type: 'String', of: 'cll_filenative' },
+                        { name: 'cll_photo', type: 'Virtual', typeName: 'ImageType', label: 'Photo', maxSizeInKB: 10240, canStoreFullImage: true },
+                        { name: 'entityimage', type: 'Virtual', typeName: 'ImageType', label: 'Default Image', primaryImage: true },
                         { name: 'isprivate', type: 'Boolean', label: 'Is Private', readable: false, options: [[1, 'Yes'], [0, 'No']] },
                     ],
                 },
