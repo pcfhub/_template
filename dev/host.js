@@ -2268,6 +2268,11 @@
                 if (written.byteLength > limitKb * 1024) {
                     return reply(400, { error: { code: '0x80044a02', message: 'Attachment file size is too big.' } });
                 }
+                // An Image column takes image types only (Learn). The fault
+                // the service sends is unmeasured; the harness answers the same.
+                if (kind === 'Image' && !/^image\//.test(MIME_BY_EXTENSION[extensionOf(name)] || '')) {
+                    return reply(400, { error: { code: '0x80040216', message: name + ' is not an image, and ' + columnName + ' is an Image column.' } });
+                }
 
                 fixture.files = fixture.files || {};
                 fixture.files[key] = {

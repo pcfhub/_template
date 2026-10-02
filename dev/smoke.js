@@ -934,12 +934,13 @@ async function fileColumnSelfCheck() {
     const big = await call('accounts(k1)/cll_photo', { method: 'PATCH', headers: { 'x-ms-file-name': 'huge.png' }, body: new Uint8Array(10240 * 1024 + 1) });
     const blocked = await call('accounts(k1)/cll_filenative', { method: 'PATCH', headers: { 'x-ms-file-name': 'setup.EXE' }, body: 'MZ' });
     const unnamed = await call('accounts(k1)/cll_filenative', { method: 'PATCH', body: 'x' });
+    const notImage = await call('accounts(k1)/cll_photo', { method: 'PATCH', headers: { 'x-ms-file-name': 'notes.txt' }, body: 'text' });
     const denied = host.createContext({ fixture, clientUrl: host.nextClientUrl(), fileWrite: false });
     const deniedPut = await call('accounts(k1)/cll_filenative', { method: 'PATCH', headers: { 'x-ms-file-name': 'a.txt' }, body: 'x' }, denied);
     const deniedRead = await call('accounts(c1)/cll_filenative/$value', undefined, denied);
     check(
-        "rig: a PATCH over MaxSizeInKB is 0x80044a02, a blocked extension is refused whatever its case, a nameless one 400, and without Write it is 403 while the read still answers",
-        big.status === 400 && (await big.json()).error.code === '0x80044a02' && blocked.status === 400 && unnamed.status === 400
+        "rig: a PATCH over MaxSizeInKB is 0x80044a02, a blocked extension is refused whatever its case, a nameless one 400, a non-image into an Image column 400, and without Write it is 403 while the read still answers",
+        big.status === 400 && (await big.json()).error.code === '0x80044a02' && blocked.status === 400 && unnamed.status === 400 && notImage.status === 400
             && deniedPut.status === 403 && deniedRead.status === 200,
         [big.status, blocked.status, unnamed.status, deniedPut.status, deniedRead.status].join(' '),
     );
