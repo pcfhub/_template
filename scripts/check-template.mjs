@@ -490,6 +490,63 @@ for (const controlDir of controlDirs) {
     }
 }
 
+// ------------------------------------------------------ the echo of a write
+//
+// A field control that writes its bound value and also writes the incoming
+// value back into its input has to tell the two apart. The platform hands
+// every write back as an `updateView`, late and **out of order** (typing "pase
+// laur" on a real form produced "pase laur", "pase lau", "pase laur", measured
+// 2026-09-13), so a guard comparing against the latest value alone takes a
+// late echo of an earlier keystroke as the form's change: what was typed after
+// it is lost and the caret jumps to the end. And PCFHub's demo re-renders with
+// the preset's value, which taken as news wipes a visitor's edit. Both
+// scaffolds carry the fix — a list of recent writes and the host's last value
+// — and on 2 Oct 2026 three shipped controls still did not (Copy Field 0.2.0,
+// Barcode Scanner 0.2.1, Code Editor 1.5.0), each a patch release found by
+// reading, not by this check.
+//
+// A warning, because it is a regex: it fires when the sources take typing (an
+// `input` listener, Monaco's content change, a React `onChange`), notify,
+// assign an `incoming` value into an input or an editor, and show neither
+// guard by the names the scaffolds and the catalogue use (`.includes(incoming)`,
+// `lastIncoming`, `EchoGuard`). Typing is the condition because the failure is
+// a late echo of an earlier *keystroke*: a control that writes once per
+// press or drop — pcf-geo-stamp, pcf-file-drop with its in-flight write — has
+// one echo to wait for, and both do.
+
+for (const controlDir of controlDirs) {
+    const relative = `${controlDir}/ControlManifest.Input.xml`;
+    const xml = readFileSync(join(root, relative), 'utf8').replace(/<!--[\s\S]*?-->/g, '');
+
+    if (!/usage="bound"/.test(xml) || /<data-set\b/.test(xml)) {
+        continue;
+    }
+
+    let sources = '';
+
+    for (const path of walk(join(root, controlDir))) {
+        if (/\.tsx?$/.test(path)) {
+            sources += readFileSync(path, 'utf8');
+        }
+    }
+
+    const typed = /addEventListener\(\s*['"](?:input|beforeinput)['"]|onDidChangeModelContent|onChange=\{/.test(sources);
+    const writes = /otifyOutputChanged\s*\(\s*\)/.test(sources);
+    const takesBack = /\.value\s*=\s*incoming\b|\.setValue\(\s*incoming\b/.test(sources);
+    const guarded = /\.includes\(\s*incoming\s*\)|\blastIncoming\b|\bEchoGuard\b/.test(sources);
+
+    if (typed && writes && takesBack && !guarded) {
+        warnings.push(
+            `${controlDir} writes its bound value and assigns the incoming value back into its input, with no ` +
+            'guard against the echo of its own writes. The platform echoes them late and out of order, so a late ' +
+            'echo of an earlier keystroke is taken as the form\'s change — what was typed after it is lost and the ' +
+            'caret jumps to the end — and the hub demo\'s re-render with the preset value wipes an edit. Keep a ' +
+            'list of recent writes and the host\'s last value, as the scaffold does; see "The caret, and what ' +
+            'actually moves it" in the skill\'s rendering-and-hosts.md.',
+        );
+    }
+}
+
 // ------------------------------------------------- external service usage
 //
 // Enabling this makes the control **premium**: every end user of an app that
