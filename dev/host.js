@@ -523,6 +523,14 @@
         openForm: 'resolves',
 
         /**
+         * What `navigation.openFile` does: `true` resolves, `'rejects'`
+         * rejects with the fault shape, `false` leaves the method out. On
+         * canvas it is published and throws from the call whatever this
+         * says — see `buildNavigation`.
+         */
+        openFile: true,
+
+        /**
          * Whether `context.utils` exists, and the entity set its metadata
          * answers with.
          *
@@ -2343,6 +2351,19 @@
                 return file;
             }
 
+            // ---- organizations?$select=… — the organisation row ------------
+            // The settings a control reads before it uploads
+            // (`blockedattachments`, `maxuploadfilesize`), fetched rather than
+            // queried through `context.webAPI` so the control declares no
+            // WebAPI feature for one read. The same row the query answers.
+            var organizations = path.match(/^organizations(\?.*)?$/);
+
+            if (organizations && method === 'GET') {
+                return answerQuery(fixture, 'organization', organizations[1] || '', undefined, o).then(function (result) {
+                    return reply(200, { value: result.entities });
+                });
+            }
+
             // ---- audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails ----
             var bound = path.match(/^audits\(([0-9a-z{}-]+)\)\/Microsoft\.Dynamics\.CRM\.RetrieveAuditDetails$/i);
 
@@ -2614,6 +2635,33 @@
                 return o.openForm === 'rejects'
                     ? Promise.reject(webApiFault(2147746581, '', 'The form could not be opened.'))
                     : Promise.resolve({ savedEntityReference: null });
+            };
+        }
+
+        /*
+         * `openFile` — documented model-driven only, and published on canvas
+         * anyway, where it throws from the call: what the dataset rig
+         * measured of canvas's navigation on 2026-09-29. `openFile: false`
+         * is a host that leaves it out. The content is not logged, only what
+         * describes it — `fileSize` is in KB, the field that reads as bytes.
+         */
+        if (o.openFile !== false) {
+            navigation.openFile = function (file, fileOptions) {
+                if (o.host === 'canvas') {
+                    log('navigation.openFile (canvas: not implemented)');
+                    throw new Error('openFile: Method not implemented.');
+                }
+
+                log('navigation.openFile', {
+                    fileName: (file || {}).fileName,
+                    fileSize: (file || {}).fileSize,
+                    mimeType: (file || {}).mimeType,
+                    openMode: (fileOptions || {}).openMode,
+                });
+
+                return o.openFile === 'rejects'
+                    ? Promise.reject(webApiFault(2147746581, '', 'The file could not be opened.'))
+                    : Promise.resolve();
             };
         }
 

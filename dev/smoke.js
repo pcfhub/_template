@@ -910,10 +910,11 @@ async function fileColumnSelfCheck() {
     const limits = await (await call("EntityDefinitions(LogicalName='account')/Attributes(LogicalName='cll_photo')/Microsoft.Dynamics.CRM.ImageAttributeMetadata?$select=MaxSizeInKB,CanStoreFullImage")).json();
     const fileLimit = await (await call("EntityDefinitions(LogicalName='account')/Attributes(LogicalName='cll_filenative')/Microsoft.Dynamics.CRM.FileAttributeMetadata?$select=MaxSizeInKB")).json();
     const org = await ctx.webAPI.retrieveMultipleRecords('organization', '?$select=blockedattachments');
+    const fetchedOrg = await (await call('organizations?$select=blockedattachments')).json();
     check(
-        "rig: MaxSizeInKB and CanStoreFullImage come through the column's cast, and blockedattachments off the organisation row",
+        "rig: MaxSizeInKB and CanStoreFullImage come through the column's cast, and blockedattachments off the organisation row — queried or fetched",
         limits.MaxSizeInKB === 10240 && limits.CanStoreFullImage === true && fileLimit.MaxSizeInKB === 32768 && fileLimit.CanStoreFullImage === undefined
-            && /(^|;)exe(;|$)/.test(org.entities[0].blockedattachments),
+            && /(^|;)exe(;|$)/.test(org.entities[0].blockedattachments) && fetchedOrg.value[0].blockedattachments === org.entities[0].blockedattachments,
         JSON.stringify([limits, fileLimit]),
     );
 
@@ -963,6 +964,22 @@ async function fileColumnSelfCheck() {
     const logged = host.createContext({ fixture, clientUrl: host.nextClientUrl(), calls });
     await call('accounts(c1)/cll_filenative/$value', undefined, logged);
     await call('accounts(k1)/cll_filenative', { method: 'DELETE' }, logged);
+    const opened = [];
+    const opener = host.createContext({ fixture, clientUrl: host.nextClientUrl(), calls: opened });
+    await opener.navigation.openFile({ fileName: 'a.pdf', fileSize: 1, mimeType: 'application/pdf', fileContent: 'JVBERg==' }, { openMode: 2 });
+    let canvasThrew = false;
+    try {
+        host.createContext({ fixture, host: 'canvas' }).navigation.openFile({ fileName: 'a.pdf' }, { openMode: 2 });
+    } catch (e) {
+        canvasThrew = true;
+    }
+    check(
+        'rig: navigation.openFile logs what describes the file, not its content; canvas publishes it and throws; openFile: false leaves it out',
+        opened.join() === 'navigation.openFile({"fileName":"a.pdf","fileSize":1,"mimeType":"application/pdf","openMode":2})'
+            && canvasThrew && host.createContext({ fixture, openFile: false }).navigation.openFile === undefined,
+        opened.join(),
+    );
+
     check(
         'rig: filesStatus 0 rejects with a TypeError, another number refuses; the log carries the verb of anything but a GET',
         fault instanceof TypeError && unavailable.status === 503 && base.startsWith('https://')
