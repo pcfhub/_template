@@ -547,6 +547,47 @@ for (const controlDir of controlDirs) {
     }
 }
 
+// ------------------------------------------------ a clear is null, not undefined
+//
+// `getOutputs()` hands back every bound property, and `refreshTypes` types each
+// one as optional — `value?: number` — so `this.value ?? undefined` compiles
+// cleanly and means the opposite of what a clear needs: `undefined` is "no
+// change". A canvas app honours that strictly and the column refuses to empty;
+// a model-driven form is more forgiving, so the bug hides on the host most
+// people test first. pcf-star-rating shipped it, and its clear button did
+// nothing in canvas. The fix is `null`, cast past the generated type.
+//
+// A warning, because it is a regex: it fires on `?? undefined` or
+// `|| undefined` inside a `getOutputs` body. A control with nothing to hand
+// back leaves the key out — `{}` — which says "no change" without spelling
+// `undefined`, and is never flagged.
+
+for (const controlDir of controlDirs) {
+    let sources = '';
+
+    for (const path of walk(join(root, controlDir))) {
+        if (/\.tsx?$/.test(path)) {
+            sources += `${readFileSync(path, 'utf8')}\n`;
+        }
+    }
+
+    // The body of every getOutputs, up to the first line that closes a member,
+    // with its comments gone: the controls that fixed this say why in a comment
+    // quoting the very pattern, and quoting it is not shipping it.
+    const bodies = [...sources.matchAll(/getOutputs\s*\([^)]*\)[^{]*\{([\s\S]*?)\n\s{0,4}\}/g)]
+        .map((m) => m[1].replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:'"`])\/\/.*$/gm, '$1'));
+
+    if (bodies.some((body) => /\?\?\s*undefined\b|\|\|\s*undefined\b/.test(body))) {
+        warnings.push(
+            `${controlDir}'s getOutputs() hands a bound value back as \`undefined\` when it is empty. To the platform ` +
+            '`undefined` is "no change", so a cleared column is never cleared — strictly in a canvas app, where the ' +
+            'field refuses to empty. Return `null` cast past the generated type, ' +
+            '`value === null ? (null as unknown as undefined) : value`; see "getOutputs() returns every bound ' +
+            'property" in the skill\'s SKILL.md.',
+        );
+    }
+}
+
 // ------------------------------------------------- external service usage
 //
 // Enabling this makes the control **premium**: every end user of an app that
