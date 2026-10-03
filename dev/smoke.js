@@ -199,6 +199,15 @@ function check(label, ok, detail) {
 // would otherwise look identical in the output.
 const marked = (key) => `resx:${key}`;
 
+/*
+ * The bound column every mount starts from, before its own options: its type
+ * and value, and the type group the manifest declares. Empty is the rig's
+ * default text column. `setup.mjs --bind` rewrites this line, so a number or a
+ * yes/no control is mounted on its own kind of column throughout — the
+ * teardown checks below included — rather than handed "Contoso Ltd".
+ */
+const COLUMN = {};
+
 /**
  * Mount a fresh control in a given state and hand back everything worth
  * asserting about it.
@@ -238,7 +247,7 @@ function mount(options) {
     // `getString` first, so a single assertion can override it — the marked key
     // proves a string came from the .resx, but it cannot prove a `{0}` was
     // substituted, because a marked key has no `{0}` in it to substitute.
-    const context = host.createContext({ getString: marked, ...options, ...site });
+    const context = host.createContext({ getString: marked, ...COLUMN, ...options, ...site });
     const instance = new registration.ctor();
 
     let notifications = 0;
@@ -271,7 +280,7 @@ function mount(options) {
         /** The organisation URL this instance's `page.getClientUrl()` answers. */
         clientUrl: site.clientUrl,
         /** Re-render in a new state, as the platform does on every change. */
-        update: (next) => instance.updateView(host.createContext({ getString: marked, ...options, ...site, ...next })),
+        update: (next) => instance.updateView(host.createContext({ getString: marked, ...COLUMN, ...options, ...site, ...next })),
         /** Unmount, as the platform does when the form closes or navigates. */
         destroy: () => {
             instance.destroy();
@@ -1193,12 +1202,117 @@ async function rigSelfCheck() {
 
     await metadataSelfCheck();
     await fileColumnSelfCheck();
+    typedColumnSelfCheck();
 
     checkModuleLoader();
     checkDomCollections();
     checkDomCursor();
 
     disposeAll();
+}
+
+/*
+ * Number and yes/no columns, and the formatting a control reads them with.
+ * Every member here is the typings' word or a measurement named in
+ * `dev/host.js`; the rig proves it hands them over before a control's suite
+ * rests on them — and that a text column's shape did not move.
+ */
+function typedColumnSelfCheck() {
+    const context = (options) => host.createContext({ calls: [], clientUrl: host.nextClientUrl(), ...options });
+    const value = (options) => context(options).parameters.value;
+    const keys = (object) => Object.keys(object || {}).sort().join();
+
+    const text = value({});
+    check(
+        "rig: a text column's value keeps its shape — MaxLength and the two names, no formatted",
+        keys(text.attributes) === 'DisplayName,LogicalName,MaxLength' && !('formatted' in text),
+        keys(text.attributes),
+    );
+
+    const decimal = value({ valueType: 'Decimal', value: 1234.5, minValue: 0, maxValue: 10, precision: 1 });
+    const whole = value({ valueType: 'Whole.None', value: 42 });
+    const fp = value({ valueType: 'FP', value: null });
+    const money = value({ valueType: 'Currency', value: 1500 });
+    check(
+        'rig: a number column carries its range, and Precision (Decimal, FP, Currency) or Format (whole) — never both',
+        decimal.attributes.MinValue === 0 && decimal.attributes.MaxValue === 10 && decimal.attributes.Precision === 1 && !('Format' in decimal.attributes)
+            && whole.attributes.Format === 'None' && !('Precision' in whole.attributes)
+            && 'Precision' in fp.attributes && 'Precision' in money.attributes,
+    );
+    check(
+        'rig: …and the platform default range where nobody declared one — FP from 0, not the type limit',
+        whole.attributes.MinValue === -2147483648 && whole.attributes.MaxValue === 2147483647
+            && fp.attributes.MinValue === 0 && fp.attributes.MaxValue === 1000000000
+            && money.attributes.MaxValue === 922337203685477,
+    );
+    check(
+        "rig: a number column's formatted is the platform's string: grouped, to its precision, currency with its symbol; empty is undefined",
+        decimal.formatted === '1,234.5' && whole.formatted === '42' && money.formatted === '$1,500.00' && fp.formatted === undefined && fp.raw === null,
+        [decimal.formatted, whole.formatted, money.formatted, fp.formatted].join(' | '),
+    );
+    check(
+        'rig: a canvas host hands a number column no attributes at all',
+        value({ valueType: 'Decimal', value: 3, host: 'canvas' }).attributes === undefined,
+    );
+
+    const group = ['Whole.None', 'Decimal', 'FP', 'Currency'];
+    check(
+        "rig: a type group's `type` is the member, the whole group, or another member — the three measured hosts",
+        value({ valueType: 'Whole.None', value: 1, typeGroup: group }).type === 'Whole.None'
+            && value({ valueType: 'Whole.None', value: 1, typeGroup: group, typeReport: 'group' }).type === group.join(',')
+            && value({ valueType: 'Whole.None', value: 1, typeGroup: group, typeReport: 'wrong-member' }).type === 'Decimal'
+            && value({ valueType: 'Decimal', value: 1, typeReport: 'group' }).type === 'Decimal',
+    );
+
+    const yesNo = value({ valueType: 'TwoOptions', value: false, optionLabels: ['Allow', 'Do Not Allow'] });
+    check(
+        "rig: a yes/no column carries its two options, false first, with the maker's labels, and formatted is the label",
+        yesNo.raw === false && yesNo.attributes.Options.map((o) => `${o.Value}:${o.Label}`).join() === '0:Allow,1:Do Not Allow'
+            && yesNo.attributes.DefaultValue === false && yesNo.formatted === 'Allow',
+    );
+
+    const calls = [];
+    const german = host.createContext({ calls, clientUrl: host.nextClientUrl(), locale: 'de-DE' });
+    const formatted = [
+        german.formatting.formatDecimal(1234.5, 1),
+        german.formatting.formatInteger(1234567),
+        german.formatting.formatCurrency(-99.5),
+    ];
+    check(
+        "rig: context.formatting writes the user's locale, and every call is logged",
+        formatted.join(' | ') === '1.234,5 | 1.234.567 | -99,50\u00a0€'
+            && calls.join() === 'formatting.formatDecimal([1234.5,1]),formatting.formatInteger(1234567),formatting.formatCurrency([-99.5,null,null])',
+        formatted.join(' | '),
+    );
+    check(
+        'rig: …and the platform made the bound value\'s formatted without a logged call — the control did not ask for it',
+        (() => {
+            const own = [];
+            host.createContext({ calls: own, clientUrl: host.nextClientUrl(), valueType: 'Currency', value: 5 });
+            return own.every((call) => !call.startsWith('formatting.'));
+        })(),
+    );
+    const info = german.userSettings.numberFormattingInfo;
+    check(
+        'rig: numberFormattingInfo has every member the typings declare, and de-DE swaps the separators',
+        Object.keys(info).length === 26 && info.numberDecimalSeparator === ',' && info.numberGroupSeparator === '.'
+            && info.currencySymbol === '€' && context({}).userSettings.numberFormattingInfo.numberDecimalSeparator === '.',
+        String(Object.keys(info).length),
+    );
+
+    const range = context({
+        valueType: 'Whole.None',
+        value: 10,
+        bound: {
+            upperValue: { type: 'Whole.None', raw: 400, column: 'cll_maxseats', minValue: 0, maxValue: 500 },
+            spare: 'unmapped',
+        },
+    }).parameters;
+    check(
+        'rig: a second bound number column has its own range and formatted; an unmapped one is still the eight-key shape',
+        range.upperValue.attributes.MaxValue === 500 && range.upperValue.attributes.LogicalName === 'cll_maxseats'
+            && range.upperValue.formatted === '400' && range.spare.type === null && keys(range.spare.attributes) === '',
+    );
 }
 
 /*

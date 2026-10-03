@@ -131,6 +131,271 @@
      */
     var FORM_FACTORS = { unknown: 0, desktop: 1, tablet: 2, phone: 3 };
 
+    /**
+     * The four types a number column binds as, and what each declares when its
+     * maker sets no range.
+     *
+     * The ranges were read off a real table — four columns created in the
+     * modern designer with Minimum and Maximum left alone (pcf-grid-data-bars
+     * SPEC.md). Note FP's floor of 0: it is neither the type's limit nor what
+     * the documentation says. A control that draws a value against one of
+     * these draws nothing, so they mean "nobody declared a range" — and the rig
+     * hands them over by default because that is the ordinary column.
+     *
+     * The precisions are Dataverse's defaults for a new column. Which of the
+     * metadata members a bound property actually carries on a form is the
+     * question pcf-number-slider's probe asks first (P1); until it answers,
+     * this is the typings' word.
+     */
+    var NUMBER_TYPES = {
+        'Whole.None': { min: -2147483648, max: 2147483647 },
+        Decimal: { min: -100000000000, max: 100000000000, precision: 2 },
+        FP: { min: 0, max: 1000000000, precision: 2 },
+        Currency: { min: -922337203685477, max: 922337203685477, precision: 2 },
+    };
+
+    /**
+     * `userSettings.numberFormattingInfo` for the two locales the rig speaks:
+     * every member the typings declare, with the typings' own examples for
+     * `en-US`. `de-DE` is the one worth testing against — the separators
+     * swap, and the currency symbol moves behind the number.
+     */
+    var NUMBER_FORMATS = {
+        'en-US': {
+            currencyDecimalDigits: 2,
+            currencyDecimalSeparator: '.',
+            currencyGroupSeparator: ',',
+            currencyGroupSizes: [3],
+            currencyNegativePattern: 0,
+            currencyPositivePattern: 0,
+            currencySymbol: '$',
+            nanSymbol: 'NaN',
+            nativeDigits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            negativeInfinitySymbol: '-Infinity',
+            negativeSign: '-',
+            numberDecimalDigits: 2,
+            numberDecimalSeparator: '.',
+            numberGroupSeparator: ',',
+            numberGroupSizes: [3],
+            numberNegativePattern: 1,
+            perMilleSymbol: '‰',
+            percentDecimalDigits: 2,
+            percentDecimalSeparator: '.',
+            percentGroupSeparator: ',',
+            percentGroupSizes: [3],
+            percentNegativePattern: 0,
+            percentPositivePattern: 0,
+            percentSymbol: '%',
+            positiveInfinitySymbol: 'Infinity',
+            positiveSign: '+',
+        },
+        'de-DE': {
+            currencyDecimalDigits: 2,
+            currencyDecimalSeparator: ',',
+            currencyGroupSeparator: '.',
+            currencyGroupSizes: [3],
+            currencyNegativePattern: 8,
+            currencyPositivePattern: 3,
+            currencySymbol: '€',
+            nanSymbol: 'NaN',
+            nativeDigits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
+            negativeInfinitySymbol: '-∞',
+            negativeSign: '-',
+            numberDecimalDigits: 2,
+            numberDecimalSeparator: ',',
+            numberGroupSeparator: '.',
+            numberGroupSizes: [3],
+            numberNegativePattern: 1,
+            perMilleSymbol: '‰',
+            percentDecimalDigits: 2,
+            percentDecimalSeparator: ',',
+            percentGroupSeparator: '.',
+            percentGroupSizes: [3],
+            percentNegativePattern: 0,
+            percentPositivePattern: 0,
+            percentSymbol: '%',
+            positiveInfinitySymbol: '∞',
+            positiveSign: '+',
+        },
+    };
+
+    function numberFormattingInfo(locale) {
+        return JSON.parse(JSON.stringify(NUMBER_FORMATS[locale] || NUMBER_FORMATS['en-US']));
+    }
+
+    /** `digits` places, grouped, in `locale` — the one primitive below. */
+    function fixed(locale, value, digits) {
+        return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(value);
+    }
+
+    /**
+     * The currency shape `numberFormattingInfo` describes: the symbol before
+     * the number in `en-US` (pattern 0), after it with a space in `de-DE`
+     * (pattern 3), and the sign in front either way.
+     */
+    function currency(locale, value, digits, symbol) {
+        var info = NUMBER_FORMATS[locale] || NUMBER_FORMATS['en-US'];
+        var places = digits !== undefined ? digits : info.currencyDecimalDigits;
+        var sign = value < 0 ? info.negativeSign : '';
+        var body = fixed(locale, Math.abs(value), places);
+        var mark = symbol !== undefined ? symbol : info.currencySymbol;
+
+        return sign + (info.currencyPositivePattern === 3 ? body + '\u00a0' + mark : mark + body);
+    }
+
+    /**
+     * `context.formatting`'s three number formatters, and none of the rest.
+     *
+     * Real formatting, through `Intl` in the rig's locale, so a harness page
+     * shows a number the way the form would — and **every call is logged** to
+     * `calls`, so a suite can still tell a number the control formatted through
+     * the platform from one it formatted itself, which looks the same. The rest
+     * of `FormattingApi` is absent rather than approximated: a stub answering a
+     * call nothing makes would let an assertion pass on formatting nobody asked
+     * for.
+     *
+     * `formatDecimal` with no precision gives two places, as the hub's demo
+     * harness does; what a form gives is unmeasured.
+     */
+    function buildFormatting(locale, log) {
+        return {
+            formatInteger: function (value) {
+                log('formatting.formatInteger', value);
+
+                return fixed(locale, value, 0);
+            },
+            formatDecimal: function (value, precision) {
+                log('formatting.formatDecimal', [value, precision]);
+
+                return fixed(locale, value, precision !== undefined ? precision : 2);
+            },
+            formatCurrency: function (value, precision, symbol) {
+                log('formatting.formatCurrency', [value, precision, symbol]);
+
+                return currency(locale, value, precision, symbol);
+            },
+        };
+    }
+
+    /**
+     * What a bound property's `attributes` carries, by the column's type.
+     *
+     * A number column carries its range, `ImeMode` and `RequiredLevel`, and
+     * then one of two members the typings split it by: `Precision` on Decimal,
+     * FP and Currency (`DecimalNumberMetadata`, `FloatingNumberMetadata`),
+     * `Format` on a whole number (`WholeNumberMetadata`). That split is the
+     * evidence a control has for "may this column hold 3.5" once a type group
+     * has made `type` unreliable — see `typeReport` in DEFAULTS. A yes/no
+     * column carries its two options, false first, and its default. Anything
+     * else keeps the shape it always had here: `MaxLength` where the caller
+     * gives one, and the two names.
+     */
+    function typedAttributes(type, spec) {
+        var names = { LogicalName: spec.column, DisplayName: spec.label };
+        var number = NUMBER_TYPES[type];
+
+        if (number) {
+            var attributes = Object.assign(names, {
+                RequiredLevel: spec.requiredLevel || 0,
+                MinValue: spec.minValue !== undefined ? spec.minValue : number.min,
+                MaxValue: spec.maxValue !== undefined ? spec.maxValue : number.max,
+                ImeMode: 0,
+            });
+
+            if (type === 'Whole.None') {
+                attributes.Format = 'None';
+            } else {
+                attributes.Precision = spec.precision !== undefined ? spec.precision : number.precision;
+            }
+
+            return attributes;
+        }
+
+        if (type === 'TwoOptions') {
+            var labels = spec.optionLabels || ['No', 'Yes'];
+
+            return Object.assign(names, {
+                RequiredLevel: spec.requiredLevel || 0,
+                Options: [
+                    { Label: labels[0], Value: 0, Color: '' },
+                    { Label: labels[1], Value: 1, Color: '' },
+                ],
+                DefaultValue: false,
+            });
+        }
+
+        return spec.maxLength !== undefined ? Object.assign({ MaxLength: spec.maxLength }, names) : names;
+    }
+
+    /**
+     * What `type` says for a property declared with a `<type-group>`.
+     *
+     * Three hosts have been measured, and a control has to be right on all of
+     * them, so the rig can be each:
+     *
+     *   'member'       -> the bound column's own type.
+     *   'group'        -> every type in the group, as one string
+     *                     (pcf-choices-picker, the skill's 7c92019). The
+     *                     separator is not measured; a control that compares
+     *                     exactly — the only safe way — never depends on it.
+     *   'wrong-member' -> another member of the group: `SingleLine.Phone` on a
+     *                     Text column (pcf-input-mask P1, 2026-09-28).
+     *
+     * A property declared with a single `of-type` is always the member.
+     */
+    function reportedType(type, group, report) {
+        if (!group || group.length === 0 || !report || report === 'member') {
+            return type;
+        }
+
+        if (report === 'group') {
+            return group.join(',');
+        }
+
+        if (report === 'wrong-member') {
+            var other = group.filter(function (member) {
+                return member !== type;
+            })[0];
+
+            return other !== undefined ? other : type;
+        }
+
+        return type;
+    }
+
+    /**
+     * A number or yes/no column's `formatted` — the platform's own display
+     * string, made the way the platform makes it but **not** through the
+     * logged `context.formatting`, because the control did not ask for it. A
+     * text column gets no `formatted` key at all, which is the shape this rig
+     * has always handed over for one.
+     */
+    function typedFormatted(type, raw, precision, locale, optionLabels) {
+        var number = NUMBER_TYPES[type];
+
+        if (number) {
+            if (typeof raw !== 'number') {
+                return { formatted: undefined };
+            }
+
+            var places = precision !== undefined ? precision : number.precision;
+
+            if (type === 'Whole.None') {
+                return { formatted: fixed(locale, raw, 0) };
+            }
+
+            return { formatted: type === 'Currency' ? currency(locale, raw, places) : fixed(locale, raw, places) };
+        }
+
+        if (type === 'TwoOptions') {
+            var labels = optionLabels || ['No', 'Yes'];
+
+            return { formatted: raw === null || raw === undefined ? undefined : labels[raw ? 1 : 0] };
+        }
+
+        return {};
+    }
+
     var DEFAULTS = {
         host: 'model-driven',
         /** One of FORM_FACTORS above, by name. */
@@ -560,6 +825,53 @@
         column: 'name',
         target: 'account',
         targetMethod: 'present',
+
+        /**
+         * A number column's declared range and precision, handed over as
+         * `attributes.MinValue`, `MaxValue` and — on Decimal, FP and Currency
+         * — `Precision`; a whole number carries `Format` instead. Model-driven
+         * only, like every member of `attributes`. `undefined` hands over the
+         * platform's default for the type (NUMBER_TYPES), which is what a
+         * column nobody configured carries and what a control has to read as
+         * "no range declared". Set `valueType` to `Whole.None`, `Decimal`, `FP`
+         * or `Currency`, and `value` to a number or `null`.
+         */
+        minValue: undefined,
+        maxValue: undefined,
+        precision: undefined,
+
+        /**
+         * `attributes.RequiredLevel` on a number or yes/no column: 0 none,
+         * 1 system, 2 business required, 3 recommended. A control that offers
+         * to clear a value reads it — and a form refuses to save an empty
+         * business-required column whatever the control does.
+         */
+        requiredLevel: 0,
+
+        /**
+         * A yes/no (`TwoOptions`) column's two labels, false first —
+         * `attributes.Options` and the `formatted` string. A maker renames
+         * them ("Allow" / "Do Not Allow"), so a control shows these rather
+         * than its own Yes and No.
+         */
+        optionLabels: ['No', 'Yes'],
+
+        /**
+         * The types of the `<type-group>` the bound property is declared with,
+         * and how this host reports `type` for it — `'member'`, `'group'` or
+         * `'wrong-member'`, the three measured hosts (see `reportedType`).
+         * `null` is a property declared with one `of-type`, where `type` is
+         * always the column's own.
+         */
+        typeGroup: null,
+        typeReport: 'member',
+
+        /**
+         * The user's number format: `userSettings.numberFormattingInfo` and
+         * what `context.formatting` writes. `'en-US'` or `'de-DE'` — the second
+         * is the one that catches a parser written against '.' alone.
+         */
+        locale: 'en-US',
 
         /**
          * Bound properties beyond the first, by manifest name — a second
@@ -1678,16 +1990,25 @@
         }
 
         var isLookup = spec.type === 'Lookup.Simple';
-        var property = {
-            type: spec.type,
-            raw: spec.raw !== undefined ? spec.raw : isLookup ? [] : null,
+        var raw = spec.raw !== undefined ? spec.raw : isLookup ? [] : null;
+        var property = Object.assign({
+            type: reportedType(spec.type, spec.typeGroup || o.typeGroup, o.typeReport),
+            raw: raw,
             attributes: host.publishesMetadata
-                ? { LogicalName: spec.column, DisplayName: spec.label || spec.column }
+                ? typedAttributes(spec.type, {
+                    column: spec.column,
+                    label: spec.label || spec.column,
+                    minValue: spec.minValue,
+                    maxValue: spec.maxValue,
+                    precision: spec.precision,
+                    requiredLevel: spec.requiredLevel,
+                    optionLabels: spec.optionLabels,
+                })
                 : undefined,
             security: spec.security !== undefined ? SECURITY[spec.security] : undefined,
             error: false,
             errorMessage: undefined,
-        };
+        }, typedFormatted(spec.type, raw, spec.precision, o.locale, spec.optionLabels));
 
         if (isLookup && o.targetMethod !== 'absent') {
             property.getTargetEntityType = function () {
@@ -2856,6 +3177,10 @@
 
         installFetch(clientUrl, o, log, fixture);
 
+        // Built before the parameters, which format a number column's value
+        // through it the way the platform's own `formatted` is made.
+        var formatting = buildFormatting(o.locale, log);
+
         function fails() {
             return o.webApiFails
                 ? Promise.reject(webApiFault(2147746581, '', 'The request could not be completed.'))
@@ -2890,7 +3215,7 @@
              * placeholder: the literal below silently overwrote it.
              */
             parameters: Object.assign({
-                value: {
+                value: Object.assign({
                     raw: o.value,
                     /*
                      * Present only where the host has column metadata.
@@ -2898,10 +3223,20 @@
                      * The control reads `parameter.attributes?.MaxLength`, and
                      * that single `?` is the whole canvas/model-driven
                      * difference. Supplying it on canvas would hide the one bug
-                     * this switch exists to find.
+                     * this switch exists to find. A number or a yes/no column
+                     * carries its own members instead — see `typedAttributes`.
                      */
                     attributes: host.publishesMetadata
-                        ? { MaxLength: o.maxLength, LogicalName: o.column, DisplayName: o.label }
+                        ? typedAttributes(o.valueType, {
+                            column: o.column,
+                            label: o.label,
+                            maxLength: o.maxLength,
+                            minValue: o.minValue,
+                            maxValue: o.maxValue,
+                            precision: o.precision,
+                            requiredLevel: o.requiredLevel,
+                            optionLabels: o.optionLabels,
+                        })
                         : undefined,
                     /*
                      * `undefined` unless the column carries a field-level
@@ -2912,8 +3247,8 @@
                     error: o.error,
                     // The platform sets no message when there is no error.
                     errorMessage: o.error ? o.errorMessage : undefined,
-                    type: o.valueType,
-                },
+                    type: reportedType(o.valueType, o.typeGroup, o.typeReport),
+                }, typedFormatted(o.valueType, o.value, o.precision, o.locale, o.optionLabels)),
                 placeholder: { raw: o.placeholder, type: 'SingleLine.Text' },
             }, parameters, isLookup && o.targetMethod !== 'absent'
                 ? {
@@ -3502,13 +3837,24 @@
              */
             fluentDesignLanguage: host.publishesTheme ? { isDarkTheme: Boolean(o.dark) } : undefined,
 
+            /*
+             * `context.formatting` — three of its number formatters, logged.
+             * See `buildFormatting`.
+             */
+            formatting: formatting,
+
             userSettings: {
                 isRTL: o.rtl,
                 languageId: o.languageId,
                 userId: o.userId,
                 userName: o.userName,
-                // Read by any control that formats a number or a date.
-                numberFormattingInfo: { numberDecimalSeparator: '.', numberGroupSeparator: ',' },
+                /*
+                 * Read by any control that parses or formats a number itself:
+                 * every member the typings declare, for the user's locale — a
+                 * German user types `1.234,5`, and a parser written against
+                 * '.' alone reads it as 1.2345 without a word.
+                 */
+                numberFormattingInfo: numberFormattingInfo(o.locale),
             },
 
             client: {

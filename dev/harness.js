@@ -16,8 +16,36 @@
     var host = window.__pcfHost;
     var registration = host.captureRegistration(window);
 
+    /*
+     * The bound column this page stands in for: its type and first value, and
+     * the type group the manifest declares. The rig's text column unless
+     * `setup.mjs --bind` rewrote this line for a number or a yes/no control.
+     */
+    var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };
+
     /** The platform's copy of the column, which is not the control's copy. */
-    var columnValue = host.DEFAULTS.value;
+    var columnValue = COLUMN.value;
+
+    /**
+     * What typing into the page's column box means for this column: a number
+     * column holds a number or nothing, a yes/no column a boolean. A string
+     * handed to a number control is a value no form would ever send.
+     */
+    function fromText(text) {
+        var trimmed = String(text).trim();
+
+        if (/^(Whole\.None|Decimal|FP|Currency)$/.test(COLUMN.valueType)) {
+            var number = Number(trimmed);
+
+            return trimmed === '' || !isFinite(number) ? null : number;
+        }
+
+        if (COLUMN.valueType === 'TwoOptions') {
+            return /^(true|1|yes)$/i.test(trimmed);
+        }
+
+        return text;
+    }
 
     var instance = null;
     var container = null;
@@ -60,7 +88,8 @@
     };
 
     function options() {
-        return {
+        // The column first, so a switch below — the value above all — wins.
+        return Object.assign({}, COLUMN, {
             host: document.getElementById('harness-host').value,
             formFactor: document.getElementById('harness-formfactor').value,
             width: Number(document.getElementById('harness-width').value),
@@ -102,7 +131,7 @@
                     : document.getElementById('harness-hierarchical').value === 'true',
             fixture: window.__pcfFixture,
             clientUrl: clientUrl,
-        };
+        });
     }
 
     /*
@@ -255,7 +284,7 @@
         // platform handing down a new bound value, which is a different event
         // from the user typing and hits a different branch.
         document.getElementById('harness-value').addEventListener('input', function (event) {
-            columnValue = event.target.value;
+            columnValue = fromText(event.target.value);
             render();
         });
 
