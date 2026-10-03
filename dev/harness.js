@@ -20,6 +20,9 @@
      * The bound column this page stands in for: its type and first value, and
      * the type group the manifest declares. The rig's text column unless
      * `setup.mjs --bind` rewrote this line for a number or a yes/no control.
+     * Give it `inputs` too once the control has more than the scaffold's: a
+     * form hands over every declared input, `raw: null` where the maker set
+     * none, and a control reading one this page never sends throws on load.
      */
     var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };
 
