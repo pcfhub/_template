@@ -64,8 +64,8 @@ node scripts/setup.mjs --bind number …
 node scripts/setup.mjs --bind yesno …
 ```
 
-`--bind number` binds the four-type group a number column can be — Whole.None,
-Decimal, FP and Currency, since a maker stores an amount as Currency and a score
+`--bind number` binds the four-type group a number column can be — Decimal,
+Whole.None, FP and Currency, since a maker stores an amount as Currency and a score
 as Decimal — and swaps in a number box that is typed in the user's own format
 (`1.234,5` to a German user), commits on Enter or blur rather than per
 keystroke, and refuses what the column cannot hold: text, a value outside its

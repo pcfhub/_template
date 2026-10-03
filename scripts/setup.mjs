@@ -645,7 +645,10 @@ function applyBind(control) {
         return;
     }
 
-    const NUMBER_GROUP = ['Whole.None', 'Decimal', 'FP', 'Currency'];
+    // Decimal first: PCFHub's demo builds a group-typed property as the group's
+    // first member, and as Whole.None every demo preset was a whole number
+    // (pcf-number-slider, 3 Oct 2026). A form ignores the order.
+    const NUMBER_GROUP = ['Decimal', 'Whole.None', 'FP', 'Currency'];
 
     /** The `COLUMN` line `dev/smoke.js` and `dev/harness.js` start every mount from. */
     const COLUMNS = {
@@ -673,6 +676,10 @@ function applyBind(control) {
                     '      trusts `type` only to forbid. Narrow the group if',
                     '      a kind here is one the control cannot honour: a type offered is a',
                     '      type the form designer calls supported.',
+                    '',
+                    '      Decimal stays FIRST. A form ignores the order; PCFHub\'s demo builds',
+                    '      the property as the group\'s first member, and with Whole.None first',
+                    '      every demo preset is a whole number.',
                     '    -->',
                     '    <type-group name="number">',
                     ...NUMBER_GROUP.map((member) => `      <type>${member}</type>`),

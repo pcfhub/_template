@@ -460,8 +460,8 @@ function verifyBindings() {
         const manifest = number.read(`${control}/ControlManifest.Input.xml`);
 
         check(
-            'the value property binds the four-type number group',
-            /<type-group name="number">\s*<type>Whole\.None<\/type>\s*<type>Decimal<\/type>\s*<type>FP<\/type>\s*<type>Currency<\/type>\s*<\/type-group>/.test(manifest)
+            'the value property binds the four-type number group, Decimal first (the hub demos the first member)',
+            /<type-group name="number">\s*<type>Decimal<\/type>\s*<type>Whole\.None<\/type>\s*<type>FP<\/type>\s*<type>Currency<\/type>\s*<\/type-group>/.test(manifest)
                 && /<property name="value"[^>]*of-type-group="number"/.test(manifest)
                 && !/name="value"[^>]*of-type="SingleLine\.Text"/.test(manifest),
         );
@@ -479,7 +479,7 @@ function verifyBindings() {
 
         check(
             'the suite mounts a Decimal column through the group, and runs the number example',
-            /const COLUMN = \{ valueType: 'Decimal', value: 1234\.5, typeGroup: \['Whole\.None', 'Decimal', 'FP', 'Currency'\] \};/.test(smoke)
+            /const COLUMN = \{ valueType: 'Decimal', value: 1234\.5, typeGroup: \['Decimal', 'Whole\.None', 'FP', 'Currency'\] \};/.test(smoke)
                 && smoke.includes("a German user's 2.500,75 is 2500.75")
                 && !smoke.includes("'shows the value the platform supplied'")
                 && smoke.includes("what destroy owes") && smoke.includes("THE RIG'S OWN CLAIMS"),
