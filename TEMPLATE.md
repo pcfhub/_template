@@ -70,7 +70,7 @@ as Decimal — and swaps in a number box that is typed in the user's own format
 (`1.234,5` to a German user), commits on Enter or blur rather than per
 keystroke, and refuses what the column cannot hold: text, a value outside its
 declared range, a fraction in a whole-number column. It reads which kind of
-column it got from `attributes` — `Precision` or `Format` — because a host may
+column it got from `attributes.Precision` — 0 on a whole number — because a host may
 report the whole group, or the wrong member, as `type`.
 
 `--bind yesno` binds `TwoOptions`, drops the placeholder input, and swaps in a

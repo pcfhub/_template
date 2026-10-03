@@ -1241,10 +1241,10 @@ function typedColumnSelfCheck() {
     const fp = value({ valueType: 'FP', value: null });
     const money = value({ valueType: 'Currency', value: 1500 });
     check(
-        'rig: a number column carries its range, and Precision (Decimal, FP, Currency) or Format (whole) — never both',
+        'rig: a number column carries its range, Type and Precision — a whole number Precision 0 and Format "0", as a form does (P1)',
         decimal.attributes.MinValue === 0 && decimal.attributes.MaxValue === 10 && decimal.attributes.Precision === 1 && !('Format' in decimal.attributes)
-            && whole.attributes.Format === 'None' && !('Precision' in whole.attributes)
-            && 'Precision' in fp.attributes && 'Precision' in money.attributes,
+            && whole.attributes.Precision === 0 && whole.attributes.Format === '0' && whole.attributes.Type === 'integer'
+            && fp.attributes.Type === 'double' && money.attributes.Type === 'money' && decimal.attributes.Type === 'decimal',
     );
     check(
         'rig: …and the platform default range where nobody declared one — FP from 0, not the type limit',
@@ -1285,6 +1285,8 @@ function typedColumnSelfCheck() {
         german.formatting.formatInteger(1234567),
         german.formatting.formatCurrency(-99.5),
     ];
+    const english = host.createContext({ calls: [], clientUrl: host.nextClientUrl() }).formatting.formatCurrency(-1234.5);
+    check("rig: a negative amount is bracketed in en-US, as formatCurrency(-1234.5) answered on a form (P1)", english === '($1,234.50)', english);
     check(
         "rig: context.formatting writes the user's locale, and every call is logged",
         formatted.join(' | ') === '1.234,5 | 1.234.567 | -99,50\u00a0€'

@@ -10,9 +10,9 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
  *   and a parser written against '.' reads it as 1.2345 without a word. The
  *   separators come from `userSettings.numberFormattingInfo`, and a group
  *   separator is accepted only where it groups.
- * - **The column says what it can hold.** `attributes` carries the range, and
- *   then either `Precision` (Decimal, FP, Currency) or `Format` (a whole
- *   number). A value outside the range is refused here, at the box, rather
+ * - **The column says what it can hold.** `attributes` carries the range and
+ *   `Precision` — 0 on a whole number, which also carries `Format` (measured
+ *   on a form). A value outside the range is refused here, at the box, rather
  *   than at Save; a fraction in a whole-number column is refused, not
  *   rounded, because rounding changes what the user typed without saying so.
  * - **It commits; it does not stream.** Half a number — `1.` — is not a value,
@@ -30,6 +30,7 @@ interface NumberAttributes {
     MaxValue?: number;
     Precision?: number;
     Format?: string;
+    Type?: string;
 }
 
 export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, IOutputs> {
@@ -195,20 +196,21 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
     /**
      * Whether this column can hold a fraction.
      *
-     * `attributes` is the evidence: `Precision` exists on the fractional
-     * types and `Format` on a whole number. Without it — a canvas app — `type`
-     * is consulted only to forbid. An exact `Whole.None` is a whole number;
-     * a group string, or nothing, is not evidence either way, and the box
-     * takes what the user typed.
+     * `attributes` is the evidence: every number column carries `Precision`,
+     * and a whole number's is **0** (it carries `Format` too — so the presence
+     * of `Precision` proves nothing; measured on a form, 2026-10-03). Without
+     * `attributes` — a canvas app — `type` is consulted only to forbid. An
+     * exact `Whole.None` is a whole number; a group string, or nothing, is not
+     * evidence either way, and the box takes what the user typed.
      */
     private kind(): Kind {
         const attributes = this.attributes();
 
         if (typeof attributes.Precision === 'number') {
-            return 'fractional';
+            return attributes.Precision > 0 ? 'fractional' : 'whole';
         }
 
-        if (typeof attributes.Format === 'string') {
+        if (attributes.Format !== undefined || attributes.Type === 'integer') {
             return 'whole';
         }
 

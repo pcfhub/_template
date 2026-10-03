@@ -142,16 +142,14 @@
      * these draws nothing, so they mean "nobody declared a range" — and the rig
      * hands them over by default because that is the ordinary column.
      *
-     * The precisions are Dataverse's defaults for a new column. Which of the
-     * metadata members a bound property actually carries on a form is the
-     * question pcf-number-slider's probe asks first (P1); until it answers,
-     * this is the typings' word.
+     * The precisions are Dataverse's defaults for a new column, and a whole
+     * number's is 0. `kind` is what `attributes.Type` says on a form.
      */
     var NUMBER_TYPES = {
-        'Whole.None': { min: -2147483648, max: 2147483647 },
-        Decimal: { min: -100000000000, max: 100000000000, precision: 2 },
-        FP: { min: 0, max: 1000000000, precision: 2 },
-        Currency: { min: -922337203685477, max: 922337203685477, precision: 2 },
+        'Whole.None': { min: -2147483648, max: 2147483647, precision: 0, kind: 'integer' },
+        Decimal: { min: -100000000000, max: 100000000000, precision: 2, kind: 'decimal' },
+        FP: { min: 0, max: 1000000000, precision: 2, kind: 'double' },
+        Currency: { min: -922337203685477, max: 922337203685477, precision: 2, kind: 'money' },
     };
 
     /**
@@ -230,17 +228,24 @@
 
     /**
      * The currency shape `numberFormattingInfo` describes: the symbol before
-     * the number in `en-US` (pattern 0), after it with a space in `de-DE`
-     * (pattern 3), and the sign in front either way.
+     * the number in `en-US` (positive pattern 0), after it with a space in
+     * `de-DE` (pattern 3). A negative amount is **bracketed** in `en-US`
+     * (negative pattern 0): `formatCurrency(-1234.5)` answered `($1,234.50)`
+     * on a form (pcf-number-slider P1, 2026-10-03). `de-DE`'s pattern 8 puts
+     * the sign in front.
      */
     function currency(locale, value, digits, symbol) {
         var info = NUMBER_FORMATS[locale] || NUMBER_FORMATS['en-US'];
         var places = digits !== undefined ? digits : info.currencyDecimalDigits;
-        var sign = value < 0 ? info.negativeSign : '';
         var body = fixed(locale, Math.abs(value), places);
         var mark = symbol !== undefined ? symbol : info.currencySymbol;
+        var shown = info.currencyPositivePattern === 3 ? body + '\u00a0' + mark : mark + body;
 
-        return sign + (info.currencyPositivePattern === 3 ? body + '\u00a0' + mark : mark + body);
+        if (value >= 0) {
+            return shown;
+        }
+
+        return info.currencyNegativePattern === 0 ? '(' + shown + ')' : info.negativeSign + shown;
     }
 
     /**
@@ -280,12 +285,14 @@
     /**
      * What a bound property's `attributes` carries, by the column's type.
      *
-     * A number column carries its range, `ImeMode` and `RequiredLevel`, and
-     * then one of two members the typings split it by: `Precision` on Decimal,
-     * FP and Currency (`DecimalNumberMetadata`, `FloatingNumberMetadata`),
-     * `Format` on a whole number (`WholeNumberMetadata`). That split is the
-     * evidence a control has for "may this column hold 3.5" once a type group
-     * has made `type` unreliable — see `typeReport` in DEFAULTS. A yes/no
+     * A number column carries its range, `ImeMode`, `RequiredLevel`, `Type`
+     * (`integer`, `decimal`, `double`, `money`) and `Precision` — **a whole
+     * number's included, at 0**, beside `Format: "0"` (measured on a form,
+     * pcf-number-slider P1, 2026-10-03; the typings put `Precision` on the
+     * fractional types only, and a control that reads its presence as
+     * "fractional" is wrong on every whole-number column). `Precision === 0`
+     * is the evidence for "this column cannot hold 3.5" once a type group has
+     * made `type` unreliable — see `typeReport` in DEFAULTS. A yes/no
      * column carries its two options, false first, and its default. Anything
      * else keeps the shape it always had here: `MaxLength` where the caller
      * gives one, and the two names.
@@ -296,16 +303,16 @@
 
         if (number) {
             var attributes = Object.assign(names, {
+                Type: number.kind,
                 RequiredLevel: spec.requiredLevel || 0,
                 MinValue: spec.minValue !== undefined ? spec.minValue : number.min,
                 MaxValue: spec.maxValue !== undefined ? spec.maxValue : number.max,
                 ImeMode: 0,
+                Precision: type === 'Whole.None' ? 0 : spec.precision !== undefined ? spec.precision : number.precision,
             });
 
             if (type === 'Whole.None') {
-                attributes.Format = 'None';
-            } else {
-                attributes.Precision = spec.precision !== undefined ? spec.precision : number.precision;
+                attributes.Format = '0';
             }
 
             return attributes;
