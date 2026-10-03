@@ -154,9 +154,12 @@
 
     /**
      * `userSettings.numberFormattingInfo` for the two locales the rig speaks:
-     * every member the typings declare, with the typings' own examples for
-     * `en-US`. `de-DE` is the one worth testing against — the separators
-     * swap, and the currency symbol moves behind the number.
+     * every member the typings declare, as a form answered for each format
+     * (pcf-number-slider P1 and P11, 2026-10-03; a form sends each member
+     * twice, PascalCase and camelCase, and the rig the camelCase the typings
+     * declare). `de-DE` is the one worth testing against — the separators
+     * swap and the symbol moves behind the number, but the symbol itself is
+     * the organisation's currency, so it stays `$`.
      */
     var NUMBER_FORMATS = {
         'en-US': {
@@ -169,7 +172,7 @@
             currencySymbol: '$',
             nanSymbol: 'NaN',
             nativeDigits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
-            negativeInfinitySymbol: '-Infinity',
+            negativeInfinitySymbol: '-∞',
             negativeSign: '-',
             numberDecimalDigits: 2,
             numberDecimalSeparator: '.',
@@ -181,10 +184,10 @@
             percentDecimalSeparator: '.',
             percentGroupSeparator: ',',
             percentGroupSizes: [3],
-            percentNegativePattern: 0,
-            percentPositivePattern: 0,
+            percentNegativePattern: 1,
+            percentPositivePattern: 1,
             percentSymbol: '%',
-            positiveInfinitySymbol: 'Infinity',
+            positiveInfinitySymbol: '∞',
             positiveSign: '+',
         },
         'de-DE': {
@@ -194,7 +197,9 @@
             currencyGroupSizes: [3],
             currencyNegativePattern: 8,
             currencyPositivePattern: 3,
-            currencySymbol: '€',
+            // The organisation's currency, not the format's: a German format on a
+            // USD organisation still shows $ (pcf-number-slider P11, 2026-10-03).
+            currencySymbol: '$',
             nanSymbol: 'NaN',
             nativeDigits: ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9'],
             negativeInfinitySymbol: '-∞',

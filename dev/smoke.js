@@ -1289,7 +1289,7 @@ function typedColumnSelfCheck() {
     check("rig: a negative amount is bracketed in en-US, as formatCurrency(-1234.5) answered on a form (P1)", english === '($1,234.50)', english);
     check(
         "rig: context.formatting writes the user's locale, and every call is logged",
-        formatted.join(' | ') === '1.234,5 | 1.234.567 | -99,50\u00a0€'
+        formatted.join(' | ') === '1.234,5 | 1.234.567 | -99,50\u00a0$'
             && calls.join() === 'formatting.formatDecimal([1234.5,1]),formatting.formatInteger(1234567),formatting.formatCurrency([-99.5,null,null])',
         formatted.join(' | '),
     );
@@ -1303,9 +1303,10 @@ function typedColumnSelfCheck() {
     );
     const info = german.userSettings.numberFormattingInfo;
     check(
-        'rig: numberFormattingInfo has every member the typings declare, and de-DE swaps the separators',
+        "rig: numberFormattingInfo has every member the typings declare; de-DE swaps the separators and keeps the organisation's $ (P11)",
         Object.keys(info).length === 26 && info.numberDecimalSeparator === ',' && info.numberGroupSeparator === '.'
-            && info.currencySymbol === '€' && context({}).userSettings.numberFormattingInfo.numberDecimalSeparator === '.',
+            && info.currencySymbol === '$' && info.currencyPositivePattern === 3
+            && context({}).userSettings.numberFormattingInfo.numberDecimalSeparator === '.',
         String(Object.keys(info).length),
     );
 
