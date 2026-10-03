@@ -205,6 +205,11 @@ const marked = (key) => `resx:${key}`;
  * default text column. `setup.mjs --bind` rewrites this line, so a number or a
  * yes/no control is mounted on its own kind of column throughout — the
  * teardown checks below included — rather than handed "Contoso Ltd".
+ *
+ * `COLUMN.inputs` are merged under each mount's own, not replaced by them: a
+ * host hands over every input the manifest declares, `raw: null` where the
+ * maker set none, so give the control's defaults here and let a mount name
+ * only the one it is about.
  */
 const COLUMN = {};
 
@@ -247,7 +252,7 @@ function mount(options) {
     // `getString` first, so a single assertion can override it — the marked key
     // proves a string came from the .resx, but it cannot prove a `{0}` was
     // substituted, because a marked key has no `{0}` in it to substitute.
-    const context = host.createContext({ getString: marked, ...COLUMN, ...options, ...site });
+    const context = host.createContext({ getString: marked, ...COLUMN, ...options, ...site, inputs: { ...COLUMN.inputs, ...options.inputs } });
     const instance = new registration.ctor();
 
     let notifications = 0;
@@ -280,7 +285,9 @@ function mount(options) {
         /** The organisation URL this instance's `page.getClientUrl()` answers. */
         clientUrl: site.clientUrl,
         /** Re-render in a new state, as the platform does on every change. */
-        update: (next) => instance.updateView(host.createContext({ getString: marked, ...COLUMN, ...options, ...site, ...next })),
+        update: (next) => instance.updateView(host.createContext({
+            getString: marked, ...COLUMN, ...options, ...site, ...next, inputs: { ...COLUMN.inputs, ...options.inputs, ...(next && next.inputs) },
+        })),
         /** Unmount, as the platform does when the form closes or navigates. */
         destroy: () => {
             instance.destroy();
