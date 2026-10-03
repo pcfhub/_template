@@ -163,16 +163,22 @@ function adoptWith(extra) {
         filter: (src) => !SKIP_DIRS.has(src.split(/[\\/]/).pop()),
     });
 
-    execFileSync(
-        process.execPath,
-        [
-            join(scratch, 'scripts', 'setup.mjs'),
-            '--yes',
-            ...Object.entries(ANSWERS).flatMap(([k, v]) => [`--${k}`, v]),
-            ...extra,
-        ],
-        { cwd: scratch, stdio: 'pipe' },
-    );
+    try {
+        execFileSync(
+            process.execPath,
+            [
+                join(scratch, 'scripts', 'setup.mjs'),
+                '--yes',
+                ...Object.entries(ANSWERS).flatMap(([k, v]) => [`--${k}`, v]),
+                ...extra,
+            ],
+            { cwd: scratch, stdio: 'pipe' },
+        );
+    } catch (error) {
+        // A refused adoption is a result some callers want; the copy is not.
+        rmSync(scratch, { recursive: true, force: true });
+        throw error;
+    }
 
     return {
         scratch,
@@ -433,6 +439,106 @@ function verifyOtherShapes() {
  * `core.autocrlf` leaves it on a Windows checkout, and a comparison that did
  * not normalise would call every such file "modified" and update none.
  */
+/**
+ * `--bind number` and `--bind yesno`, adopted and read.
+ *
+ * Each rewrites five places — the manifest, the entry point, every language's
+ * resx, the suite's COLUMN line and worked example, the harness's COLUMN line
+ * — and a rewrite that misses one still produces a repository that installs.
+ * The suites themselves are proven by building them, which this script does
+ * not do; these checks prove the adoption put each piece where the build will
+ * find it, and that the combinations `--bind` refuses are refused.
+ */
+function verifyBindings() {
+    console.log('\nAdopting with --bind number…\n');
+
+    const number = adoptWith(['--bind', 'number']);
+    const control = ANSWERS.control;
+    const languages = ['1033', '3082', '1036', '1031', '1041'];
+
+    try {
+        const manifest = number.read(`${control}/ControlManifest.Input.xml`);
+
+        check(
+            'the value property binds the four-type number group',
+            /<type-group name="number">\s*<type>Whole\.None<\/type>\s*<type>Decimal<\/type>\s*<type>FP<\/type>\s*<type>Currency<\/type>\s*<\/type-group>/.test(manifest)
+                && /<property name="value"[^>]*of-type-group="number"/.test(manifest)
+                && !/name="value"[^>]*of-type="SingleLine\.Text"/.test(manifest),
+        );
+        check('and keeps the placeholder input, which a number box can show', /<property name="placeholder"/.test(manifest));
+
+        const entry = number.read(`${control}/index.ts`);
+
+        check('the number entry point lands, named for the control', entry.includes(`export class ${control}`) && entry.includes('numberFormattingInfo'));
+        check(
+            'every language gains the number strings',
+            languages.every((lcid) => /<data name="ColorPicker_NotANumber"[\s\S]*?<data name="ColorPicker_OutOfRange"/.test(number.read(`${control}/strings/${control}.${lcid}.resx`))),
+        );
+
+        const smoke = number.read('dev/smoke.js');
+
+        check(
+            'the suite mounts a Decimal column through the group, and runs the number example',
+            /const COLUMN = \{ valueType: 'Decimal', value: 1234\.5, typeGroup: \['Whole\.None', 'Decimal', 'FP', 'Currency'\] \};/.test(smoke)
+                && smoke.includes("a German user's 2.500,75 is 2500.75")
+                && !smoke.includes("'shows the value the platform supplied'")
+                && smoke.includes("what destroy owes") && smoke.includes("THE RIG'S OWN CLAIMS"),
+        );
+        check(
+            'and the harness stands in for the same column',
+            number.read('dev/harness.js').includes("var COLUMN = { valueType: 'Decimal', value: 1234.5"),
+        );
+    } finally {
+        rmSync(number.scratch, { recursive: true, force: true });
+    }
+
+    console.log('\nAdopting with --bind yesno…\n');
+
+    const yesno = adoptWith(['--bind', 'yesno']);
+
+    try {
+        const manifest = yesno.read(`${control}/ControlManifest.Input.xml`);
+
+        check('the value property binds TwoOptions', /<property name="value"[^>]*of-type="TwoOptions"/.test(manifest));
+        check(
+            'the placeholder input goes, from the manifest and from every language',
+            !/name="placeholder"/.test(manifest)
+                && languages.every((lcid) => !yesno.read(`${control}/strings/${control}.${lcid}.resx`).includes('placeholder_')),
+        );
+        check(
+            'every language gains Yes and No',
+            languages.every((lcid) => /<data name="ColorPicker_Yes"[\s\S]*?<data name="ColorPicker_No"/.test(yesno.read(`${control}/strings/${control}.${lcid}.resx`))),
+        );
+        check('the stylesheet gains the checkbox rules', yesno.read(`${control}/css/${control}.css`).includes('.ColorPicker .ColorPicker-check'));
+        check(
+            'the suite and the harness stand in for a yes/no column',
+            yesno.read('dev/smoke.js').includes("const COLUMN = { valueType: 'TwoOptions', value: false };")
+                && yesno.read('dev/harness.js').includes("var COLUMN = { valueType: 'TwoOptions', value: false };"),
+        );
+    } finally {
+        rmSync(yesno.scratch, { recursive: true, force: true });
+    }
+
+    console.log('\nRefusing --bind where it does not apply…\n');
+
+    for (const extra of [['--bind', 'number', '--type', 'dataset'], ['--bind', 'yesno', '--framework', 'react'], ['--bind', 'date']]) {
+        let refused = null;
+        let scratch = null;
+
+        try {
+            scratch = adoptWith(extra).scratch;
+        } catch (error) {
+            refused = String(error.stderr || error.message);
+        } finally {
+            if (scratch) {
+                rmSync(scratch, { recursive: true, force: true });
+            }
+        }
+
+        check(`setup refuses ${extra.join(' ')}, with a reason`, refused !== null && /--bind/.test(refused), refused ? refused.trim().split('\n')[0] : 'adopted');
+    }
+}
+
 function verifySync() {
     console.log('\nAdopting, ageing the rig, then syncing it…\n');
 
@@ -1099,6 +1205,7 @@ function main() {
     }
 
     verifyOtherShapes();
+    verifyBindings();
     verifySibling();
     verifySync();
 

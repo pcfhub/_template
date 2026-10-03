@@ -18,6 +18,10 @@
  * Add `--framework react` for a React (virtual) control instead of a standard
  * DOM one; see applyFramework() below for exactly what that changes.
  *
+ * Add `--bind number` or `--bind yesno` for a standard field control bound to
+ * a number column (any of Whole.None, Decimal, FP, Currency) or a yes/no
+ * column instead of text; see applyBind() for what each replaces.
+ *
  * Add `--type dataset` for a control that binds a view rather than a column;
  * see applyType(). All four combinations are supported — a plain DOM table is a
  * perfectly reasonable dataset control — and the two flags are not two ways of
@@ -104,6 +108,30 @@ if (type === 'grid-customizer' && args.framework === 'standard') {
     fail(
         'A grid customizer is always a React (virtual) control: its cell renderers and ' +
         'editors return React elements by contract. Drop --framework standard.',
+    );
+}
+
+/*
+ * What kind of column the field control binds: `text` (the scaffold as it has
+ * always been), `number`, or `yesno`. See applyBind().
+ *
+ * Only for a standard field control, and that is a scope rather than an
+ * oversight: a dataset or a customizer binds no column, and a React field
+ * control's value travels through props the variant's component already
+ * types — swapping its entry point would leave the component on text.
+ */
+const bind = args.bind ?? 'text';
+const BINDS = ['text', 'number', 'yesno'];
+
+if (!BINDS.includes(bind)) {
+    fail(`--bind must be one of: ${BINDS.join(', ')} — not "${bind}".`);
+}
+
+if (bind !== 'text' && (type !== 'field' || framework !== 'standard')) {
+    fail(
+        `--bind ${bind} scaffolds a standard field control, so it does not combine with ` +
+        `--type ${type === 'field' ? 'field' : type} or --framework ${framework}. Scaffold without it ` +
+        'and change the bound property by hand — the skill\'s references/properties.md has the types.',
     );
 }
 
@@ -294,6 +322,7 @@ for (const path of walkPaths(root)) {
  */
 applyType(answers.CONTROL);
 applyFramework(answers.CONTROL);
+applyBind(answers.CONTROL);
 
 /*
  * The variants directory has done its job either way — the react sources have
@@ -588,6 +617,125 @@ function applyType(control) {
              * how faithful the demo is remains the author's call.
              */
             .replace('"fidelity": "none",', '"fidelity": "none",\n    "datasetFixture": "demo/records.json",'));
+}
+
+/**
+ * Bind the field control to a number or a yes/no column instead of text.
+ *
+ * The entry point is replaced — a number box and a checkbox share almost no
+ * code with a text input — but everything around it stays single-sourced: the
+ * stylesheet (yes/no appends a few rules to it), the resx files (each gains
+ * the variant's keys in place, so the five languages are never copied whole),
+ * and the rig, where one `COLUMN` line in `dev/smoke.js` and `dev/harness.js`
+ * says what the bound column is and the suite's worked example is swapped for
+ * the variant's. The plumbing above the example and the rig's own claims below
+ * it are the same file for every binding.
+ *
+ * `number` binds the four-type group a number column can be — a maker stores
+ * an amount as Currency, a score as Decimal, a count as a whole number — and
+ * the scaffold reads which one it got from `attributes`, as the skill says to.
+ * `yesno` binds `TwoOptions` and drops the placeholder input, which a checkbox
+ * has nowhere to show.
+ *
+ * (Its constants live inside it: the script's top level calls it before a
+ * module-level `const` below that line would be initialised.)
+ */
+function applyBind(control) {
+    if (bind === 'text') {
+        return;
+    }
+
+    const NUMBER_GROUP = ['Whole.None', 'Decimal', 'FP', 'Currency'];
+
+    /** The `COLUMN` line `dev/smoke.js` and `dev/harness.js` start every mount from. */
+    const COLUMNS = {
+        number: `{ valueType: 'Decimal', value: 1234.5, typeGroup: [${NUMBER_GROUP.map((member) => `'${member}'`).join(', ')}] }`,
+        yesno: "{ valueType: 'TwoOptions', value: false }",
+    };
+
+    const VALUE_PROPERTY = /    <property name="value"\n(?:              [^\n]*\n)*?              of-type="SingleLine\.Text"\n/;
+    const source = join(root, 'variants', 'bind', bind);
+
+    cpSync(join(source, 'index.ts'), join(root, control, 'index.ts'));
+
+    if (bind === 'number') {
+        edit(`${control}/ControlManifest.Input.xml`, (text) =>
+            lf(text).replace(VALUE_PROPERTY, (property) =>
+                [
+                    '    <!--',
+                    '      A number column, of whichever kind the maker stored it as: an amount',
+                    '      is Currency, a score Decimal, a coordinate FP, a count a whole number.',
+                    '      All four generate NumberProperty, so `raw` stays `number | null`.',
+                    '',
+                    '      What a group costs: `type` may report the whole group, or another',
+                    '      member of it, on a real form. So index.ts reads the column\'s kind',
+                    '      from `attributes` (Precision on the fractional types, Format on a',
+                    '      whole number) and trusts `type` only to forbid. Narrow the group if',
+                    '      a kind here is one the control cannot honour: a type offered is a',
+                    '      type the form designer calls supported.',
+                    '    -->',
+                    '    <type-group name="number">',
+                    ...NUMBER_GROUP.map((member) => `      <type>${member}</type>`),
+                    '    </type-group>',
+                    property.replace('of-type="SingleLine.Text"', 'of-type-group="number"'),
+                ].join('\n')));
+    } else {
+        edit(`${control}/ControlManifest.Input.xml`, (text) =>
+            lf(text)
+                .replace(VALUE_PROPERTY, (property) => property.replace('of-type="SingleLine.Text"', 'of-type="TwoOptions"'))
+                .replace(/\n    <property name="placeholder"\n(?:              [^\n]*\n)*?              required="false" \/>\n/, '\n'));
+    }
+
+    // The variant's runtime strings, added to each language in place.
+    const strings = JSON.parse(readFileSync(join(source, 'strings.json'), 'utf8'));
+
+    for (const [lcid, entries] of Object.entries(strings)) {
+        edit(`${control}/strings/${control}.${lcid}.resx`, (text) => {
+            let next = lf(text);
+
+            if (bind === 'yesno') {
+                next = next.replace(/  <data name="placeholder_(Name|Desc)" xml:space="preserve">\n    <value>[^<]*<\/value>\n  <\/data>\n/g, '');
+            }
+
+            const added = Object.entries(entries)
+                .map(([key, value]) => `  <data name="${key}" xml:space="preserve">\n    <value>${xml(value)}</value>\n  </data>\n`)
+                .join('');
+
+            return next.replace(/<\/root>\s*$/, `${added}</root>\n`);
+        });
+    }
+
+    if (existsSync(join(source, 'append.css'))) {
+        edit(`${control}/css/${control}.css`, (text) => lf(text) + lf(readFileSync(join(source, 'append.css'), 'utf8')));
+    }
+
+    const example = lf(readFileSync(join(source, 'smoke-example.js'), 'utf8'));
+
+    edit('dev/smoke.js', (text) =>
+        lf(text)
+            .replace('const COLUMN = {};', `const COLUMN = ${COLUMNS[bind]};`)
+            .replace(/\/\* =+ \*\n \*  WORKED EXAMPLE[\s\S]*?(?=\/\* -+ what destroy owes \*\/)/, () => example));
+
+    edit('dev/harness.js', (text) =>
+        lf(text).replace(
+            'var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };',
+            `var COLUMN = ${COLUMNS[bind]};`,
+        ));
+}
+
+/**
+ * A file with LF line endings, which is what git stores. A Windows checkout
+ * with `core.autocrlf` hands this script CRLF, and every pattern above is
+ * written against `\n` — matched unnormalised, each fails as "the text this
+ * script rewrites was not found".
+ */
+function lf(text) {
+    return text.replace(/\r\n/g, '\n');
+}
+
+/** Text as it may appear inside an XML element. */
+function xml(text) {
+    return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 /**

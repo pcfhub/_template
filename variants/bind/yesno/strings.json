@@ -1,0 +1,22 @@
+{
+    "1033": {
+        "__CONTROL___Yes": "Yes",
+        "__CONTROL___No": "No"
+    },
+    "3082": {
+        "__CONTROL___Yes": "Sí",
+        "__CONTROL___No": "No"
+    },
+    "1036": {
+        "__CONTROL___Yes": "Oui",
+        "__CONTROL___No": "Non"
+    },
+    "1031": {
+        "__CONTROL___Yes": "Ja",
+        "__CONTROL___No": "Nein"
+    },
+    "1041": {
+        "__CONTROL___Yes": "はい",
+        "__CONTROL___No": "いいえ"
+    }
+}

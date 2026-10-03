@@ -1,0 +1,27 @@
+{
+    "1033": {
+        "__CONTROL___NotANumber": "Enter a number.",
+        "__CONTROL___WholeOnly": "Enter a whole number.",
+        "__CONTROL___OutOfRange": "Enter a number from {0} to {1}."
+    },
+    "3082": {
+        "__CONTROL___NotANumber": "Escriba un número.",
+        "__CONTROL___WholeOnly": "Escriba un número entero.",
+        "__CONTROL___OutOfRange": "Escriba un número entre {0} y {1}."
+    },
+    "1036": {
+        "__CONTROL___NotANumber": "Entrez un nombre.",
+        "__CONTROL___WholeOnly": "Entrez un nombre entier.",
+        "__CONTROL___OutOfRange": "Entrez un nombre compris entre {0} et {1}."
+    },
+    "1031": {
+        "__CONTROL___NotANumber": "Geben Sie eine Zahl ein.",
+        "__CONTROL___WholeOnly": "Geben Sie eine ganze Zahl ein.",
+        "__CONTROL___OutOfRange": "Geben Sie eine Zahl zwischen {0} und {1} ein."
+    },
+    "1041": {
+        "__CONTROL___NotANumber": "数値を入力してください。",
+        "__CONTROL___WholeOnly": "整数を入力してください。",
+        "__CONTROL___OutOfRange": "{0} から {1} までの数値を入力してください。"
+    }
+}

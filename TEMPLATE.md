@@ -54,6 +54,45 @@ so both work at runtime — but `@fluentui/react-components` requires
 Reach for `standard` more often than instinct suggests: one input and a button
 does not earn a React tree.
 
+## Text, number or yes/no
+
+The standard field scaffold binds a **text** column. For a number or a yes/no
+column instead:
+
+```bash
+node scripts/setup.mjs --bind number …
+node scripts/setup.mjs --bind yesno …
+```
+
+`--bind number` binds the four-type group a number column can be — Whole.None,
+Decimal, FP and Currency, since a maker stores an amount as Currency and a score
+as Decimal — and swaps in a number box that is typed in the user's own format
+(`1.234,5` to a German user), commits on Enter or blur rather than per
+keystroke, and refuses what the column cannot hold: text, a value outside its
+declared range, a fraction in a whole-number column. It reads which kind of
+column it got from `attributes` — `Precision` or `Format` — because a host may
+report the whole group, or the wrong member, as `type`.
+
+`--bind yesno` binds `TwoOptions`, drops the placeholder input, and swaps in a
+native checkbox beside the column's own label for its state — a maker renames
+the two options, and a control saying Yes and No over "Allow" and "Do Not
+Allow" contradicts the form. Its echo guard is a *window* rather than the text
+scaffold's list: after two clicks both values are recent, and a list would take
+every later value for an echo. Before building on it, rule out the platform:
+a model-driven form already has a Toggle and a Checkbox for a yes/no column.
+
+Each replaces the entry point and keeps everything else single-sourced: the
+resx files gain the variant's strings in all five languages in place, the
+stylesheet is the same file (yes/no appends its checkbox rules), and the rig
+reads one `COLUMN` line at the top of `dev/smoke.js` and of `dev/harness.js`
+that `--bind` rewrites, so every mount — the teardown checks included — runs on
+the right kind of column. The suite's worked example is the variant's own.
+
+`--bind` is for a **standard field** control only; setup refuses it beside
+`--type dataset`, `--type grid-customizer` or `--framework react`. The rig's
+typed columns work for any shape, though: `dev/host.js` takes `valueType`,
+`minValue`, `maxValue`, `precision`, `typeGroup`, `typeReport` and `locale`.
+
 ## Field or dataset
 
 The template scaffolds a control bound to one column. For one that binds a view:

@@ -1,0 +1,54 @@
+
+/*
+ * The yes/no box (`setup.mjs --bind yesno`): a native checkbox and the
+ * column's own label for its state, on the palette above.
+ *
+ * Native rather than drawn, on purpose: the browser's checkbox is focusable,
+ * announced, operable from the keyboard and honoured by forced colours with no
+ * code, and `accent-color` gives it the host's brand fill where the form
+ * publishes one. Draw your own only when the control's whole point is a
+ * different shape — and then re-earn each of those.
+ */
+.__CONTROL__ .__CONTROL__-check {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--spacingHorizontalS, 8px);
+    min-height: 32px;
+    font-family: var(--__CONTROL__-font-family);
+    font-size: var(--__CONTROL__-font-size);
+    line-height: var(--__CONTROL__-line-height);
+    color: var(--__CONTROL__-foreground);
+    cursor: pointer;
+}
+
+.__CONTROL__ .__CONTROL__-check[hidden] {
+    display: none;
+}
+
+.__CONTROL__ .__CONTROL__-box {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    accent-color: var(--__CONTROL__-stroke-focus);
+    cursor: inherit;
+}
+
+.__CONTROL__ .__CONTROL__-box:focus-visible {
+    outline: 2px solid var(--colorStrokeFocus2, #000000);
+    outline-offset: 2px;
+}
+
+.__CONTROL__--disabled .__CONTROL__-check {
+    color: var(--__CONTROL__-foreground-disabled);
+    cursor: not-allowed;
+}
+
+@media (forced-colors: active) {
+    .__CONTROL__ .__CONTROL__-box:focus-visible {
+        outline-color: Highlight;
+    }
+
+    .__CONTROL__--disabled .__CONTROL__-check {
+        color: GrayText;
+    }
+}
