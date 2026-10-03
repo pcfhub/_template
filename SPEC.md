@@ -22,7 +22,8 @@
   - **Anything already explained in a comment beside the code.** The comment is
     better placed: it is read by whoever is about to change the thing.
   - **Anything already promoted to the skill.** Once a finding is general enough
-    to live in `references/control-patterns.md`, this file should *link* to it
+    to live in the skill's `references/` — in its topic file, which
+    `references/control-patterns.md` indexes — this file should *link* to it
     rather than repeat it — see "Promoting a finding" below.
 
   What is left is usually short, and short is the point. A SPEC.md nobody
@@ -68,7 +69,8 @@ and a release with entries still in it is a decision rather than an oversight.
 ## Promoting a finding
 
 When something here turns out to be general — true of PCF rather than true of
-this control — move it to the skill's `references/control-patterns.md` and
+this control — move it to its topic file in the skill's `references/`
+(`references/control-patterns.md` is the index that names each one) and
 replace it here with a line naming where it went.
 
 Repeating it in both places is how the two drift, and the copy nothing executes

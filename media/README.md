@@ -52,7 +52,7 @@ silhouette rather than only in what sits inside it.
 what catches the readings that kill a mark — a pill with a dot in it is a toggle
 switch, a tag with a label bar is a back arrow, two thin rules crossing a card
 are a plus sign — and there is a table of the ones already found in *Drawing the
-mark*, in the skill's `references/pcfhub-manifest.md`. Record what you rejected
+mark*, in the skill's `references/hub-media.md`. Record what you rejected
 in a comment at the top of `logo.svg`, as the shipped controls do, and keep
 double hyphens out of that comment or the file stops parsing as XML.
 

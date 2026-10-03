@@ -183,7 +183,7 @@
              * A stub that answered anyway would let a control that cannot work
              * on a real grid look correct here. That happened: see *Reading
              * attribute metadata from a customizer* in the skill's
-             * `control-patterns.md`. Ranges come from `fetch` below.
+             * `references/grid-customizers.md`. Ranges come from `fetch` below.
              *
              * `.get()` rather than a plain object, because that is the shape
              * the platform returns: the public surface is prototype getters and

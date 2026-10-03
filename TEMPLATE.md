@@ -580,7 +580,7 @@ rather than after:
 
 `pcf-sla-timer` is the worked example: a display-only countdown, and the first
 control here with a teardown obligation. The general form of all of this lives
-in the skill's `references/control-patterns.md` under *Timers and teardown*.
+in the skill's `references/rendering-and-hosts.md` under *Timers and teardown*.
 
 **The grid-customizer rig has none of this**, and the omission is deliberate:
 a customizer hands the grid a set of overrides and the grid calls them, so there
