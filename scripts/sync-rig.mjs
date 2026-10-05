@@ -81,6 +81,13 @@ const MANAGED = [
     // The loader for a suite that drives pure modules instead of the bundle; same rule.
     { path: 'dev/modules.js', when: notCustomizer, loadedBy: 'dev/smoke.js' },
     { path: 'dev/serve.js', when: notCustomizer },
+    // Headless Chrome over the DevTools protocol, and the two tools on it: the hub's
+    // demo harness stood up locally from the manifest, and every preset run and
+    // measured. Five repositories carried a hand-copied engine before this one.
+    // Not for a customizer, whose demo is the hub's grid.
+    { path: 'dev/cdp.js', when: notCustomizer },
+    { path: 'dev/hub-demo.html', when: notCustomizer },
+    { path: 'dev/demo-check.js', when: notCustomizer },
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
     { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm, needs: 'dev/harness.html' },
@@ -104,7 +111,7 @@ const MANAGED = [
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */
-const OWNED = ['dev/host.js', 'dev/fixture.js', 'dev/smoke.js', 'dev/harness.html', 'dev/harness.js'];
+const OWNED = ['dev/host.js', 'dev/fixture.js', 'dev/smoke.js', 'dev/harness.html', 'dev/harness.js', 'dev/shots.js'];
 
 /** `--add-missing` adds these to package.json when absent, and never replaces one that is there. */
 const SCRIPTS = {
@@ -113,6 +120,8 @@ const SCRIPTS = {
     release: 'node scripts/release.mjs',
     smoke: 'node dev/smoke.js',
     harness: 'node dev/serve.js',
+    shots: 'node dev/shots.js',
+    'demo-check': 'node dev/demo-check.js',
 };
 
 const args = parseArgs(process.argv.slice(2));

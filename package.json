@@ -17,6 +17,8 @@
     "refreshTypes": "pcf-scripts refreshTypes",
     "smoke": "node dev/smoke.js",
     "harness": "node dev/serve.js",
+    "shots": "node dev/shots.js",
+    "demo-check": "node dev/demo-check.js",
     "lint": "eslint __CONTROL__ --ext .ts,.tsx"
   },
   "devDependencies": {

@@ -220,6 +220,11 @@ function verifyOtherShapes() {
             'a dataset control keeps the browser harness',
             dataset.has('dev/harness.html') && dataset.has('dev/harness.js'),
         );
+        check(
+            'and its shots frame the dataset harness\'s surface',
+            dataset.read('dev/shots.js').includes("frame: '#harness-surface'")
+                && dataset.read('dev/harness.html').includes('id="harness-surface"'),
+        );
 
         const manifest = dataset.read(`${ANSWERS.control}/ControlManifest.Input.xml`);
         check('the manifest declares a data-set', /<data-set\s/.test(manifest));
@@ -667,6 +672,14 @@ function verifySync() {
             planned.stdout,
         );
         check('nor a harness script it has no server for', !/scripts:.*harness/.test(planned.stdout), planned.stdout);
+
+        const scripts = JSON.parse(customizer.read('package.json')).scripts;
+
+        check(
+            'and no browser tools: a customizer\'s demo is the hub\'s grid',
+            !customizer.has('dev/cdp.js') && !customizer.has('dev/hub-demo.html') && scripts.shots === undefined && scripts['demo-check'] === undefined,
+            JSON.stringify(scripts),
+        );
     } finally {
         rmSync(customizer.scratch, { recursive: true, force: true });
     }
@@ -1078,7 +1091,27 @@ function main() {
 
         check('the browser harness lands for a standard control', has('dev/harness.html') && has('dev/harness.js'));
 
+        /*
+         * The browser tools: the engine, the screenshot recipes that frame this
+         * shape's harness, and the hub-demo stand-in with its checker. A recipe
+         * framing an element the harness does not have fails every retake.
+         */
+        check(
+            'the browser tools land',
+            has('dev/cdp.js') && has('dev/shots.js') && has('dev/hub-demo.html') && has('dev/demo-check.js'),
+        );
+        check(
+            'and the shots frame an element the field harness has',
+            read('dev/shots.js').includes("frame: '#harness-form'") && read('dev/harness.html').includes('id="harness-form"'),
+        );
+
         const pkg = JSON.parse(read('package.json'));
+
+        check(
+            'package.json runs both',
+            pkg.scripts.shots === 'node dev/shots.js' && pkg.scripts['demo-check'] === 'node dev/demo-check.js',
+            JSON.stringify(pkg.scripts),
+        );
 
         check(
             'package.json runs the smoke suite',

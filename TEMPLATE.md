@@ -178,6 +178,16 @@ refused outright. Both failures arrive as an empty control and a CORS message,
 which reads as a broken control rather than as a missing server. It takes
 `--port` and `--no-open`.
 
+`npm run shots` and `npm run demo-check` sit on `dev/cdp.js`: headless Chrome
+over the DevTools protocol with Node's own `WebSocket`. Five control
+repositories carried a hand-copied version of it before it lived here, each
+with its own wait and its own fixed debugging port; this one asks Chrome for a
+free port, reaches into an out-of-process frame, and captures one without
+`captureBeyondViewport` (with it, the frame comes back blank). `dev/shots.js`
+is the control's own — its recipes — and `sync-rig.mjs` never writes it;
+`cdp.js`, `hub-demo.html` and `demo-check.js` are the template's and are kept
+current. A grid customizer gets none of the four: its demo is the hub's grid.
+
 ### Keeping an adopted rig current
 
 An adopted repository's `scripts/` and `dev/` are **copies**, and they stop

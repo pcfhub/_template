@@ -102,6 +102,8 @@ npm run lint
 npm run check      # what CI runs first: placeholders, pcfhub.json, control shape
 npm run smoke      # assertions against the built bundle — see dev/
 npm run harness    # serves dev/harness.html and opens it
+npm run shots      # retakes media/ from the harness, in headless Chrome
+npm run demo-check # every demo preset in the hub's own harness, measured
 ```
 
 `npm start` renders the control; `dev/` is for the states it cannot reach. Build
@@ -118,6 +120,16 @@ takes `--port` and `--no-open`, and needs no dependency — `dev/serve.js` is
 `node:http`. A React (virtual) control gets one too: `dev/fluent-stub.js` stands
 in for the Fluent the platform would supply, and its header says exactly where
 the stand-in is less capable than the real thing.
+
+`npm run shots` and `npm run demo-check` drive Chrome or Edge headless over
+the DevTools protocol (`dev/cdp.js`, no dependency) against the page `npm run
+harness` serves. `shots` takes the recipes in `dev/shots.js` — the control's
+own — and says when a retake changed a picture under a name the hub has
+already mirrored. `demo-check` stands the hub's demo harness up locally from
+the manifest (`dev/hub-demo.html`; `npm run dev:demo-harness` in the hub
+repository serves the harness), picks every preset in `pcfhub.json`, and
+fails on a frame that overflows, a harness error, or anything the control
+threw; `--live` runs the same presets on the published page.
 
 Run `npm run refreshTypes` after every manifest edit — until you do,
 `context.parameters` is typed from the old manifest and `tsc` will accept code that
@@ -192,7 +204,7 @@ from the hourly sweep otherwise. A sync imports a draft; a person publishes it.
 | --- | --- |
 | `__CONTROL__/` | The control: manifest, entry point, CSS, localised strings |
 | `Solution/` | The Dataverse solution that packages it |
-| `dev/` | A stand-in host: `npm run smoke` asserts, `harness.html` shows |
+| `dev/` | A stand-in host: `npm run smoke` asserts, `harness.html` shows, `shots.js` photographs, `hub-demo.html` is the hub's demo |
 | `SPEC.md` | What building this corrected, and what is verified versus read |
 | `docs/` | The pages PCFHub publishes — see the comments in each file |
 | `media/` | Images and video referenced from the docs |

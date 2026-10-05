@@ -817,6 +817,20 @@ function applyGridCustomizer(control) {
     rmSync(join(root, 'dev'), { recursive: true, force: true });
     cpSync(join(source, 'dev'), join(root, 'dev'), { recursive: true });
 
+    // The browser tools went with it: `dev/shots.js` frames a form's harness and
+    // `dev/hub-demo.html` builds a form's demo, and a customizer's demo is the
+    // hub's grid, which neither stands up. Two scripts with no file to run are
+    // removed rather than left to fail.
+    edit('package.json', (text) => {
+        const pkg = JSON.parse(text);
+
+        delete pkg.scripts.shots;
+        delete pkg.scripts['demo-check'];
+
+        return `${JSON.stringify(pkg, null, 2)}
+`;
+    });
+
     // The grid's rows for PCFHub's demo harness. One fixture covering every
     // column type a customizer can key an override on, with a row of nulls and
     // a row of zeroes in it — the two that catch an override treating falsy as
