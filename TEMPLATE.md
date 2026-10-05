@@ -870,6 +870,27 @@ Docs come from the branch so a typo fix does not need a release. The API
 reference comes from the tag so an old version is not described by the newest
 control's property list.
 
+## Saying how it was built
+
+`pcfhub.json` ships with `"supportLevel": "reference"` and `"builtWith": "ai"`,
+and `README.md` and `docs/overview.md` open with a banner saying the same in
+words: written with AI, tested on a live Dataverse form, not reviewed line by
+line, published as a worked example. The hub turns the two keys into a notice
+on the component page and a badge on its card, and `get_component` passes them
+to assistants.
+
+Change them when they stop being true, and change the banners with them:
+
+- `"supportLevel": "maintained"` when you commit to fixing what people report.
+  The page notice goes away; the banner should say who maintains it.
+- `"builtWith": "ai-assisted"` when a person wrote the code with an assistant's
+  help rather than the other way round.
+- If the control was never tried on a real form, the banner's "tested on a live
+  Dataverse form" is false — say what was done instead.
+
+Both keys are applied on every sync from the default branch, so correcting
+them needs no release.
+
 ## The stylesheet
 
 `css/__CONTROL__.css` is not neutral scaffolding to be replaced — it is Fluent's

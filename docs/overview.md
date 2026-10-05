@@ -6,6 +6,10 @@ order: 1
 
 # __TITLE__
 
+:::callout{type=warning}
+**Reference example · built with AI.** This control was written with AI (Claude) and tested on a live Dataverse form; its code has not been reviewed line by line. It is published as a worked example and is not maintained — read the source and [SPEC.md](https://github.com/__OWNER__/__REPO__/blob/main/SPEC.md) (what was measured on the form) before you use it. Fixes are not guaranteed.
+:::
+
 <!--
   The landing page for the component on PCFHub. Answer, in this order: what it
   does, who it is for, and what makes it different from doing it another way.

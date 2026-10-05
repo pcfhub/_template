@@ -8,6 +8,8 @@
   "category": "__CATEGORY__",
   "hosts": ["model-driven"],
   "tags": [],
+  "supportLevel": "reference",
+  "builtWith": "ai",
 
   "control": {
     "namespace": "__NAMESPACE__",
