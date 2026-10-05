@@ -220,10 +220,21 @@ function verifyOtherShapes() {
             'a dataset control keeps the browser harness',
             dataset.has('dev/harness.html') && dataset.has('dev/harness.js'),
         );
+        /*
+         * The preview a dataset control gets is the dataset rig's, card per
+         * state. Until 2026-10-05 every scaffold inherited pcf-data-table's own
+         * preview — React tags, pinning and filter switches, `.DataTable-*`
+         * selectors — which worked for no control but that one.
+         */
         check(
-            'and its shots frame the dataset harness\'s surface',
-            dataset.read('dev/shots.js').includes("frame: '#harness-surface'")
-                && dataset.read('dev/harness.html').includes('id="harness-surface"'),
+            'a dataset control gets the dataset preview, mounted through the dataset rig',
+            dataset.read('dev/preview.html').includes('host.createHost(')
+                && dataset.read('dev/preview.html').includes("{ id: 'view'")
+                && !dataset.read('dev/preview.html').includes('DataTable'),
+        );
+        check(
+            'and its shots frame the preview\'s view card',
+            dataset.read('dev/shots.js').includes("page: 'dev/preview.html'") && dataset.read('dev/shots.js').includes("frame: '#view'"),
         );
 
         const manifest = dataset.read(`${ANSWERS.control}/ControlManifest.Input.xml`);
@@ -259,6 +270,13 @@ function verifyOtherShapes() {
         check(
             'and the two files that make that possible land beside it',
             react.has('dev/fluent-stub.js') && react.has('dev/virtual-bundle.js'),
+        );
+        check(
+            'the preview is patched for a virtual control: React on the page, the bundle through virtual-bundle.js',
+            react.read('dev/preview.html').includes('<script src="virtual-bundle.js"></script>')
+                && react.read('dev/preview.html').includes('<script src="fluent-stub.js"></script>')
+                && !/\/bundle\.js"><\/script>/.test(react.read('dev/preview.html'))
+                && react.read('dev/preview.html').includes('host.createHost('),
         );
         check(
             'and the rest of the rig stays, because npm run smoke still works',
@@ -336,6 +354,13 @@ function verifyOtherShapes() {
     const virtual = adoptWith(['--framework', 'react']);
 
     try {
+        check(
+            'the field preview is patched for a virtual control too',
+            virtual.read('dev/preview.html').includes('<script src="virtual-bundle.js"></script>')
+                && virtual.read('dev/preview.html').includes('<script src="fluent-stub.js"></script>')
+                && !/\/bundle\.js"><\/script>/.test(virtual.read('dev/preview.html'))
+                && virtual.read('dev/preview.html').includes('host.createContext('),
+        );
         check(
             'the browser harness survives here too',
             virtual.has('dev/harness.html')
@@ -493,6 +518,10 @@ function verifyBindings() {
             'and the harness stands in for the same column',
             number.read('dev/harness.js').includes("var COLUMN = { valueType: 'Decimal', value: 1234.5"),
         );
+        check(
+            'and so does every card of the preview',
+            number.read('dev/preview.html').includes("var COLUMN = { valueType: 'Decimal', value: 1234.5"),
+        );
     } finally {
         rmSync(number.scratch, { recursive: true, force: true });
     }
@@ -518,7 +547,8 @@ function verifyBindings() {
         check(
             'the suite and the harness stand in for a yes/no column',
             yesno.read('dev/smoke.js').includes("const COLUMN = { valueType: 'TwoOptions', value: false };")
-                && yesno.read('dev/harness.js').includes("var COLUMN = { valueType: 'TwoOptions', value: false };"),
+                && yesno.read('dev/harness.js').includes("var COLUMN = { valueType: 'TwoOptions', value: false };")
+                && yesno.read('dev/preview.html').includes("var COLUMN = { valueType: 'TwoOptions', value: false };"),
         );
     } finally {
         rmSync(yesno.scratch, { recursive: true, force: true });
@@ -677,7 +707,8 @@ function verifySync() {
 
         check(
             'and no browser tools: a customizer\'s demo is the hub\'s grid',
-            !customizer.has('dev/cdp.js') && !customizer.has('dev/hub-demo.html') && scripts.shots === undefined && scripts['demo-check'] === undefined,
+            !customizer.has('dev/cdp.js') && !customizer.has('dev/hub-demo.html') && !customizer.has('dev/preview.html')
+                && scripts.shots === undefined && scripts['demo-check'] === undefined,
             JSON.stringify(scripts),
         );
     } finally {
@@ -1101,8 +1132,14 @@ function main() {
             has('dev/cdp.js') && has('dev/shots.js') && has('dev/hub-demo.html') && has('dev/demo-check.js'),
         );
         check(
-            'and the shots frame an element the field harness has',
-            read('dev/shots.js').includes("frame: '#harness-form'") && read('dev/harness.html').includes('id="harness-form"'),
+            'the field preview lands: cards mounted through the field rig, from the column --bind rewrites',
+            read('dev/preview.html').includes('host.createContext(')
+                && read('dev/preview.html').includes('var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };')
+                && !read('dev/preview.html').includes('DataTable'),
+        );
+        check(
+            'and the shots frame its cards',
+            read('dev/shots.js').includes("page: 'dev/preview.html'") && read('dev/shots.js').includes("frame: '.card'"),
         );
 
         const pkg = JSON.parse(read('package.json'));

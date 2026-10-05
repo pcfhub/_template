@@ -12,11 +12,11 @@
  * to frame; the engine is `dev/cdp.js`, which is the template's and which
  * `sync-rig.mjs` keeps current. This file is the control's own.
  *
- * Two pages to point a recipe at: `dev/harness.html`, the interactive
- * stand-in host, framed at `#harness-surface`; or a `dev/preview.html` of the
- * control's own that lays every state out as cards (`pcf-number-slider`'s is
- * the pattern), framed by card id. A recipe's `act` runs in the page after it
- * settles, so a switch the harness has no query parameter for is a click.
+ * Two pages to point a recipe at: `dev/preview.html`, which lays every state
+ * out as a card with an id — what the recipes below frame, over the hub's demo
+ * fixture — or `dev/harness.html`, the interactive stand-in host, framed at
+ * `#harness-surface`. A recipe's `act` runs in the page after it settles, so
+ * a switch the harness has no query parameter for is a click.
  *
  * **A picture changed under a published name is not republished.** The hub
  * mirrors `media/` by path and never fetches a path again, so a retake that
@@ -33,24 +33,20 @@ const { shoot } = require('./cdp');
 
 const root = path.join(__dirname, '..');
 
-/** Flip a harness checkbox the way a person does, so the page's own `change` listener re-renders. */
-const toggle = (id) => `const box = document.getElementById(${JSON.stringify(id)}); box.click();`;
-
 const RECIPES = [
     {
         name: 'screenshot.png',
-        purpose: 'the view as the harness opens it',
-        page: 'dev/harness.html',
-        width: 900,
-        frame: '#harness-surface',
+        purpose: 'the view, over the hub's demo fixture',
+        page: 'dev/preview.html',
+        query: 'fixture=demo&width=760&only=view',
+        frame: '#view',
     },
     {
         name: 'screenshot-dark.png',
         purpose: 'the same, on the dark theme',
-        page: 'dev/harness.html',
-        width: 900,
-        frame: '#harness-surface',
-        act: toggle('harness-dark'),
+        page: 'dev/preview.html',
+        query: 'fixture=demo&width=760&only=view&dark=1',
+        frame: '#view',
     },
 ];
 

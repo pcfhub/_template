@@ -1,36 +1,33 @@
 <!DOCTYPE html>
 <!--
-  Every state of the control, side by side, in a real browser — for looking at
+  Every state of the view, side by side, in a real browser — for looking at
   and for `npm run shots`.
 
       npm run build
       npm run harness -- --no-open
       then open http://localhost:8181/dev/preview.html, or run npm run shots
 
-  **Not the harness.** `dev/harness.html` is one control and a page of switches,
-  for poking at; this page holds still, one card per state, so a single
-  picture shows what each state looks like and a screenshot recipe can frame
-  any card by its id. `dev/smoke.js` asserts what the control decided; neither
-  it nor the harness shows several states at once, and the defects a picture
-  finds are the ones nobody looked for — correct markup drawn wrongly.
+  **Not the harness.** `dev/harness.html` is one control and a page of
+  switches, for poking at; this page holds still, one card per state, so one
+  picture shows each and a screenshot recipe can frame any card by its id.
 
-  Each card is its own instance on the field rig (`dev/host.js`), mounted the
-  way `harness.js` mounts one: the bound column below, one state's options
-  over it. A standard control draws into its card; a React (virtual) one
-  returns an element, which is rendered into it — `setup.mjs --framework
-  react` puts React and the Fluent stand-in on this page for that. The states
-  are the control's own: add a card for each one worth a picture.
-
-  No host publishes a theme here unless `?dark=1` asks for the rig's, so every
-  `var(--colorX, fallback)` resolves to its fallback: it shows layout and the
-  fallbacks, and nothing about a form's own palette.
+  Each card is its own host on the dataset rig (`dev/host.js`), over the
+  fixture in `dev/fixture.js` — or the hub's demo fixture with `?fixture=demo`,
+  whose values are already formatted the way a form shows them, which is what
+  a published picture should be of. The rig is driven until it owes nothing
+  (`host.drive`), because a dataset control's mutators only take effect on the
+  next fetch. A standard control draws into its card; a React (virtual) one
+  returns an element, rendered into it — `setup.mjs --framework react` puts
+  React and the Fluent stand-in on this page for that. The states are the
+  control's own: add a card for each one worth a picture.
 
   Query parameters, all optional:
 
-    ?width=360          each card's width in px, and the width the rig allocates
+    ?width=720          each card's width in px, and the width the rig allocates
     ?dark=1             the rig's dark theme, on a dark ground
     ?rtl=1              right to left
-    ?only=value,error   only these cards, by id
+    ?only=view,empty    only these cards, by id
+    ?fixture=demo       demo/records.json instead of dev/fixture.js
 -->
 <html lang="en">
 <head>
@@ -66,7 +63,7 @@
             background: #292929;
         }
         .card h2 {
-            margin: 0 0 4px;
+            margin: 0 0 8px;
             font-size: 12px;
             font-weight: 600;
             color: #616161;
@@ -75,11 +72,6 @@
         }
         .is-dark .card h2 {
             color: #adadad;
-        }
-        .card .label {
-            margin: 0 0 8px;
-            font-size: 14px;
-            font-weight: 600;
         }
         #status:empty {
             display: none;
@@ -102,13 +94,12 @@
             var registration = host.captureRegistration(window);
 
             /*
-             * The bound column every card starts from, as `dev/harness.js` has
-             * it — `setup.mjs --bind` rewrites this line in all three files. Add
-             * `inputs` once the control has more than the scaffold's: a form
-             * hands over every declared input, `raw: null` where the maker set
-             * none.
+             * The control's own inputs, as a form hands them over — every
+             * declared input, `null` where the maker set none. The scaffold's
+             * only one is the page size, left unset so the control adopts the
+             * host's.
              */
-            var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };
+            var INPUTS = { pageSize: null };
 
             /*
              * One card per state worth a picture: an id (what a shots recipe
@@ -116,17 +107,15 @@
              * are the scaffold's; a control adds its own.
              */
             var STATES = [
-                { id: 'value', title: 'A value', options: {} },
-                { id: 'empty', title: 'Empty column', options: { value: null } },
-                { id: 'read-only', title: 'Read-only form', options: { disabled: true } },
-                { id: 'secured', title: 'Column secured: read, no write', options: { security: 'read-only' } },
-                { id: 'no-access', title: 'Column secured: no access', options: { security: 'no-access' } },
-                { id: 'error', title: 'A business rule failed', options: { error: true } },
+                { id: 'view', title: 'The view', options: {} },
+                { id: 'empty', title: 'An empty view', options: { records: [] } },
+                { id: 'loading', title: 'Loading', options: { loading: true } },
+                { id: 'error', title: 'The view failed to load', options: { error: true } },
                 { id: 'canvas', title: 'In a canvas app', options: { host: 'canvas' } },
             ];
 
             var params = new URLSearchParams(window.location.search);
-            var width = Number(params.get('width')) || 360;
+            var width = Number(params.get('width')) || 720;
             var dark = params.get('dark') === '1';
             var rtl = params.get('rtl') === '1';
             var only = (params.get('only') || '').split(',').filter(Boolean);
@@ -136,10 +125,6 @@
 
             /* The 1033 .resx's text where it has a key, as the platform would; the rig's own table otherwise. */
             var strings = null;
-
-            function getString(key) {
-                return strings && strings[key] !== undefined ? strings[key] : undefined;
-            }
 
             function loadStrings() {
                 return fetch('../__CONTROL__/strings/__CONTROL__.1033.resx')
@@ -161,10 +146,19 @@
                     });
             }
 
-            function mount(state) {
+            function loadFixture() {
+                if (params.get('fixture') !== 'demo') {
+                    return Promise.resolve(window.__pcfFixture);
+                }
+
+                return fetch('../demo/records.json').then(function (response) {
+                    return response.json();
+                });
+            }
+
+            function mount(fixture, state) {
                 var card = document.createElement('section');
                 var heading = document.createElement('h2');
-                var label = document.createElement('p');
                 var container = document.createElement('div');
 
                 card.className = 'card';
@@ -172,60 +166,56 @@
                 card.style.width = width + 'px';
                 card.dir = rtl ? 'rtl' : 'ltr';
                 heading.textContent = state.title;
-                label.className = 'label';
-                container.className = 'field';
-                card.append(heading, label, container);
+                card.append(heading, container);
                 document.getElementById('grid').append(card);
 
-                var options = Object.assign({}, COLUMN, {
-                    clientUrl: host.nextClientUrl(),
+                var options = Object.assign({
                     width: width - 32,
                     dark: dark,
                     rtl: rtl,
-                    fixture: window.__pcfFixture,
+                    inputs: INPUTS,
                 }, state.options);
 
                 if (strings) {
-                    var rigStrings = host.createContext(options).resources.getString;
-
                     options.getString = function (key) {
-                        var text = getString(key);
-
-                        return text !== undefined ? text : rigStrings(key);
+                        return strings[key] !== undefined ? strings[key] : key;
                     };
                 }
 
+                var handle = host.createHost(fixture, options);
                 var instance = new registration.ctor();
+                var painting = false;
 
                 /*
-                 * The round trip, as the harness models it: what the control
-                 * hands back becomes the column, and the next pass carries it.
+                 * Paint through `drive`, not one `updateView`: the control's
+                 * mutators (a page size, a filter) take effect on the next
+                 * fetch, and `drive` runs the passes a platform would.
                  */
-                function render() {
-                    var context = host.createContext(options);
-                    var returned = instance.updateView(context);
-                    var ReactDOM = window.__harnessReactDOM || window.ReactDOM;
+                function paint() {
+                    // `notifyOutputChanged` can fire during a pass, and a re-entrant paint would recurse.
+                    if (painting) {
+                        return;
+                    }
 
-                    label.textContent = context.mode.label || '';
+                    painting = true;
 
-                    // A virtual control returns an element rather than drawing into a container.
-                    if (returned !== undefined && ReactDOM) {
-                        ReactDOM.render(returned, container);
+                    try {
+                        var driven = host.drive(instance, handle, 10);
+                        var ReactDOM = window.__harnessReactDOM || window.ReactDOM;
+
+                        // A virtual control returns an element rather than drawing into a container.
+                        if (driven.element !== undefined && driven.element !== null && ReactDOM) {
+                            ReactDOM.render(driven.element, container);
+                        }
+                    } finally {
+                        painting = false;
                     }
                 }
 
-                instance.init(host.createContext(options), function () {
-                    setTimeout(function () {
-                        var outputs = instance.getOutputs ? instance.getOutputs() : {};
-
-                        if ('value' in outputs) {
-                            options.value = outputs.value === undefined ? options.value : outputs.value;
-                        }
-
-                        render();
-                    }, 0);
+                instance.init(handle.context, function () {
+                    setTimeout(paint, 0);
                 }, {}, container);
-                render();
+                paint();
             }
 
             window.__harnessStart = function () {
@@ -235,10 +225,12 @@
                     return;
                 }
 
-                loadStrings().then(function () {
+                Promise.all([loadStrings(), loadFixture()]).then(function (loaded) {
                     STATES.filter(function (state) {
                         return only.length === 0 || only.indexOf(state.id) !== -1;
-                    }).forEach(mount);
+                    }).forEach(function (state) {
+                        mount(loaded[1], state);
+                    });
                 });
             };
         })();

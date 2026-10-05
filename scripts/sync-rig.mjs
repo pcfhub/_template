@@ -111,7 +111,7 @@ const MANAGED = [
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */
-const OWNED = ['dev/host.js', 'dev/fixture.js', 'dev/smoke.js', 'dev/harness.html', 'dev/harness.js', 'dev/shots.js'];
+const OWNED = ['dev/host.js', 'dev/fixture.js', 'dev/smoke.js', 'dev/harness.html', 'dev/harness.js', 'dev/preview.html', 'dev/shots.js'];
 
 /** `--add-missing` adds these to package.json when absent, and never replaces one that is there. */
 const SCRIPTS = {

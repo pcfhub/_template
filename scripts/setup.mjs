@@ -41,7 +41,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, r
 import { basename, dirname, join, resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 import { fileURLToPath } from 'node:url';
-import { patchHarnessHtml, patchHarnessJs } from './virtual-harness.mjs';
+import { patchHarnessHtml, patchHarnessJs, patchPreviewHtml } from './virtual-harness.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -728,6 +728,13 @@ function applyBind(control) {
             'var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };',
             `var COLUMN = ${COLUMNS[bind]};`,
         ));
+
+    // The preview starts every card from the same column as the harness.
+    edit('dev/preview.html', (text) =>
+        lf(text).replace(
+            'var COLUMN = { valueType: host.DEFAULTS.valueType, value: host.DEFAULTS.value };',
+            `var COLUMN = ${COLUMNS[bind]};`,
+        ));
 }
 
 /**
@@ -919,6 +926,8 @@ function applyFramework(control) {
 
     edit(join('dev', 'harness.html'), (text) => patchHarnessHtml(text, control));
     edit(join('dev', 'harness.js'), (text) => patchHarnessJs(text, type));
+    // The preview renders what updateView returns already; it needs React on the page and the bundle loaded by virtual-bundle.js.
+    edit(join('dev', 'preview.html'), (text) => patchPreviewHtml(text));
 
     // The dataset variant carries its own React sources: a dataset control's
     // entry point shares no code with a bound-column one beyond the class

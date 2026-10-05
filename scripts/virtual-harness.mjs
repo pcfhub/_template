@@ -271,3 +271,49 @@ function patchDatasetHarnessJs(text) {
         'dev/harness.js (pump)',
     );
 }
+
+/**
+ * `dev/preview.html` for a virtual control — the field page or the dataset
+ * one, which share their tags.
+ *
+ * The page already renders whatever `updateView` returns into its card, so
+ * it needs only what `harness.html` needs: React and the Fluent stand-in
+ * ahead of `host.js`, and the bundle loaded by `virtual-bundle.js`, which
+ * defines the version-encoded globals first and then calls
+ * `__harnessStart()` — the same name the page's own tail calls on a standard
+ * control.
+ */
+export function patchPreviewHtml(text) {
+    return withNewlines(text, (source) => {
+        const staged = replace(
+            source,
+            '    <script src="host.js"></script>\n',
+            '    <!--\n'
+            + '        React and the Fluent stand-in ahead of host.js, aliased the way\n'
+            + '        virtual-bundle.js expects: it reads the version-encoded names\n'
+            + '        (`Reactv16`, `FluentUIReactv940`) out of the bundle and defines them.\n'
+            + '    -->\n'
+            + '    <script src="../node_modules/react/umd/react.development.js"></script>\n'
+            + '    <script src="../node_modules/react-dom/umd/react-dom.development.js"></script>\n'
+            + '    <script>\n'
+            + '        window.__harnessReact = window.React;\n'
+            + '        window.__harnessReactDOM = window.ReactDOM;\n'
+            + '    </script>\n'
+            + '    <script src="fluent-stub.js"></script>\n'
+            + '    <script src="host.js"></script>\n',
+            'dev/preview.html (the React tags)',
+        );
+
+        return replace(
+            staged,
+            /    <script src="\.\.\/out\/controls\/[^"]+\/bundle\.js"><\/script>\n    <script>\n        window\.__harnessStart\(\);\n    <\/script>\n/.exec(staged)?.[0] ?? '\u0000',
+            '    <!--\n'
+            + "        The bundle, fetched rather than `<script src>`'d: the globals it imports\n"
+            + '        have to exist before its first line runs. Calls __harnessStart() once\n'
+            + '        the control has registered.\n'
+            + '    -->\n'
+            + '    <script src="virtual-bundle.js"></script>\n',
+            'dev/preview.html (the bundle tag)',
+        );
+    });
+}
