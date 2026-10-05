@@ -98,6 +98,10 @@
         colorNeutralForegroundOnBrand: '#ffffff',
         colorNeutralStroke1: '#666666',
         colorNeutralStroke2: '#404040',
+        // The faintest divider — a grid's inner lines. Missing, it fell back to the
+        // light literal (#f0f0f0) and drew pcf-calendar-view's hour grid in white
+        // lines on the dark preview, which a real dark form does not (2026-10-05).
+        colorNeutralStroke3: '#3d3d3d',
         colorNeutralStrokeDisabled: '#424242',
         colorTransparentStroke: 'transparent',
         colorTransparentBackground: 'transparent',
