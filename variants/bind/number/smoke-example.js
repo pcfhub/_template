@@ -182,7 +182,7 @@ retype(canvas, '3.5');
 box(canvas).blur();
 
 check(
-    'in a canvas app — no metadata, a group string for `type` — nothing forbids a fraction, and the box takes it',
+    'in a canvas app — no column behind the value, a group string for `type` — the placeholder Precision of 0 is not believed, and the box takes a fraction',
     canvas.outputs().value === 3.5,
     JSON.stringify(canvas.outputs()),
 );

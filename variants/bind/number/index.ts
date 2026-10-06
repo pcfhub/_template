@@ -24,6 +24,25 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
  */
 type Kind = 'whole' | 'fractional' | 'unknown';
 
+/**
+ * A bound property's column metadata, or `undefined` where no column stands
+ * behind the value.
+ *
+ * Both hosts hand over an `attributes`. A form's is the column's, and names
+ * its table in `EntityLogicalName`. A canvas app's describes the manifest
+ * property itself — the same `MaxLength: 100`, default range and date
+ * `Behavior` in every app, whatever the formula reads from — and names no
+ * table. So its presence proves nothing; a table's name does. (The typings
+ * declare neither member, hence the cast.)
+ */
+function columnOf<T extends object>(parameter: { attributes?: T }): T | undefined {
+    const attributes = parameter.attributes as (T & { EntityLogicalName?: unknown }) | undefined;
+
+    return typeof attributes?.EntityLogicalName === 'string' && attributes.EntityLogicalName !== ''
+        ? attributes
+        : undefined;
+}
+
 /** What a number column's `attributes` can carry; every member may be absent. */
 interface NumberAttributes {
     MinValue?: number;
@@ -189,8 +208,9 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
             : text.replace('{0}', this.format(bounds.min)).replace('{1}', this.format(bounds.max));
     }
 
+    /** The column's metadata; empty where there is no column — see `columnOf`. */
     private attributes(): NumberAttributes {
-        return (this.context.parameters.value.attributes ?? {}) as NumberAttributes;
+        return columnOf(this.context.parameters.value as { attributes?: NumberAttributes }) ?? {};
     }
 
     /**
@@ -199,7 +219,8 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
      * `attributes` is the evidence: every number column carries `Precision`,
      * and a whole number's is **0** (it carries `Format` too — so the presence
      * of `Precision` proves nothing; measured on a form, 2026-10-03). Without
-     * `attributes` — a canvas app — `type` is consulted only to forbid. An
+     * a column — a canvas app, whose `attributes` carries the type's default
+     * precision and range about nothing — `type` is consulted only to forbid. An
      * exact `Whole.None` is a whole number; a group string, or nothing, is not
      * evidence either way, and the box takes what the user typed.
      */

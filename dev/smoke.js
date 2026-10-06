@@ -390,12 +390,12 @@ if (plain.element !== undefined) {
     check('and there is none to show when the platform reported none', plain.props().errorMessage === null);
 
     /*
-     * The canvas/model-driven split, which is what every `?.` in the control is
-     * about. A canvas app publishes no column metadata, and a control that
-     * requires it breaks on a host half its users are on.
+     * The canvas/model-driven split. A canvas app hands the property an
+     * `attributes` about no column — `MaxLength: 100` for every property —
+     * and a control that believes it caps every canvas field at 100 characters.
      */
     check(
-        'does not invent a maxLength on a host that publishes no column metadata',
+        'does not take a maxLength from a host that describes no column (a canvas app answers 100 for every property)',
         mount({ host: 'canvas' }).props().maxLength === undefined,
         String(mount({ host: 'canvas' }).props().maxLength),
     );
@@ -538,15 +538,17 @@ if (plain.element !== undefined) {
     );
 
     /*
-     * The canvas/model-driven split, which is what every `?.` in the control is
-     * about. A canvas app publishes no column metadata and no theme.
+     * The canvas/model-driven split. A canvas app publishes no theme, and hands
+     * the property an `attributes` about no column — `MaxLength: 100` for
+     * every property. A control that believes it caps every canvas field at
+     * 100 characters.
      */
     const canvas = mount({ host: 'canvas' });
 
-    check('renders on a host that publishes no column metadata', Boolean(canvas.find('input')));
+    check('renders on a host that describes no column', Boolean(canvas.find('input')));
 
     check(
-        'does not invent a maxLength the host never supplied',
+        'does not take a maxLength from a host that describes no column (a canvas app answers 100 for every property)',
         canvas.find('input') && !canvas.find('input').maxLength,
         canvas.find('input') && String(canvas.find('input').maxLength),
     );
@@ -1231,8 +1233,8 @@ function typedColumnSelfCheck() {
 
     const text = value({});
     check(
-        "rig: a text column's value keeps its shape — MaxLength and the two names, no formatted",
-        keys(text.attributes) === 'DisplayName,LogicalName,MaxLength' && !('formatted' in text),
+        "rig: a text column's value keeps its shape — MaxLength, the column's two names and its table, no formatted",
+        keys(text.attributes) === 'DisplayName,EntityLogicalName,LogicalName,MaxLength' && !('formatted' in text),
         keys(text.attributes),
     );
 
@@ -1257,9 +1259,24 @@ function typedColumnSelfCheck() {
         decimal.formatted === '1,234.5' && whole.formatted === '42' && money.formatted === '$1,500.00' && fp.formatted === undefined && fp.raw === null,
         [decimal.formatted, whole.formatted, money.formatted, fp.formatted].join(' | '),
     );
+    const canvasDecimal = value({ valueType: 'Decimal', value: 3, host: 'canvas' }).attributes;
+    const canvasDate = value({ valueType: 'DateAndTime.DateOnly', value: null, host: 'canvas' }).attributes;
     check(
-        'rig: a canvas host hands a number column no attributes at all',
-        value({ valueType: 'Decimal', value: 3, host: 'canvas' }).attributes === undefined,
+        'rig: a canvas host describes the property, not a column: its own name, no table, the type\'s default range and precision, 100 for MaxLength',
+        canvasDecimal.EntityLogicalName === '' && canvasDecimal.LogicalName === 'value' && canvasDecimal.MaxLength === 100
+            && canvasDecimal.MinValue === -100000000000 && canvasDecimal.MaxValue === 100000000000 && canvasDecimal.Precision === 2,
+        JSON.stringify(canvasDecimal),
+    );
+    check(
+        'rig: …and a date behaviour about nothing: 2 on a date-only property, 3 on a date-time one',
+        canvasDate.Behavior === 2 && canvasDate.Format === 'date'
+            && value({ valueType: 'DateAndTime.DateAndTime', value: null, host: 'canvas' }).attributes.Behavior === 3,
+        JSON.stringify(canvasDate),
+    );
+    check(
+        'rig: a form names the table in EntityLogicalName, which is how a control tells the two apart',
+        value({ valueType: 'Decimal', value: 3 }).attributes.EntityLogicalName === 'account',
+        JSON.stringify(value({ valueType: 'Decimal', value: 3 }).attributes),
     );
 
     const group = ['Whole.None', 'Decimal', 'FP', 'Currency'];

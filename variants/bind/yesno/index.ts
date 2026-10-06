@@ -15,8 +15,9 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
  * - **It shows the column's own two labels.** A maker renames them — "Allow"
  *   and "Do Not Allow" on `donotemail` — and a control saying Yes and No over
  *   them contradicts the rest of the form. They come from
- *   `attributes.Options`, false first; a canvas app has no `attributes`, and
- *   the resx's Yes and No stand in.
+ *   `attributes.Options`, false first; a canvas app has no column, its
+ *   `attributes.Options` say No and Yes in English whatever the maker meant,
+ *   and the resx's Yes and No stand in.
  * - **`raw` is a boolean.** A readable yes/no column always holds one of its
  *   two values; `null` here means the user may not read it, or nothing was
  *   mapped, and is never written back.
@@ -24,6 +25,25 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
  */
 interface YesNoAttributes {
     Options?: { Label?: string; Value?: number }[];
+}
+
+/**
+ * A bound property's column metadata, or `undefined` where no column stands
+ * behind the value.
+ *
+ * Both hosts hand over an `attributes`. A form's is the column's, and names
+ * its table in `EntityLogicalName`. A canvas app's describes the manifest
+ * property itself — the same `MaxLength: 100`, default range and date
+ * `Behavior` in every app, whatever the formula reads from — and names no
+ * table. So its presence proves nothing; a table's name does. (The typings
+ * declare neither member, hence the cast.)
+ */
+function columnOf<T extends object>(parameter: { attributes?: T }): T | undefined {
+    const attributes = parameter.attributes as (T & { EntityLogicalName?: unknown }) | undefined;
+
+    return typeof attributes?.EntityLogicalName === 'string' && attributes.EntityLogicalName !== ''
+        ? attributes
+        : undefined;
 }
 
 /**
@@ -162,7 +182,7 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
 
     /** The column's label for a state, false first; the resx where there is no metadata. */
     private labelFor(state: boolean): string {
-        const options = ((this.context.parameters.value.attributes ?? {}) as YesNoAttributes).Options;
+        const options = columnOf(this.context.parameters.value as { attributes?: YesNoAttributes })?.Options;
         const option = options?.find((candidate) => candidate.Value === (state ? 1 : 0));
 
         return option?.Label || this.context.resources.getString(state ? '__CONTROL___Yes' : '__CONTROL___No');

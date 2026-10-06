@@ -13,6 +13,25 @@ import { IInputs, IOutputs } from './generated/ManifestTypes';
  * into, and each one is invisible until a customer hits it. Delete the ones
  * that genuinely do not apply — but delete them knowingly.
  */
+/**
+ * A bound property's column metadata, or `undefined` where no column stands
+ * behind the value.
+ *
+ * Both hosts hand over an `attributes`. A form's is the column's, and names
+ * its table in `EntityLogicalName`. A canvas app's describes the manifest
+ * property itself — the same `MaxLength: 100`, default range and date
+ * `Behavior` in every app, whatever the formula reads from — and names no
+ * table. So its presence proves nothing; a table's name does. (The typings
+ * declare neither member, hence the cast.)
+ */
+function columnOf<T extends object>(parameter: { attributes?: T }): T | undefined {
+    const attributes = parameter.attributes as (T & { EntityLogicalName?: unknown }) | undefined;
+
+    return typeof attributes?.EntityLogicalName === 'string' && attributes.EntityLogicalName !== ''
+        ? attributes
+        : undefined;
+}
+
 export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, IOutputs> {
     private container!: HTMLDivElement;
     /** The filled surface the input sits in. See the stylesheet. */
@@ -167,10 +186,10 @@ export class __CONTROL__ implements ComponentFramework.StandardControl<IInputs, 
         // one, and `:disabled` on the input cannot reach the box around it.
         this.container.classList.toggle('__CONTROL__--disabled', this.input.disabled);
 
-        // `attributes` is optional because a canvas app has no column metadata
-        // at all. That single `?` is the whole canvas/model-driven difference:
-        // narrow behaviour when it is present, do not require it.
-        const maxLength = parameter.attributes?.MaxLength;
+        // The column's own limit narrows the input; where no column stands
+        // behind the value there is nothing to narrow to. A canvas app would
+        // answer 100 here for every property — see `columnOf`.
+        const maxLength = columnOf(parameter)?.MaxLength;
 
         if (maxLength !== undefined) {
             this.input.maxLength = maxLength;

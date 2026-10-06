@@ -23,8 +23,10 @@
  *     rule the harness has no way to run;
  *   - **a host theme** — `fluentDesignLanguage.isDarkTheme`, published by a
  *     model-driven form and by nothing else;
- *   - **the canvas/model-driven split** — `attributes` is column metadata, and
- *     a canvas app has none. Every `?.` in the control is about this, and
+ *   - **the canvas/model-driven split** — on a form `attributes` is the
+ *     column's metadata; a canvas app hands over an `attributes` too, but it
+ *     describes the manifest property and no column (see `placeholderAttributes`).
+ *     A control that believes it is wrong in every canvas app, and
  *     `npm start` only ever shows you one side of it.
  *
  * Those are the branches nobody exercises and customers find. Here they are
@@ -34,10 +36,17 @@
  *
  * **A stub must never be more capable than the thing it stands in for.** Where
  * the platform withholds something, this withholds it: `security` is
- * `undefined` on a column with no field-level security, `attributes` is
- * `undefined` on canvas, `fluentDesignLanguage` is `undefined` on a host that
- * publishes no theme. Filling those in "so the control has something to read"
- * is how a control that cannot work on a real form passes every local check.
+ * `undefined` on a column with no field-level security,
+ * `fluentDesignLanguage` is `undefined` on a host that publishes no theme.
+ * Filling those in "so the control has something to read" is how a control
+ * that cannot work on a real form passes every local check.
+ *
+ * **And it must never be less misleading either.** This rig said for a year
+ * that canvas hands a bound property no `attributes`. A canvas app hands over
+ * a full one about nothing (measured 2026-10-06), and a control that passed
+ * here against `undefined` read `Behavior: 3` and `MaxLength: 100` in
+ * production as facts about a column. Where the platform says something
+ * untrue, the rig says the same untrue thing.
  */
 
 (function (root, factory) {
@@ -72,8 +81,10 @@
      * The two hosts, and the difference that matters.
      *
      * A model-driven form mounts a `FluentProvider` above every code component
-     * and hands down column metadata; a canvas app does neither. Anything the
-     * control reads with `?.` is reading across this line.
+     * and hands down column metadata. A canvas app mounts no provider, and what
+     * it hands down as `attributes` describes the manifest property, not a
+     * column: the same bag whatever the formula reads from — a literal, a
+     * variable, a collection or a Dataverse row (measured on all four).
      */
     var HOSTS = {
         'model-driven': {
@@ -90,7 +101,32 @@
             label: 'canvas app',
             publishesTheme: false,
             publishesMetadata: false,
+            /*
+             * No column metadata, and an `attributes` all the same: the
+             * property's own name as `LogicalName`, an empty
+             * `EntityLogicalName`, and limits and a date behaviour that belong
+             * to no column. `placeholderAttributes` has the values.
+             */
+            describesNoColumn: true,
         },
+    };
+
+    /**
+     * What every bound property reported for `security` in a canvas app
+     * (2026-10-06): never `undefined`, always open.
+     */
+    var CANVAS_SECURITY = { editable: true, readable: true, secured: false };
+
+    /**
+     * `context.mode.contextInfo` in a canvas app: present, and about a sample
+     * account that was not in the environment it was read in (2026-10-06, the
+     * published player). A control that trusts it addresses a record that does
+     * not exist; the bound `entityId` / `entityName` inputs are the route there.
+     */
+    var CANVAS_CONTEXT_INFO = {
+        entityTypeName: 'account',
+        entityId: '4ff37e24-3c76-e711-8105-000d3aa167ac',
+        entityRecordName: 'A. Datum Corporation (sample)',
     };
 
     /**
@@ -300,10 +336,16 @@
      * made `type` unreliable — see `typeReport` in DEFAULTS. A yes/no
      * column carries its two options, false first, and its default. Anything
      * else keeps the shape it always had here: `MaxLength` where the caller
-     * gives one, and the two names.
+     * gives one, and the names.
+     *
+     * **`EntityLogicalName` is the table, and it is how a control knows a
+     * column stands behind the value.** Read on a form for a date, a
+     * date-time, a text and a choice column (2026-10-06): the table's logical
+     * name every time, beside the column's own in `LogicalName`. A canvas app
+     * leaves it empty — see `placeholderAttributes`.
      */
     function typedAttributes(type, spec) {
-        var names = { LogicalName: spec.column, DisplayName: spec.label };
+        var names = { EntityLogicalName: spec.table, LogicalName: spec.column, DisplayName: spec.label };
         var number = NUMBER_TYPES[type];
 
         if (number) {
@@ -337,6 +379,91 @@
         }
 
         return spec.maxLength !== undefined ? Object.assign({ MaxLength: spec.maxLength }, names) : names;
+    }
+
+    /**
+     * What a canvas app hands a bound property as `attributes`: a description
+     * of the manifest property, about no column.
+     *
+     * Read with a probe control on 2026-10-06, in the published player, on six
+     * instances fed from a literal, a variable, a collection and two Dataverse
+     * tables, in three time zones. Every instance and zone answered the same
+     * for a given property type, so nothing here depends on where the value
+     * comes from. (SharePoint, Excel and SQL sources were not read.)
+     *
+     * What a control must not conclude from it:
+     *
+     *   - **`MaxLength: 100` on every type.** A control that sets an input's
+     *     `maxLength` from it caps a canvas text field at 100 characters.
+     *   - **`MinValue` / `MaxValue` / `Precision`** are the type's defaults,
+     *     not a range anybody declared.
+     *   - **`Behavior: 2` on a date-only property, `3` on a date-time one**,
+     *     over a `raw` that is the true instant (local midnight for a date).
+     *     On a form `2` and `3` mean "the day is in the UTC half"; here that
+     *     reading is a day early for every browser east of UTC.
+     *   - **`Options` on a yes/no property are `No` / `Yes`**, whatever the
+     *     maker's labels; on a choice property they are the rows of its
+     *     `<property>_Options` table, numbered from 0.
+     *
+     * **The tell is `EntityLogicalName`: empty here, the table's name on a
+     * form.** (`LogicalName` is the property's own name.) `attributes` being
+     * present says nothing: both hosts hand one over.
+     *
+     * FP, Currency, Multiple and lookup properties were not read. They get the
+     * members every measured type shared and no `Type`, `Format`, range or
+     * precision, so that nothing here is a guess.
+     */
+    function placeholderAttributes(type, name) {
+        var shared = {
+            EntityLogicalName: '',
+            LogicalName: name,
+            DisplayName: name,
+            RequiredLevel: 0,
+            IsSecured: false,
+            SourceType: null,
+            DefaultValue: '',
+            ImeMode: 0,
+            MaxLength: 100,
+        };
+        var generic = { MinValue: -100000000000, MaxValue: 100000000000, Precision: 2, Behavior: 0, Options: null };
+
+        switch (type) {
+            case 'SingleLine.Text':
+                return Object.assign(shared, generic, { Type: 'string', Format: 'Text' });
+            case 'Whole.None':
+                return Object.assign(shared, generic, {
+                    Type: 'integer', Format: '0', MinValue: -2147483648, MaxValue: 2147483647, Precision: 0,
+                });
+            case 'Decimal':
+                return Object.assign(shared, generic, { Type: 'decimal', Format: '1' });
+            case 'OptionSet':
+                return Object.assign(shared, generic, { Type: 'string', Format: '1', Options: [] });
+            case 'TwoOptions':
+                return Object.assign(shared, generic, {
+                    Type: 'boolean',
+                    Format: '1',
+                    Options: [{ Label: 'No', Value: 0 }, { Label: 'Yes', Value: 1 }],
+                });
+            case 'DateAndTime.DateOnly':
+                return Object.assign(shared, generic, { Type: 'datetime', Format: 'date', Behavior: 2 });
+            case 'DateAndTime.DateAndTime':
+                return Object.assign(shared, generic, { Type: 'datetime', Format: 'datetime', Behavior: 3 });
+            default:
+                return shared;
+        }
+    }
+
+    /**
+     * `attributes` for a bound property on this host: the column's on a form,
+     * the placeholder in a canvas app, and `undefined` for a host that hands
+     * over nothing.
+     */
+    function attributesFor(host, type, name, spec) {
+        if (host.publishesMetadata) {
+            return typedAttributes(type, spec);
+        }
+
+        return host.describesNoColumn ? placeholderAttributes(type, name) : undefined;
     }
 
     /**
@@ -835,6 +962,8 @@
          */
         valueType: 'SingleLine.Text',
         column: 'name',
+        /** The table that column is on: what `attributes.EntityLogicalName` answers on a form. */
+        table: 'account',
         target: 'account',
         targetMethod: 'present',
 
@@ -994,6 +1123,10 @@
          * than the undocumented happy path.
          *
          * Set it to `{ entityId, entityTypeName }` to get the other branch.
+         *
+         * A canvas host answers with a sample account that exists nowhere
+         * (`CANVAS_CONTEXT_INFO`) unless this is set, because that is what a
+         * canvas app does: there the member is present and wrong, not absent.
          */
         contextInfo: null,
 
@@ -1987,7 +2120,7 @@
     }
 
     /** A bound property beyond the first — see `bound` in DEFAULTS. */
-    function boundProperty(spec, host, o) {
+    function boundProperty(spec, host, o, name) {
         if (spec === 'unmapped') {
             return {
                 type: null,
@@ -2006,18 +2139,19 @@
         var property = Object.assign({
             type: reportedType(spec.type, spec.typeGroup || o.typeGroup, o.typeReport),
             raw: raw,
-            attributes: host.publishesMetadata
-                ? typedAttributes(spec.type, {
-                    column: spec.column,
-                    label: spec.label || spec.column,
-                    minValue: spec.minValue,
-                    maxValue: spec.maxValue,
-                    precision: spec.precision,
-                    requiredLevel: spec.requiredLevel,
-                    optionLabels: spec.optionLabels,
-                })
-                : undefined,
-            security: spec.security !== undefined ? SECURITY[spec.security] : undefined,
+            attributes: attributesFor(host, spec.type, name, {
+                table: spec.table || o.table,
+                column: spec.column,
+                label: spec.label || spec.column,
+                minValue: spec.minValue,
+                maxValue: spec.maxValue,
+                precision: spec.precision,
+                requiredLevel: spec.requiredLevel,
+                optionLabels: spec.optionLabels,
+            }),
+            security: spec.security !== undefined
+                ? SECURITY[spec.security]
+                : host.describesNoColumn ? Object.assign({}, CANVAS_SECURITY) : undefined,
             error: false,
             errorMessage: undefined,
         }, typedFormatted(spec.type, raw, spec.precision, o.locale, spec.optionLabels));
@@ -3181,7 +3315,8 @@
         }
 
         var host = HOSTS[o.host] || HOSTS['model-driven'];
-        var security = SECURITY[o.security];
+        // A canvas app reports every property open; a profile set on purpose still wins.
+        var security = host.describesNoColumn && o.security === 'none' ? Object.assign({}, CANVAS_SECURITY) : SECURITY[o.security];
         var clientUrl = o.clientUrl || nextClientUrl();
         var isLookup = o.valueType === 'Lookup.Simple';
         // This host's own rows — see `fixtureFor`.
@@ -3215,7 +3350,7 @@
         });
 
         Object.keys(o.bound || {}).forEach(function (name) {
-            parameters[name] = boundProperty(o.bound[name], host, o);
+            parameters[name] = boundProperty(o.bound[name], host, o, name);
         });
 
         return {
@@ -3230,26 +3365,27 @@
                 value: Object.assign({
                     raw: o.value,
                     /*
-                     * Present only where the host has column metadata.
-                     *
-                     * The control reads `parameter.attributes?.MaxLength`, and
-                     * that single `?` is the whole canvas/model-driven
-                     * difference. Supplying it on canvas would hide the one bug
-                     * this switch exists to find. A number or a yes/no column
-                     * carries its own members instead — see `typedAttributes`.
+                     * The column's metadata on a form; in a canvas app a
+                     * description of the property itself, about no column —
+                     * `placeholderAttributes`. Both hosts hand one over, so
+                     * its presence tells a control nothing: the control has
+                     * to ask whether `EntityLogicalName` names a table
+                     * before it believes `MaxLength`, a range or a date
+                     * behaviour. Handing `undefined` here on canvas, as
+                     * this rig did until 2026-10-06, passed controls that
+                     * were wrong in every canvas app.
                      */
-                    attributes: host.publishesMetadata
-                        ? typedAttributes(o.valueType, {
-                            column: o.column,
-                            label: o.label,
-                            maxLength: o.maxLength,
-                            minValue: o.minValue,
-                            maxValue: o.maxValue,
-                            precision: o.precision,
-                            requiredLevel: o.requiredLevel,
-                            optionLabels: o.optionLabels,
-                        })
-                        : undefined,
+                    attributes: attributesFor(host, o.valueType, 'value', {
+                        table: o.table,
+                        column: o.column,
+                        label: o.label,
+                        maxLength: o.maxLength,
+                        minValue: o.minValue,
+                        maxValue: o.maxValue,
+                        precision: o.precision,
+                        requiredLevel: o.requiredLevel,
+                        optionLabels: o.optionLabels,
+                    }),
                     /*
                      * `undefined` unless the column carries a field-level
                      * security profile — see SECURITY above. The common case is
@@ -3267,7 +3403,7 @@
                     value: Object.assign({}, {
                         raw: o.value,
                         attributes: host.publishesMetadata
-                            ? { LogicalName: o.column, DisplayName: o.label }
+                            ? { EntityLogicalName: o.table, LogicalName: o.column, DisplayName: o.label }
                             : undefined,
                         security: security,
                         error: o.error,
@@ -3358,9 +3494,11 @@
                  * cast is what everybody actually writes, and only one of them
                  * survives canvas — so a control that needs identity should try
                  * this and fall back, and the default here is what makes it
-                 * write the fallback.
+                 * write the fallback. Canvas does not leave it out: it names a
+                 * sample account that is not in the environment, so "present"
+                 * is not "usable" either.
                  */
-                contextInfo: o.contextInfo || undefined,
+                contextInfo: o.contextInfo || (host.describesNoColumn ? Object.assign({}, CANVAS_CONTEXT_INFO) : undefined),
             },
 
             resources: {

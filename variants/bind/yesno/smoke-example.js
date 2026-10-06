@@ -37,7 +37,7 @@ check(
 );
 
 check(
-    'a canvas app has no metadata, and the .resx stands in for the labels',
+    'a canvas app has no column: its placeholder No and Yes are not believed, and the .resx stands in for the labels',
     words(mount({ host: 'canvas', value: true })) === 'resx:__CONTROL___Yes',
 );
 

@@ -20,6 +20,25 @@ import { __CONTROL__Control, IProps } from './components/__CONTROL__Control';
  * is here for the same reason: every branch is a state a real form puts a
  * control into, and each one is invisible until a customer hits it.
  */
+/**
+ * A bound property's column metadata, or `undefined` where no column stands
+ * behind the value.
+ *
+ * Both hosts hand over an `attributes`. A form's is the column's, and names
+ * its table in `EntityLogicalName`. A canvas app's describes the manifest
+ * property itself — the same `MaxLength: 100`, default range and date
+ * `Behavior` in every app, whatever the formula reads from — and names no
+ * table. So its presence proves nothing; a table's name does. (The typings
+ * declare neither member, hence the cast.)
+ */
+function columnOf<T extends object>(parameter: { attributes?: T }): T | undefined {
+    const attributes = parameter.attributes as (T & { EntityLogicalName?: unknown }) | undefined;
+
+    return typeof attributes?.EntityLogicalName === 'string' && attributes.EntityLogicalName !== ''
+        ? attributes
+        : undefined;
+}
+
 export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOutputs> {
     private notifyOutputChanged!: () => void;
     private value = '';
@@ -89,11 +108,10 @@ export class __CONTROL__ implements ComponentFramework.ReactControl<IInputs, IOu
             // The platform's own validation. Without somewhere to put it, a
             // failing business rule is silent inside a code component.
             errorMessage: parameter.error ? parameter.errorMessage : null,
-            // `attributes` is optional because a canvas app has no column
-            // metadata at all. That single `?` is the whole canvas versus
-            // model-driven difference: narrow when it is present, never require
-            // it.
-            maxLength: parameter.attributes?.MaxLength,
+            // The column's own limit narrows the input; where no column
+            // stands behind the value there is nothing to narrow to. A canvas
+            // app would answer 100 here for every property — see `columnOf`.
+            maxLength: columnOf(parameter)?.MaxLength,
             // The label the maker gave the field on this form is a better
             // accessible name than anything shipped in the .resx, which cannot
             // know what the field is called.

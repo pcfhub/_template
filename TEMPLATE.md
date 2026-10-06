@@ -502,11 +502,26 @@ which is the field that reads like it means bytes.
 Three things to know before editing any of it:
 
 - **`dev/host.js` withholds what the platform withholds.** `security` is
-  `undefined` on a column with no field-level security, `attributes` is
-  `undefined` on canvas, `fluentDesignLanguage` is `undefined` on a host that
-  publishes no theme. Filling those in "so the control has something to read" is
-  how a control that cannot work on a real form passes every local check — it
-  has happened here before, in the grid rig, twice.
+  `undefined` on a column with no field-level security, `fluentDesignLanguage`
+  is `undefined` on a host that publishes no theme. Filling those in "so the
+  control has something to read" is how a control that cannot work on a real
+  form passes every local check — it has happened here before, in the grid rig,
+  twice.
+- **And it hands over what the platform hands over, true or not.** A canvas app
+  gives every bound property an `attributes` that describes the manifest
+  property and no column: its own name as `LogicalName`, an empty
+  `EntityLogicalName`, `MaxLength: 100`, the type's default range and precision,
+  `Behavior: 2` or `3` on a date over a value that is the true instant, `No` and
+  `Yes` for a yes/no. It is the same bag whether the formula reads a literal, a
+  variable, a collection or a Dataverse row (read with a probe control on
+  2026-10-06; SharePoint, Excel and SQL sources were not read). The rig said
+  `undefined` here until then, and controls that passed against `undefined`
+  were wrong in every canvas app. `placeholderAttributes` has the values, and
+  the scaffolds' `columnOf` is how a control declines to believe them: it takes
+  `attributes` as a column's only when `EntityLogicalName` names a table.
+  `security` is `{ editable: true, readable: true, secured: false }` on every
+  canvas property, and `mode.contextInfo` there names a sample account that is
+  not in the environment.
 - **`dev/dom.js` is a DOM only in the parts that were needed**, and throws by
   name for anything else rather than quietly returning `undefined`. A missing
   piece should read as "add it to `dev/dom.js`", not as a mysterious failure.

@@ -42,8 +42,9 @@ documentation predicted.
 
 ## Platform behaviour worth knowing
 
-Anything learned about `context` — an API that does not exist, metadata that is
-absent in canvas, a property bag field that behaves unlike its neighbours.
+Anything learned about `context` — an API that does not exist, metadata that
+describes no column in canvas, a property bag field that behaves unlike its
+neighbours.
 
 **Say how you know**, in the sentence itself: read from the type definitions,
 observed on a real form, or told to you by a failing import. A finding whose
