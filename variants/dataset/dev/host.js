@@ -602,6 +602,34 @@
          */
         dialogs: 'confirmed',
 
+        /**
+         * `context.events`: `null` for no bag at all, an array of names for a
+         * bag that only logs, or `{ name: handler }` for one that logs and
+         * then calls the handler with the payload — the field rig's switch,
+         * the same two shapes for the same reason.
+         *
+         * **A dataset control raises events too.** A form script binds one
+         * with `formContext.getControl("<subgrid>").addEventHandler(name, fn)`,
+         * and a model-driven payload can carry functions the handler calls
+         * straight back into the control — which only an object of handlers
+         * here can exercise. The default is no bag, because a host that binds
+         * nothing is the one every control meets first.
+         */
+        events: null,
+
+        /**
+         * What a same-origin `fetch` of `<clientUrl>/WebResources/<name>`
+         * answers — the field rig's switch, for a dataset control that reads
+         * its configuration out of a web resource. `null` answers from
+         * `fixture.webResources` (the text, or `{ content, contentType }`):
+         * **200 `text/jscript`**, because Dataverse has no JSON type, and
+         * **404 with an empty body** for a name that is not there. Any other
+         * number is that status with an empty body, and **`0` rejects with a
+         * `TypeError`**, the offline shape. Measured from a field control
+         * (pcf-code-editor SPEC.md P1–P2b, 2026-09-23).
+         */
+        webResourceStatus: null,
+
         quirks: {
             /**
              * `loadNextPage(true)` returns the whole range from page one rather
@@ -822,6 +850,83 @@
         }
     }
     var hostCount = 0;
+
+    /**
+     * `context.events`, from either an array of names or an object of handlers
+     * — the field rig's `buildEvents`, line for line.
+     *
+     * A handler that throws is **not** caught here: the platform does not
+     * promise to catch a maker's handler either, and a control that raises an
+     * event without a `try` around it should fail this rig rather than
+     * production. The log entry comes first, so `calls` records the raise in
+     * the order it happened even when the handler re-enters the control.
+     */
+    function buildEvents(events, log) {
+        if (events === null || events === undefined) {
+            return undefined;
+        }
+
+        var names = Array.isArray(events) ? events : Object.keys(events);
+
+        return names.reduce(function (bag, name) {
+            var handler = Array.isArray(events) ? undefined : events[name];
+
+            bag[name] = function (payload) {
+                log('events.' + name, payload);
+
+                if (typeof handler === 'function') {
+                    handler(payload);
+                }
+            };
+
+            return bag;
+        }, {});
+    }
+
+    /**
+     * A web resource, as a form served one — the field rig's reply: its body
+     * as text, not JSON, and the content type a real response carried.
+     */
+    function webResourceReply(o, fixture, path) {
+        var name = path.split('?')[0].split('/').map(function (segment) {
+            return decodeURIComponent(segment);
+        }).join('/');
+        var status = o.webResourceStatus;
+
+        if (status === 0) {
+            return Promise.reject(new TypeError('Failed to fetch'));
+        }
+
+        var entry = (fixture.webResources || {})[name];
+
+        if (status === null || status === undefined) {
+            status = entry === undefined ? 404 : 200;
+        }
+
+        var found = status === 200 && entry !== undefined;
+        var content = found ? (typeof entry === 'string' ? entry : entry.content) : '';
+        var contentType = found
+            ? (typeof entry === 'string' ? 'text/jscript' : entry.contentType || 'text/jscript')
+            : 'text/html; charset=utf-8';
+
+        return Promise.resolve({
+            ok: status >= 200 && status < 300,
+            status: status,
+            headers: {
+                get: function (header) {
+                    return String(header).toLowerCase() === 'content-type' ? contentType : null;
+                },
+            },
+            text: function () {
+                return Promise.resolve(content);
+            },
+            json: function () {
+                return new Promise(function (resolve) {
+                    resolve(JSON.parse(content));
+                });
+            },
+        });
+    }
 
     function clientUrlFor(index) {
         return 'https://rig' + (index === 1 ? '' : index) + '.crm.invalid';
@@ -1304,6 +1409,13 @@
                 var address = String(url);
                 var method = ((init && init.method) || 'GET').toUpperCase();
                 var service = CLIENT_URL + '/api/data/v9.2/';
+
+                // Configuration out of a web resource: same-origin, no feature.
+                if (address.indexOf(CLIENT_URL + '/WebResources/') === 0) {
+                    log('fetch', method + ' ' + address.slice(CLIENT_URL.length));
+
+                    return webResourceReply(o, fixture, address.slice((CLIENT_URL + '/WebResources/').length));
+                }
 
                 if (/\/\$ref$/.test(address) && address.indexOf(service) === 0) {
                     log('fetch', method + ' ' + address.slice(CLIENT_URL.length));
@@ -3737,6 +3849,14 @@
                     : undefined,
 
                 userSettings: buildUserSettings(o, log),
+
+                /*
+                 * The event bag, or nothing at all — see `events` in
+                 * DEFAULTS. `undefined` is a real host: the platform types
+                 * promise this member, and a control that feature-detects
+                 * passes both ways.
+                 */
+                events: buildEvents(o.events, log),
 
                 client: {
                     getClient: function () {

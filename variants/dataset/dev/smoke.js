@@ -1081,6 +1081,34 @@ const metadataChecks = async () => {
     const noForm = host.createHost(fixture, { openForm: false });
 
     check('openForm: false leaves the method out, as the hub demo does, the bag still there', noForm.context.navigation && noForm.context.navigation.openForm === undefined && typeof noForm.context.navigation.openUrl === 'function');
+
+    /*
+     * A web resource, the way a form served one to a field control: 200 as
+     * `text/jscript` (Dataverse has no JSON type), 404 with an empty body for
+     * a name that is not there, and a rejection when offline.
+     */
+    const configured = host.createHost(Object.assign({}, fixture, { webResources: { 'rig_/commands.json': '{"commands":[]}' } }), {});
+    const resourceRoot = `${configured.context.page.getClientUrl()}/WebResources/`;
+    const served = await fetch(`${resourceRoot}rig_/commands.json`);
+    const servedText = await served.text();
+    const missing = await fetch(`${resourceRoot}rig_/absent.json`);
+    const missingText = await missing.text();
+    const unreachable = host.createHost(fixture, { webResourceStatus: 0 });
+    let offlineError = null;
+
+    try {
+        await fetch(`${unreachable.context.page.getClientUrl()}/WebResources/rig_/commands.json`);
+    } catch (error) {
+        offlineError = error;
+    }
+
+    check(
+        'web resources: 200 text/jscript from the fixture, 404 with an empty body, offline rejects with a TypeError',
+        served.status === 200 && servedText === '{"commands":[]}' && served.headers.get('content-type') === 'text/jscript'
+            && missing.status === 404 && missingText === ''
+            && offlineError instanceof TypeError,
+        `${served.status} ${served.headers.get('content-type')} / ${missing.status} ${JSON.stringify(missingText)} / ${offlineError}`,
+    );
 };
 
 
@@ -1237,6 +1265,35 @@ const metadataChecks = async () => {
         'canvas publishes page.getClientUrl and it throws',
         typeof onCanvas.context.page.getClientUrl === 'function' && canvasRefused,
     );
+
+    /*
+     * The event bag: none by default, a logger from an array of names, and a
+     * logger *then* the maker's handler from an object — the shape a form
+     * script's `addEventHandler` is, and the only one whose payload callbacks
+     * a suite can call back into the control.
+     */
+    const unbound = host.createHost(fixture, {});
+    const logged = host.createHost(fixture, { events: ['onRowCommand'] });
+    const heard = [];
+    const handled = host.createHost(fixture, {
+        events: {
+            onRowCommand: (payload) => {
+                heard.push(handled.state.calls.slice(-1)[0], payload.command);
+            },
+        },
+    });
+
+    logged.context.events.onRowCommand({ command: 'approve' });
+    handled.context.events.onRowCommand({ command: 'escalate' });
+
+    check(
+        'events: no bag by default; an array logs; an object logs, then calls the handler with the payload',
+        unbound.context.events === undefined
+            && logged.state.calls.indexOf('events.onRowCommand({"command":"approve"})') !== -1
+            && heard[0] === 'events.onRowCommand({"command":"escalate"})' && heard[1] === 'escalate',
+        JSON.stringify(heard),
+    );
+
 }
 
 /* ------------------------------------------------------------ the counters */
