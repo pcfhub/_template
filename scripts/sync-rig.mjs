@@ -8,6 +8,7 @@
  *   node ../_template/scripts/sync-rig.mjs --into . --add-missing   # and copy absent files in
  *   node ../_template/scripts/sync-rig.mjs --into . --force dev/dom.js
  *   node ../_template/scripts/sync-rig.mjs --report ..              # one line per repository, writes nothing
+ *   node ../_template/scripts/sync-rig.mjs --status .               # one line for this one, always exits 0
  *
  * **Why this exists.** An adopted repository's `scripts/` and `dev/` are copies,
  * not links, and nothing ever refreshed them. Measured 2026-09-23 across the 29
@@ -209,6 +210,9 @@ function classify(target, shape) {
     // A managed path may name the control (`__CONTROL__/lib/…`), so paths are substituted too.
     const managed = MANAGED.map((m) => ({
         ...m,
+        // The path as a reader of a table across repositories wants it: `<Control>/lib/…`,
+        // not whichever repository's control happened to be classified first.
+        key: m.path.split('__CONTROL__').join('<Control>'),
         path: substitute(m.path, tokens),
         needs: m.needs && substitute(m.needs, tokens),
         source: m.source ?? m.path,
@@ -227,16 +231,16 @@ function classify(target, shape) {
             const loads = new RegExp(String.raw`require\(\s*['"]\./${name}(\.js)?['"]\s*\)`);
 
             if (suite && existsSync(suite) && !loads.test(readFileSync(suite, 'utf8'))) {
-                return { path: m.path, state: 'unused', wanted };
+                return { path: m.path, key: m.key, state: 'unused', wanted };
             }
 
-            return { path: m.path, state: 'missing', wanted };
+            return { path: m.path, key: m.key, state: 'missing', wanted };
         }
 
         const have = normalise(readFileSync(file, 'utf8'));
 
         if (have === normalise(wanted)) {
-            return { path: m.path, state: 'current', wanted };
+            return { path: m.path, key: m.key, state: 'current', wanted };
         }
 
         const past = history(source).map((blob) => normalise(substitute(blob, tokens)));
@@ -244,10 +248,10 @@ function classify(target, shape) {
         if (past.includes(have)) {
             const age = past.length - 1 - past.lastIndexOf(have);
 
-            return { path: m.path, state: 'stale', wanted, note: `(${age} template change(s) behind)` };
+            return { path: m.path, key: m.key, state: 'stale', wanted, note: `(${age} template change(s) behind)` };
         }
 
-        return { path: m.path, state: 'modified', wanted, note: lineDelta(have, normalise(wanted)) };
+        return { path: m.path, key: m.key, state: 'modified', wanted, note: lineDelta(have, normalise(wanted)) };
     });
 }
 
@@ -350,11 +354,11 @@ function report(dir) {
         const modified = count('modified');
 
         for (const e of entries) {
-            const t = totals.get(e.path) ?? { stale: 0, modified: 0 };
+            const t = totals.get(e.key) ?? { stale: 0, modified: 0 };
             if (e.state === 'stale' || e.state === 'modified') {
                 t[e.state] += 1;
             }
-            totals.set(e.path, t);
+            totals.set(e.key, t);
         }
 
         console.log(
@@ -366,11 +370,75 @@ function report(dir) {
 
     console.log('\nper file (stale = safe to update; modified = edited in that repository):\n');
 
+    const keyWidth = Math.max(34, ...[...totals.keys()].map((key) => key.length));
+
     for (const [path, t] of totals) {
-        console.log(`  ${path.padEnd(34)} ${String(t.stale).padStart(3)} stale  ${String(t.modified).padStart(3)} modified`);
+        console.log(`  ${path.padEnd(keyWidth)} ${String(t.stale).padStart(3)} stale  ${String(t.modified).padStart(3)} modified`);
     }
 
     console.log('\nNothing was written. Run with --into <repo> to update one.\n');
+}
+
+/* ---- one repository, one line -------------------------------------------- */
+
+/**
+ * `--status <repo>`: whether a repository's shared tooling is behind the
+ * template, as one line, writing nothing and **always exiting 0**.
+ *
+ * It exists for `check-template.mjs`, which runs it when a sibling
+ * `../_template` is there and passes the line on as a warning. A stale
+ * copy of the checks is exactly the thing a green `npm run check` cannot
+ * report on its own — it is the checks — and it went unnoticed across 25 of
+ * 31 repositories until a survey on 2026-10-08 ran `--report` by hand.
+ *
+ * A modified copy is named but never counted as something to sync: it was
+ * edited on purpose, and comparing it is a reading job.
+ */
+function status(target) {
+    // readShape() fails the process on a repository with no pcfhub.json; this mode must not.
+    if (!existsSync(join(target, 'pcfhub.json'))) {
+        console.log(`shared tooling: not compared (${basename(target)} has no pcfhub.json)`);
+        return;
+    }
+
+    let entries;
+
+    try {
+        entries = classify(target, readShape(target));
+    } catch (error) {
+        console.log(`shared tooling: not compared (${error.message})`);
+        return;
+    }
+
+    const named = (state) => entries.filter((e) => e.state === state).map((e) => e.path);
+    const stale = named('stale');
+    const missing = named('missing');
+    const modified = named('modified');
+
+    if (stale.length === 0 && missing.length === 0 && modified.length === 0) {
+        console.log('shared tooling: current');
+        return;
+    }
+
+    const parts = [];
+
+    if (stale.length > 0) {
+        parts.push(`${stale.length} behind the template (${stale.join(', ')})`);
+    }
+
+    if (missing.length > 0) {
+        parts.push(`${missing.length} missing (${missing.join(', ')})`);
+    }
+
+    if (modified.length > 0) {
+        parts.push(`${modified.length} edited here, compare by hand (${modified.join(', ')})`);
+    }
+
+    const fix = stale.length > 0 || missing.length > 0
+        ? ` — node ../_template/scripts/sync-rig.mjs --into .${missing.length > 0 ? ' --add-missing' : ''}`
+        : '';
+
+    console.log(`shared tooling: ${parts.join('; ')}${fix}`);
 }
 
 /* ---- helpers ------------------------------------------------------------- */
@@ -531,8 +599,10 @@ function fail(message) {
 // Last, so every module-level constant above exists before anything reads it.
 if (args.report) {
     report(resolve(process.cwd(), args.report));
+} else if (args.status) {
+    status(resolve(process.cwd(), args.status));
 } else if (args.into) {
     sync(resolve(process.cwd(), args.into));
 } else {
-    fail('--into <repo> or --report <dir> is required.');
+    fail('--into <repo>, --status <repo> or --report <dir> is required.');
 }
