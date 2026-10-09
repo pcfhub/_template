@@ -171,12 +171,31 @@
                 document.getElementById('harness-value').value = outputs.value === null ? '' : String(outputs.value);
             }
 
-            render();
+            // The echo names what a form's echo names (host.js, updatedProperties).
+            render(ECHOED);
         }, 0);
     }
 
-    function render() {
-        var context = host.createContext(options());
+    /** What a form's echo and its save name in `updatedProperties`: the bound property, and `parameters`. */
+    var ECHOED = ['value', 'parameters'];
+
+    /*
+     * What a model-driven form does when the record is saved, as measured
+     * (pcf-code-editor's 1.5.9 probe): three passes naming the column, 0.88,
+     * 1.05 and 1.15 s after the press, each carrying the value the control
+     * already holds. Nothing else tells a field control the record was saved.
+     */
+    function save() {
+        [880, 1050, 1150].forEach(function (ms) {
+            window.setTimeout(function () { render(ECHOED); }, ms);
+        });
+    }
+
+    /** A pass; `updated` is its `updatedProperties`, and a plain re-render names nothing. */
+    function render(updated) {
+        var o = options();
+        o.updatedProperties = Array.isArray(updated) ? updated : [];
+        var context = host.createContext(o);
 
         instance.updateView(context);
 
@@ -305,6 +324,7 @@
         // The cheapest way to catch work that belongs behind a comparison:
         // press it and watch whether anything moves.
         document.getElementById('harness-rerender').addEventListener('click', render);
+        document.getElementById('harness-save').addEventListener('click', save);
 
         status.textContent = 'Registered ' + registration.name + '.';
 

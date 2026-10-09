@@ -182,10 +182,10 @@ function patchJs(text, type) {
 function patchFieldHarnessJs(text) {
     const rendered = replace(
         text,
-        '        var context = host.createContext(options());\n'
+        '        var context = host.createContext(o);\n'
         + '\n'
         + '        instance.updateView(context);\n',
-        '        var context = host.createContext(options());\n'
+        '        var context = host.createContext(o);\n'
         + '\n'
         + '        ReactDOM.render(instance.updateView(context), container);\n',
         'dev/harness.js (render)',

@@ -4022,8 +4022,14 @@
             /*
              * `updatedProperties` is how the platform says *what* changed since
              * the last pass, and it is the cheap way out of doing work on every
-             * `updateView`. Empty unless a caller sets it, because that is what
-             * the first call carries.
+             * `updateView`. Empty unless a caller sets it. Measured on a
+             * model-driven form (pcf-code-editor's 1.5.9 probe, 2026-10-09):
+             * `init` names every property — 25 for a field control, `entityId`
+             * and `isPageReadOnly` among them; a resize names `layout`; the
+             * echo of a write names the bound property and `parameters`; and
+             * **a save** is two or three passes naming the same two, carrying
+             * the value the control already holds — the only sign of a save a
+             * field control gets. The harness's *Save the record* stages it.
              */
             updatedProperties: o.updatedProperties || [],
         };
