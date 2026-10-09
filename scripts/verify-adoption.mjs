@@ -466,7 +466,8 @@ function verifyOtherShapes() {
  * and a dry run may move nothing.
  *
  * The old copy is written with CRLF endings on purpose — that is how
- * `core.autocrlf` leaves it on a Windows checkout, and a comparison that did
+ * `core.autocrlf` leaves it on a Windows checkout of a repository that has
+ * not taken the template's `.gitattributes` yet, and a comparison that did
  * not normalise would call every such file "modified" and update none.
  */
 /**

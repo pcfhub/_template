@@ -285,6 +285,10 @@ put('pcfhub.json', () => `${JSON.stringify({
 // The one script that catches the rest of this list going stale.
 put('scripts/check-template.mjs', () => readFileSync(join(template, 'scripts', 'check-template.mjs'), 'utf8'));
 
+// LF in every working tree. It takes effect as each file is next checked out;
+// on a clean tree, `git checkout-index --force --all` rewrites them all at once.
+put('.gitattributes', () => readFileSync(join(template, '.gitattributes'), 'utf8'));
+
 put('SPEC.md', () => substitute(readFileSync(join(template, 'SPEC.md'), 'utf8')));
 
 for (const page of readdirSync(join(template, 'docs'))) {

@@ -210,6 +210,14 @@ never written; the report names the template file to compare them with.
 scripts, never replacing one. It refuses a dirty tree, so a sync is its own
 commit. `setup.mjs` deletes it on adoption, as it does `add-control.mjs`.
 
+**`.gitattributes` is one of the shared files.** It checks every text file
+out LF whatever `core.autocrlf` says, so a repository's copies compare equal
+to the template's byte for byte. A repository taking it for the first time
+gets it from `--add-missing`; the files already on disk keep their old endings
+until they are next checked out, and `git checkout-index --force --all` on a
+clean tree rewrites them all at once. Git stores LF either way, so the commit
+is the one new file.
+
 ### Shared control code: `lib/view-aggregate`
 
 One piece of **control** code is shared the same way:

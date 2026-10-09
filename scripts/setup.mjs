@@ -738,10 +738,11 @@ function applyBind(control) {
 }
 
 /**
- * A file with LF line endings, which is what git stores. A Windows checkout
- * with `core.autocrlf` hands this script CRLF, and every pattern above is
- * written against `\n` — matched unnormalised, each fails as "the text this
- * script rewrites was not found".
+ * A file with LF line endings, which is what git stores. The template's
+ * `.gitattributes` checks every file out LF, but a copy made before it
+ * (2026-10-09) or without git can hand this script CRLF, and every pattern
+ * above is written against `\n` — matched unnormalised, each fails as "the
+ * text this script rewrites was not found".
  */
 function lf(text) {
     return text.replace(/\r\n/g, '\n');

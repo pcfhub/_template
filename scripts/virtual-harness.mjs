@@ -24,11 +24,13 @@
 /**
  * Patch on `\n` whatever the file is stored as, then put it back.
  *
- * The template has no `.gitattributes` and its files are a mix — `dev/host.js`
- * is CRLF, `dev/serve.js` is LF — so a marker written with `\n` matches half of
- * them and silently misses the rest. Normalising here is cheaper than writing
- * every marker twice, and rewriting a whole file's endings as a side effect of
- * a six-line patch would bury the diff.
+ * Until 2026-10-09 the template had no `.gitattributes`, and a Windows checkout
+ * mixed the two — `dev/host.js` CRLF, `dev/serve.js` LF — so a marker written
+ * with `\n` matched half of them and silently missed the rest. The template's
+ * `.gitattributes` now checks everything out LF, but a repository adopted
+ * before it, or a copy made without git, can still hand this CRLF. Normalising
+ * here is cheaper than writing every marker twice, and rewriting a whole
+ * file's endings as a side effect of a six-line patch would bury the diff.
  */
 function withNewlines(text, transform) {
     const crlf = text.includes('\r\n');

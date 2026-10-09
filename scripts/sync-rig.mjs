@@ -29,7 +29,9 @@
  * `setup.mjs` rewrites `__CONTROL__` and its siblings in every file it adopts —
  * including comments in `check-template.mjs` — and an adopted copy is therefore
  * never byte-equal to a template blob. Line endings are normalised on both
- * sides for the same reason: `core.autocrlf` rewrites them on checkout.
+ * sides too: before `.gitattributes` (managed below, 2026-10-09) reached a
+ * repository, `core.autocrlf` rewrote them on checkout, and one that has not
+ * taken the file yet still does.
  *
  * Measured on the same day by `--report`, that split was lopsided in a useful
  * way — most out-of-date copies are safe to replace, and the host never is:
@@ -69,6 +71,9 @@ const template = resolve(dirname(fileURLToPath(import.meta.url)), '..');
  * have the file it serves.
  */
 const MANAGED = [
+    // LF in every working tree. Not a script, but the reason the copies below
+    // compare equal byte for byte rather than only after normalise().
+    { path: '.gitattributes' },
     { path: 'scripts/check-template.mjs' },
     { path: 'scripts/version.mjs' },
     { path: 'scripts/release.mjs' },
