@@ -1088,6 +1088,13 @@ function main() {
         check('the stylesheet is renamed', has(`${ANSWERS.control}/css/${ANSWERS.control}.css`));
         check('the string table is renamed', has(`${ANSWERS.control}/strings/${ANSWERS.control}.1033.resx`));
         check('the pcfproj is renamed', has(`${ANSWERS.control}.pcfproj`));
+        // LF in every working tree (2026-10-09): what lets sync-rig's copies
+        // compare equal to the template's byte for byte. It is a dotfile, the
+        // kind a hand-written copy step forgets.
+        check(
+            '.gitattributes is kept, as the template has it',
+            has('.gitattributes') && read('.gitattributes') === readFileSync(join(root, '.gitattributes'), 'utf8'),
+        );
 
         /*
          * The dev rig, which is the only thing in an adopted repository that
