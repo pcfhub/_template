@@ -881,7 +881,16 @@ async function metadataSelfCheck() {
     let fault = null;
     await fetch(`${offline.page.getClientUrl()}/api/data/v9.2/EntityDefinitions(LogicalName='account')/Attributes?$select=LogicalName`).catch((e) => { fault = e; });
     check('rig: metadataStatus 403 refuses with an error body, 0 rejects with a TypeError', refusal.status === 403 && refusal.body.error && fault instanceof TypeError);
-    check('rig: a canvas host has no context.page, so nothing can address the table definitions', host.createContext({ fixture, host: 'canvas' }).page === undefined && api.startsWith('https://'));
+    check('rig: a canvas host publishes context.page and getClientUrl throws, so nothing can address the table definitions', (() => {
+        const canvasPage = host.createContext({ fixture, host: 'canvas' }).page;
+        try {
+            canvasPage.getClientUrl();
+            return false;
+        } catch (e) {
+            return e.message === 'getClientUrl: Method not implemented.' && api.startsWith('https://');
+        }
+    })());
+    check('rig: page: false is a host with no object at all (the hub demo)', host.createContext({ fixture, page: false }).page === undefined);
 }
 
 /*

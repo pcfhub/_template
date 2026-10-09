@@ -801,7 +801,8 @@
          * `contextInfo`, but present on a model-driven form, where its
          * `getClientUrl()` is the honest way to reach `/api/data` on an
          * on-premises organisation whose URL carries the organisation in the
-         * path. Absent on canvas whatever this says.
+         * path. On canvas the object is there and `getClientUrl` throws,
+         * whatever this says; `false` is a host with no object (the hub's demo).
          */
         page: true,
 
@@ -3793,14 +3794,26 @@
             /*
              * `context.page` — undocumented, like `contextInfo`, and read for
              * one thing: `getClientUrl()`, the organisation URL a same-origin
-             * metadata `fetch` has to start from. Absent on canvas and under
-             * `page: false`, which is the state that makes a control write its
-             * `Xrm` fallback and then its "no metadata, take the other route"
-             * branch.
+             * metadata `fetch` has to start from.
+             *
+             * **Present on canvas, and its `getClientUrl` throws** — measured
+             * on a field control in a canvas app (pcf-code-editor 1.6.0,
+             * 2026-10-09: Studio's banner read *getClientUrl: Method not
+             * implemented.*), as the dataset rig found on 2026-09-21. This rig
+             * said absent until then: a control guarding with `typeof` passed
+             * here and threw there. `page: false` still models a host with no
+             * object at all — the hub's demo — which is the state that makes a
+             * control write its `Xrm` fallback and then its "no metadata, take
+             * the other route" branch.
              */
-            page: o.page && o.host !== 'canvas'
+            page: o.page
                 ? {
                     getClientUrl: function () {
+                        if (o.host === 'canvas') {
+                            // Verbatim from a canvas app, 2026-10-09.
+                            throw new Error('getClientUrl: Method not implemented.');
+                        }
+
                         return clientUrl;
                     },
                 }
