@@ -1013,7 +1013,7 @@ const metadataChecks = async () => {
 
     check(
         'and a lookup node carries Targets',
-        JSON.stringify(metadata.Attributes.get('ownerid').Targets) === '["systemuser"]'
+        JSON.stringify(metadata.Attributes.get('ownerid').Targets) === '["systemuser","team"]'
             && metadata.Attributes.get('name') === undefined,
         JSON.stringify(metadata.Attributes.get('ownerid').Targets),
     );
@@ -1627,7 +1627,110 @@ async function statusChecks() {
     );
 }
 
-metadataChecks().then(rejectionChecks).then(statusChecks).then(report, (error) => {
+/*
+ * The form and the canvas host as pcf-kanban-board's 0.4.8 probe found them,
+ * 10 Oct 2026 — a choice's raw value, the sort, the record's write half, an
+ * Owner bind to a team, and an unset role. Each check names the host it is
+ * about, because the two disagree on most of these.
+ */
+async function hostChecks() {
+    const reason = (promise) => promise.then(() => 'resolved', (error) => error);
+    const firstId = fixture.records[0].id;
+    const form = host.createHost(fixture, { pageSize: 12 });
+    const canvas = host.createHost(fixture, { host: 'canvas', pageSize: 12, unboundRoles: ['valueField'] });
+    const formSet = form.context.parameters.records;
+    const canvasSet = canvas.context.parameters.records;
+    const titles = (set) => set.sortedRecordIds.map((id) => set.records[id].getFormattedValue('name'));
+
+    check('rig: a choice reads as a string on a form and as a number in canvas',
+        typeof formSet.records[firstId].getValue('statecode') === 'string' && typeof canvasSet.records[firstId].getValue('statecode') === 'number');
+
+    // An unset role: absent on a form, a nameless column in canvas.
+    const unset = canvasSet.columns.find((column) => column.alias === 'valueField');
+
+    check('rig: an unset role is a column with no name in canvas, and absent on a form',
+        unset && unset.name === null && !formSet.columns.some((column) => column.alias === 'valueField'), JSON.stringify(unset));
+
+    // Assigning dataset.sorting: ignored on a form, applied in canvas.
+    const formBefore = titles(formSet).join('|');
+
+    formSet.sorting = [{ name: 'name', sortDirection: 1 }];
+    formSet.refresh();
+    check('rig: assigning dataset.sorting is ignored on a form', titles(formSet).join('|') === formBefore && formSet.sorting.length === 0);
+
+    canvasSet.sorting = [{ name: 'name', sortDirection: 1 }];
+    canvasSet.refresh();
+    const canvasNames = titles(canvasSet);
+
+    check('rig: …and applied in canvas', canvasNames.join('|') === canvasNames.slice().sort((a, b) => b.localeCompare(a)).join('|'), canvasNames.slice(0, 3).join(', '));
+
+    // A choice sorts by label on a form, by value in canvas: industrycode 4 Technology, 3 Services, 2 Manufacturing, 1 Retail.
+    const byIndustry = (set) => {
+        set.sorting.length = 0;
+        set.sorting.push({ name: 'industrycode', sortDirection: 1 });
+        set.refresh();
+
+        return set.sortedRecordIds.map((id) => set.records[id].getValue('industrycode')).filter((value) => value !== null).map(Number);
+    };
+    const formIndustry = byIndustry(form.context.parameters.records);
+    const canvasIndustry = byIndustry(canvas.context.parameters.records);
+
+    // Labels descending: Technology (4), Services (3), Retail (1), Manufacturing (2).
+    check('rig: a choice sorts by its label on a form', formIndustry.indexOf(1) < formIndustry.indexOf(2), formIndustry.join(','));
+    check('rig: …and by its value in canvas', canvasIndustry.indexOf(2) < canvasIndustry.indexOf(1), canvasIndustry.join(','));
+
+    // A column outside the dataset: ignored on a form, sorted in canvas.
+    const without = fixture.columns.filter((column) => column.name !== 'modifiedon');
+    const narrowForm = host.createHost(fixture, { pageSize: 12, columns: without }).context.parameters.records;
+    const narrowCanvas = host.createHost(fixture, { host: 'canvas', pageSize: 12, columns: without }).context.parameters.records;
+    const unsorted = narrowForm.sortedRecordIds.join('|');
+
+    for (const set of [narrowForm, narrowCanvas]) {
+        set.sorting.push({ name: 'modifiedon', sortDirection: 1 });
+        set.refresh();
+    }
+
+    check('rig: a sort on a column outside the dataset is ignored on a form', narrowForm.sortedRecordIds.join('|') === unsorted);
+    check('rig: …and applied in canvas', narrowCanvas.sortedRecordIds.join('|') !== unsorted);
+
+    // The record's write half.
+    const formRecord = host.createHost(fixture).context.parameters.records.records[firstId];
+
+    formRecord.setValue('ownerid', { etn: 'team', id: { guid: 'e8d840ff-0000-4000-8000-000000000001' }, name: 'Owner Users' });
+    const ownerSave = await reason(formRecord.save());
+
+    check('rig: on a form, Owner through the record stages null and the save is refused', ownerSave && ownerSave.errorCode === 2147746307 && /cannot be set to NULL/.test(ownerSave.message), JSON.stringify(ownerSave));
+
+    const narrowRecord = host.createHost(fixture, { columns: without }).context.parameters.records.records[firstId];
+
+    check('rig: on a form, a column outside the dataset is not editable', (await narrowRecord.isEditable('modifiedon')) === false && (await narrowRecord.isEditable('name')) === true);
+
+    const canvasHost = host.createHost(fixture, { host: 'canvas' });
+    const canvasRecord = canvasHost.context.parameters.records.records[firstId];
+    const returned = canvasRecord.setValue('name', 'Renamed in canvas');
+
+    canvasRecord.setValue('statecode', 1);
+    check('rig: in canvas the record has no isEditable, setValue returns a promise-like, and a staged value reads back at once',
+        canvasRecord.isEditable === undefined && returned && typeof returned.then === 'function' && canvasRecord.getValue('name') === 'Renamed in canvas');
+    check('rig: …and a choice stages null', canvasRecord.getValue('statecode') === null);
+
+    await canvasRecord.save();
+    canvasHost.reread();
+    const reread = canvasHost.context.parameters.records.records[firstId];
+
+    check('rig: …so the save writes the text and not the choice', reread.getValue('name') === 'Renamed in canvas' && reread.getValue('statecode') === 0, `${reread.getValue('name')} / ${reread.getValue('statecode')}`);
+
+    // Owner to a team through the Web API.
+    const binding = host.createHost(fixture);
+    const bound = await reason(binding.context.webAPI.updateRecord(fixture.targetEntityType, firstId, { 'ownerid@odata.bind': '/teams(e8d840ff-0000-4000-8000-000000000001)' }));
+
+    binding.reread();
+    const owner = binding.context.parameters.records.records[firstId].getValue('ownerid');
+
+    check('rig: ownerid@odata.bind to a team is accepted and reads back as a team', bound !== 'resolved' ? false : owner && owner.etn === 'team', JSON.stringify(owner));
+}
+
+metadataChecks().then(rejectionChecks).then(statusChecks).then(hostChecks).then(report, (error) => {
     check('the asynchronous rig checks ran at all', false, String((error && error.stack) || error));
     report();
 });

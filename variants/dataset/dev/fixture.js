@@ -119,7 +119,8 @@
                     { value: 4, label: 'Technology' },
                 ],
             },
-            ownerid: { targets: ['systemuser'] },
+            // A user or a team: Owner is the one lookup with two targets on every table that has it.
+            ownerid: { targets: ['systemuser', 'team'] },
         },
 
         /**
@@ -139,6 +140,13 @@
          */
         relationships: [
             { column: 'ownerid', target: 'systemuser', navigationProperty: 'ownerid' },
+            /*
+             * The same navigation property for both targets — measured
+             * 2026-10-10 (`pcf-kanban-board` 0.4.8): `ownerid@odata.bind` to
+             * `/teams(<id>)` was accepted and read back as `lookuplogicalname:
+             * "team"`. Unlike a Customer lookup, Owner has one key.
+             */
+            { column: 'ownerid', target: 'team', navigationProperty: 'ownerid' },
             /*
              * Two lookups from account to account — the parent account, and
              * the master record a merge points at — because that is the
@@ -186,6 +194,12 @@
                 rows: [
                     { id: 'b3f1a0c2-0000-4000-8000-000000000001', name: 'Sam Vaziri' },
                     { id: 'b3f1a0c2-0000-4000-8000-000000000002', name: 'Jo Park' },
+                ],
+            },
+            team: {
+                entitySet: 'teams',
+                rows: [
+                    { id: 'e8d840ff-0000-4000-8000-000000000001', name: 'Owner Users' },
                 ],
             },
         },
@@ -343,7 +357,7 @@
             { id: 'a03', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000002' }, etn: 'account', name: 'Parent 2' }, revenue: 92000, name: 'Northwind Traders', accountnumber: 'ACC-1103', primarycontactname: 'Erin Boyle', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 1, modifiedon: '2025-11-22T00:00:00.000Z' } },
             { id: 'a04', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 730000, name: 'Adventure Works Cycles', accountnumber: 'ACC-1155', primarycontactname: 'Marcus Feld', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 2, modifiedon: '2026-03-18T00:00:00.000Z' } },
             { id: 'a05', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 150000, name: 'Litware Consulting', accountnumber: 'ACC-1178', primarycontactname: 'Priya Raman', statecode: 1, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 3, modifiedon: '2025-09-30T00:00:00.000Z' } },
-            { id: 'a06', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000002' }, etn: 'account', name: 'Parent 2' }, revenue: 61000, name: 'Tailspin Toys', accountnumber: 'ACC-1201', primarycontactname: 'Owen Brackett', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 1, modifiedon: '2026-01-07T00:00:00.000Z' } },
+            { id: 'a06', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000002' }, etn: 'account', name: 'Parent 2' }, revenue: 61000, name: 'Tailspin Toys', accountnumber: 'ACC-1201', primarycontactname: 'Owen Brackett', statecode: 0, ownerid: { id: { guid: 'e8d840ff-0000-4000-8000-000000000001' }, etn: 'team', name: 'Owner Users' }, industrycode: 1, modifiedon: '2026-01-07T00:00:00.000Z' } },
             { id: 'a07', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 2100000, name: 'Proseware Systems', accountnumber: 'ACC-1233', primarycontactname: 'Alice Nakamura', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000002' }, etn: 'systemuser', name: 'Jo Park' }, industrycode: 4, modifiedon: '2026-02-25T00:00:00.000Z' } },
             { id: 'a08', values: { parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000001' }, etn: 'account', name: 'Parent 1' }, revenue: 405000, name: 'Wingtip Analytics', accountnumber: 'ACC-1260', primarycontactname: 'Tomas Ehrlich', statecode: 0, ownerid: { id: { guid: 'b3f1a0c2-0000-4000-8000-000000000001' }, etn: 'systemuser', name: 'Sam Vaziri' }, industrycode: 4, modifiedon: '2025-12-11T00:00:00.000Z' } },
 

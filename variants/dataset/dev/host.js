@@ -232,6 +232,20 @@
         host: 'model-driven',
         formFactor: 'desktop',
         /**
+         * The `property-set` roles the maker left unset — aliases, e.g.
+         * `['valueField']`.
+         *
+         * **A form leaves an unset role out of `columns`; canvas hands it over
+         * as a column with no name.** Measured 2026-10-10 in a canvas app
+         * (`pcf-kanban-board` 0.4.8): `{ name: null, alias: "valueField",
+         * dataType: "SingleLine.Text", order: -1 }`. A control that finds its
+         * roles by alias and tests `!== undefined` reads that as bound — the
+         * 0.4.x board printed a totals caption on every canvas board with no
+         * Lane total column. On canvas the rig adds one such column per alias
+         * here; on a form it adds nothing, which is what a form does.
+         */
+        unboundRoles: [],
+        /**
          * `mode.allocatedWidth` / `allocatedHeight`.
          *
          * **-1 until the control calls `mode.trackContainerResize(true)`**, and
@@ -953,6 +967,31 @@
      * `''` on a payload fault and a phrase on a server fault ("Record Is
      * Unavailable").
      */
+    /**
+     * The fixture relationship an `@odata.bind` key names — by navigation
+     * property **and** by the entity set its value points at.
+     *
+     * Owner has one navigation property and two targets: `ownerid@odata.bind`
+     * to `/teams(<id>)` was accepted and read back as a team (measured
+     * 2026-10-10, `pcf-kanban-board` 0.4.8). Matching on the property alone
+     * took the first row, `systemuser`, and resolved a team as a user. The
+     * fixture is read from the closure of whichever host calls it, so this is
+     * defined per host — see `createHost`.
+     */
+    function relationshipIn(fixture, navigationProperty, value) {
+        var candidates = (fixture.relationships || []).filter(function (candidate) {
+            return candidate.navigationProperty === navigationProperty;
+        });
+        var set = String(value === null || value === undefined ? '' : value).match(/^\/([^(]+)\(/);
+        var bySet = set ? candidates.filter(function (candidate) {
+            var related = (fixture.related || {})[candidate.target];
+
+            return related && related.entitySet === set[1];
+        })[0] : null;
+
+        return bySet || candidates[0];
+    }
+
     function webApiFault(code, title, message) {
         return {
             errorCode: code,
@@ -1041,6 +1080,9 @@
         var CLIENT_URL = clientUrlFor((hostCount += 1));
         var quirks = Object.assign({}, DEFAULTS.quirks, (options || {}).quirks);
         var hostKind = HOSTS[o.host] || HOSTS['model-driven'];
+        var relationshipFor = function (navigationProperty, value) {
+            return relationshipIn(fixture, navigationProperty, value);
+        };
 
         /*
          * **Each host gets its own row objects, not just its own array.**
@@ -1062,7 +1104,44 @@
         var allRecords = (o.records || fixture.records).map(function (row) {
             return Object.assign({}, row, { values: Object.assign({}, row.values), staged: null, committed: null });
         });
-        var columns = (o.columns || fixture.columns).slice();
+        var columns = canvasColumns((o.columns || fixture.columns).slice());
+
+        /*
+         * **Canvas hands the roles over twice, and an unset one as a column
+         * with no name.** Measured 2026-10-10 in a canvas app
+         * (`pcf-kanban-board` 0.4.8): every role arrived by its alias with
+         * `order: -1` and no `isHidden`/`disableSorting`, and the same
+         * column arrived again among the table's own, alias equal to name;
+         * an unset role was `{ name: null, … }` (see `unboundRoles`). A
+         * control that lists `columns` for a menu lists each role twice
+         * there, and one that reads an unset role as bound draws a feature
+         * nobody configured.
+         */
+        function canvasColumns(list) {
+            if (o.host !== 'canvas') {
+                return list;
+            }
+
+            var roles = list.filter(function (column) {
+                return column.alias && column.alias !== column.name;
+            });
+            var plain = list.filter(function (column) {
+                return roles.indexOf(column) === -1;
+            });
+            var asRoles = roles.map(function (column) {
+                return { name: column.name, displayName: column.displayName, dataType: column.dataType, alias: column.alias, order: -1 };
+            });
+            var unset = (o.unboundRoles || []).map(function (alias) {
+                return { name: null, displayName: alias, dataType: 'SingleLine.Text', alias: alias, order: -1 };
+            });
+            var again = roles.filter(function (column) {
+                return !plain.some(function (other) { return other.name === column.name; });
+            }).map(function (column) {
+                return Object.assign({}, column, { alias: column.name });
+            });
+
+            return asRoles.concat(unset, plain, again);
+        }
 
         /*
          * By logical name, because `getValue` and `getFormattedValue` shape
@@ -1910,10 +1989,60 @@
              */
             var by = sorting[0];
 
+            /*
+             * **A column outside the dataset is ignored on a form and sorted
+             * on canvas.** Measured 2026-10-10 (`pcf-kanban-board` 0.4.8):
+             * `createdon`, in neither the view nor a role, came back in the
+             * view's own order both ways on a subgrid, with no error and
+             * `dataset.sorting` still naming it; in a canvas app it sorted.
+             * A role column outside the view sorts on both.
+             */
+            var known = columns.some(function (column) {
+                return column.name === by.name;
+            });
+
+            if (!known && o.host !== 'canvas') {
+                return rows;
+            }
+
+            var type = typeOf(by.name);
+
+            /*
+             * What a value sorts by. **A choice sorts by its label on a form
+             * and by its value on canvas** — measured the same day: descending
+             * put Todo, then On Hold on the subgrid, and Cancelled (858010005),
+             * then Done (858010004) in the canvas app. Numbers sort as numbers,
+             * a lookup by its name.
+             */
+            function key(raw) {
+                if (raw === null || raw === undefined || raw === '') {
+                    return null;
+                }
+
+                if (type === 'OptionSet') {
+                    return o.host === 'canvas' ? Number(raw) : optionLabel(by.name, raw);
+                }
+
+                if (raw && typeof raw === 'object' && typeof raw.name === 'string') {
+                    return raw.name;
+                }
+
+                return typeof raw === 'number' ? raw : formatted(raw);
+            }
+
             return rows.sort(function (a, b) {
-                var left = formatted(a.values[by.name]);
-                var right = formatted(b.values[by.name]);
-                var compared = left.localeCompare(right);
+                var left = key(a.values[by.name]);
+                var right = key(b.values[by.name]);
+                var compared;
+
+                if (left === null || right === null) {
+                    // Blanks first ascending, as SQL Server orders NULL — unmeasured on a form.
+                    compared = left === right ? 0 : left === null ? -1 : 1;
+                } else if (typeof left === 'number' && typeof right === 'number') {
+                    compared = left - right;
+                } else {
+                    compared = String(left).localeCompare(String(right));
+                }
 
                 return by.sortDirection === DESCENDING ? -compared : compared;
             });
@@ -2134,10 +2263,35 @@
                  * name }`, GUID unbraced and lower-case.
                  */
                 getValue: function (name) {
+                    /*
+                     * **Canvas reads a staged value back at once** — a text
+                     * column showed the new title right after `setValue`, a
+                     * choice showed `null` (measured 2026-10-10). A form keeps
+                     * the old value until the refresh.
+                     */
+                    if (o.host === 'canvas' && row.staged && Object.prototype.hasOwnProperty.call(row.staged, name)) {
+                        return row.staged[name];
+                    }
+
                     var value = row.values[name];
 
+                    /*
+                     * **Canvas hands a choice over as its number.** Measured
+                     * 2026-10-10 (`pcf-kanban-board` 0.4.8): `858010003` in a
+                     * canvas app where the form says `"858010003"`. A control
+                     * keying on the raw value has to accept both.
+                     */
                     if (typeof value === 'number' && typeOf(name) === 'OptionSet') {
-                        return String(value);
+                        return o.host === 'canvas' ? value : String(value);
+                    }
+
+                    /*
+                     * **A Yes/No reads `"1"` / `"0"` on a form**, measured the
+                     * same day; never set, `null`. Canvas not measured, so it
+                     * keeps the fixture's value.
+                     */
+                    if (typeof value === 'boolean' && typeOf(name) === 'TwoOptions' && o.host !== 'canvas') {
+                        return value ? '1' : '0';
                     }
 
                     return value;
@@ -2182,6 +2336,10 @@
                         return optionLabel(name, value);
                     }
 
+                    if (type === 'TwoOptions') {
+                        return optionLabel(name, value === true ? 1 : value === false ? 0 : value);
+                    }
+
                     if (value && typeof value === 'object' && type.indexOf('Lookup') === 0) {
                         return formatted(value.name);
                     }
@@ -2219,22 +2377,80 @@
             // Staged, not applied: `setValue` on the platform does not commit.
             row.staged = row.staged || {};
 
+            /**
+             * Whether this column is one the dataset carries — by name, a role
+             * included. `null` names (canvas's unset roles) are never one.
+             */
+            function inDataset(name) {
+                return typeof name === 'string' && columns.some(function (column) {
+                    return column.name === name;
+                });
+            }
+
             /*
-             * **Returns `undefined`, because the platform does.** Microsoft's
-             * reference page types it `Promise`; a rig that returned one let
-             * `pcf-data-table` chain `.then` off it for three releases and
-             * ship a write that could never work.
+             * **Returns `undefined` on a form, because the platform does.**
+             * Microsoft's reference page types it `Promise`; a rig that
+             * returned one let `pcf-data-table` chain `.then` off it for three
+             * releases and ship a write that could never work. **Canvas
+             * returns a promise-like** (a WinJS object, measured 2026-10-10) —
+             * neither is a `Promise` to rely on.
+             *
+             * What is staged, measured 2026-10-10 (`pcf-kanban-board` 0.4.8):
+             *   - **form, a column outside the dataset:** dropped silently —
+             *     `isEditable` answers false, the save resolves, the column is
+             *     not written;
+             *   - **form, a lookup or Owner:** staged as `null` — Owner with
+             *     the record's own `{ etn, id: { guid }, name }`; the save is
+             *     then refused (below), so no record-route lookup write
+             *     exists (`pcf-data-table` saw "Invalid snapshot" on a
+             *     `Lookup.Simple` the same way, five shapes);
+             *   - **canvas, a choice:** `null`, in every shape tried (number,
+             *     string, `{ Value }`, label) — and the save then writes
+             *     nothing for it; a text column writes.
              */
             record.setValue = function (name, value) {
                 // The value too, so a suite can assert *what* was written and not only where — a Date serialises as its ISO instant.
                 log('record.setValue', name + '=' + JSON.stringify(value));
-                row.staged[name] = value;
 
-                return undefined;
+                var type = typeOf(name);
+
+                if (o.host !== 'canvas' && !inDataset(name)) {
+                    // Dropped: nothing to stage it against.
+                } else if (o.host !== 'canvas' && type.indexOf('Lookup') === 0) {
+                    row.staged[name] = null;
+                } else if (o.host === 'canvas' && (type === 'OptionSet' || type === 'TwoOptions')) {
+                    row.staged[name] = null;
+                } else {
+                    row.staged[name] = value;
+                }
+
+                return o.host === 'canvas' ? { then: function (done) { return Promise.resolve().then(done); }, cancel: function () {} } : undefined;
             };
 
             record.save = function () {
                 log('record.save', row.id);
+
+                // The form refuses a lookup staged as null: "Attribute: ownerid cannot be set to NULL".
+                var nulled = o.host !== 'canvas' && Object.keys(row.staged).filter(function (name) {
+                    return row.staged[name] === null && typeOf(name).indexOf('Lookup') === 0;
+                })[0];
+
+                if (nulled) {
+                    row.staged = {};
+
+                    return Promise.reject(webApiFault(2147746307, '', 'Attribute: ' + nulled + ' cannot be set to NULL'));
+                }
+
+                // Canvas writes nothing for a choice it staged as null.
+                if (o.host === 'canvas') {
+                    Object.keys(row.staged).forEach(function (name) {
+                        var type = typeOf(name);
+
+                        if (row.staged[name] === null && (type === 'OptionSet' || type === 'TwoOptions')) {
+                            delete row.staged[name];
+                        }
+                    });
+                }
 
                 if (quirks.saveRejects) {
                     row.staged = {};
@@ -2269,8 +2485,13 @@
              * every column; returning a bare boolean here would let that pass.
              */
             record.isEditable = function (name) {
-                return Promise.resolve(quirks.readOnlyColumns.indexOf(name) === -1);
+                return Promise.resolve(quirks.readOnlyColumns.indexOf(name) === -1 && inDataset(name));
             };
+
+            // **Canvas has no `isEditable`** (measured 2026-10-10): the write half there is `setValue`, `save` and no question first.
+            if (o.host === 'canvas') {
+                delete record.isEditable;
+            }
 
             return record;
         }
@@ -2346,6 +2567,23 @@
              */
             get sorting() {
                 return quirks.sortingAbsent ? undefined : sorting;
+            },
+
+            /*
+             * **Assigning is ignored on a form and applied on canvas.**
+             * Measured 2026-10-10 (`pcf-kanban-board` 0.4.8): on a subgrid
+             * `dataset.sorting = [...]` threw nothing and the next pass held
+             * the old array, order unchanged; in a canvas app the same
+             * assignment re-sorted on the `refresh()`. Mutating in place works
+             * on both — the one route a control should use.
+             */
+            set sorting(value) {
+                log('dataset.sorting =', JSON.stringify(value) + (o.host === 'canvas' ? '' : ' (ignored)'));
+
+                if (o.host === 'canvas' && Array.isArray(value)) {
+                    sorting.length = 0;
+                    Array.prototype.push.apply(sorting, value);
+                }
             },
 
             /**
@@ -3458,9 +3696,7 @@
                                     return;
                                 }
 
-                                var relationship = (fixture.relationships || []).filter(function (candidate) {
-                                    return candidate.navigationProperty === bind[1];
-                                })[0];
+                                var relationship = relationshipFor(bind[1], data[key]);
 
                                 if (!relationship) {
                                     failure = webApiFault(2147781913, '', PAYLOAD_FAULT.replace('cll_PrimaryContact', bind[1]));
@@ -3674,9 +3910,7 @@
                                     return;
                                 }
 
-                                var relationship = (fixture.relationships || []).filter(function (candidate) {
-                                    return candidate.navigationProperty === bind[1];
-                                })[0];
+                                var relationship = relationshipFor(bind[1], data[key]);
 
                                 if (!relationship) {
                                     failure = webApiFault(2147781913, '', PAYLOAD_FAULT.replace('cll_PrimaryContact', bind[1]));
