@@ -188,6 +188,17 @@ is the control's own — its recipes — and `sync-rig.mjs` never writes it;
 `cdp.js`, `hub-demo.html` and `demo-check.js` are the template's and are kept
 current. A grid customizer gets none of the four: its demo is the hub's grid.
 
+`dev/keys.js` is the keyboard on the same engine: `press(chrome, 'ArrowDown')`,
+`type(chrome, 'na')`, and `focused(chrome)`, which reads where focus is and
+what its `aria-activedescendant` points at. It exists because `dom.js` models
+no `keydown` and no bubbling — the suite can prove a key map as a pure
+function, and only a real press shows the control listening on the element
+that has focus, stopping the browser's own default, and moving focus where it
+says it does. A control with a key map of its own — a tree, a list, a grid
+of its own making — gets a `dev/<something>-keys.js` that launches the harness,
+focuses the widget as a user would, presses, and asserts with `focused`.
+`keys.js` is the template's and kept current; the walk is the control's.
+
 ### Keeping an adopted rig current
 
 An adopted repository's `scripts/` and `dev/` are **copies**, and they stop

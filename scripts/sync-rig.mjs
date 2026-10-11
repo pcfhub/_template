@@ -94,6 +94,8 @@ const MANAGED = [
     { path: 'dev/cdp.js', when: notCustomizer },
     { path: 'dev/hub-demo.html', when: notCustomizer },
     { path: 'dev/demo-check.js', when: notCustomizer },
+    // Real key presses on cdp.js's engine — the keyboard dom.js does not model.
+    { path: 'dev/keys.js', when: notCustomizer },
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
     { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm, needs: 'dev/harness.html' },
