@@ -1014,6 +1014,45 @@ function verifySibling() {
             /publishes one component per repository/.test(clean.out),
             clean.out.trim().split('\n').slice(0, 8).join('\n          '));
 
+        /*
+         * A preset may name a fixture of its own (`presets[].datasetFixture`,
+         * 2026-10-12), and the gate has to open that file too. Until it did, a
+         * typo in a preset's path passed here and cost the preset its rows on
+         * the hub, in an ingestion run nobody is watching. Asserted on the
+         * healthy repository for the reason above: the gate reaches no file
+         * check while a placeholder remains.
+         */
+        const published = repo.read('pcfhub.json');
+        const withPresetFixture = (path) => {
+            const manifest = JSON.parse(published);
+
+            manifest.demo = {
+                ...manifest.demo,
+                presets: [{ slug: 'own-rows', name: 'Its own rows', props: {}, datasetFixture: path }],
+            };
+            writeFileSync(join(repo.scratch, 'pcfhub.json'), `${JSON.stringify(manifest, null, 4)}\n`);
+
+            return runGate();
+        };
+
+        const absent = withPresetFixture('demo/no-such-rows.json');
+
+        check("check-template opens a preset's own fixture, and names the key when the file is not there",
+            absent.status === 1
+            && /demo\.presets\[0\]\.datasetFixture as "demo\/no-such-rows\.json", which does not exist/.test(absent.out),
+            absent.out.trim().split('\n').slice(0, 8).join('\n          '));
+
+        // The published control here is a field control, which reads only a
+        // `dataverse` or `services` section — and the sibling's fixture is rows.
+        const rows = withPresetFixture('demo/records.json');
+
+        check("and holds it to the shape the demo's own fixture is held to",
+            rows.status === 1
+            && /demo\.presets\[0\]\.datasetFixture "demo\/records\.json" must have a dataverse object/.test(rows.out),
+            rows.out.trim().split('\n').slice(0, 8).join('\n          '));
+
+        writeFileSync(join(repo.scratch, 'pcfhub.json'), published);
+
         const german = join(repo.scratch, SIBLING, SIBLING, 'strings', `${SIBLING}.1031.resx`);
         const dropped = readFileSync(german, 'utf8').replace(/\s*<data name="[^"]+"[^>]*>\s*<value>[\s\S]*?<\/value>\s*<\/data>/, '');
 

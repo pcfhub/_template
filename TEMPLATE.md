@@ -1067,6 +1067,17 @@ harness as the raw XML *string*, and `Boolean("false")` is `true` — so
 Numeric types have the same problem. Do not work around this in the control by
 coercing strings; that pollutes production code to suit a harness.
 
+**A preset can name a fixture of its own** — `"datasetFixture":
+"demo/swimlanes.json"` on the preset, in place of `demo.datasetFixture`. A
+dataset control needs it the moment a preset shows something that is not a
+property: which column a `property-set` role is bound to is the column's
+`alias` in the fixture, and the rows are the fixture. The file is a whole
+fixture, not a patch over the demo's, and `npm run check` holds it to the same
+shape. Two things it costs: the demo keeps one stand-in Dataverse per fixture,
+so what a visitor edited under one fixture is gone when they pick a preset with
+another; and a file the hub cannot read leaves that preset with no rows rather
+than the demo's. `pcf-kanban-board` is the first to use it.
+
 ## Localisation
 
 The template ships **five** `.resx` files: `1033` English, `3082` Spanish,
