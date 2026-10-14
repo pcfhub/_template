@@ -258,6 +258,15 @@ reported and left alone. Import it as `./lib/view-aggregate/fetchXml` and so
 on; a suite loads the pure modules through `dev/modules.js`. The skill's
 *Aggregating a view through FetchXML* is what it implements.
 
+`variants/lib/close-when-hidden/` is adopted the same way, by making
+`<Control>/lib/close-when-hidden`. It closes a portalled listbox, popover or
+menu once the field or button it hangs from scrolls out of the form, which
+Fluent does not do: the surface follows its anchor up over the form's header.
+`useCloseWhenHidden(anchor, open, close)` is the hook, with the anchor held in
+state (`ref={setAnchor}`); `watch.ts` is the React-free half a suite can load.
+Every control with such a surface uses it; the skill's *And a portalled list
+follows its field out of the form* has the measurement.
+
 ### What `npm start` already covers
 
 **Use `npm start` for the happy path**, and know exactly what it is. Read off

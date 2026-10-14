@@ -118,6 +118,15 @@ const MANAGED = [
         source: `variants/lib/view-aggregate/${name}.ts`,
         needs: '__CONTROL__/lib/view-aggregate',
     })),
+    /*
+     * The same for close-when-hidden: a portalled surface closed once its
+     * anchor scrolls out of the form. Adopted by making the folder.
+     */
+    ...['watch', 'useCloseWhenHidden'].map((name) => ({
+        path: `__CONTROL__/lib/close-when-hidden/${name}.ts`,
+        source: `variants/lib/close-when-hidden/${name}.ts`,
+        needs: '__CONTROL__/lib/close-when-hidden',
+    })),
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */
