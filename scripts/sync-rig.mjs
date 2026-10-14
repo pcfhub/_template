@@ -8,6 +8,8 @@
  *   node ../_template/scripts/sync-rig.mjs --into . --add-missing   # and copy absent files in
  *   node ../_template/scripts/sync-rig.mjs --into . --force dev/dom.js
  *   node ../_template/scripts/sync-rig.mjs --report ..              # one line per repository, writes nothing
+ *   node ../_template/scripts/sync-rig.mjs --sweep .. --dry-run     # every repository, stale files only
+ *   node ../_template/scripts/sync-rig.mjs --sweep .. --commit      # …and one commit each (never pushes)
  *   node ../_template/scripts/sync-rig.mjs --status .               # one line for this one, always exits 0
  *
  * **Why this exists.** An adopted repository's `scripts/` and `dev/` are copies,
@@ -328,7 +330,7 @@ function syncScripts(target, dryRun, arriving) {
 
 /* ---- every repository beside the template ------------------------------- */
 
-function report(dir) {
+function reposUnder(dir) {
     const repos = readdirSync(dir)
         .map((name) => join(dir, name))
         .filter((p) => p !== template && statSync(p).isDirectory() && existsSync(join(p, 'pcfhub.json')));
@@ -339,6 +341,12 @@ function report(dir) {
     if (repos.length === 0) {
         fail(`no repositories found under ${dir} — pass the directory that holds them (from inside a repository, that is ..).`);
     }
+
+    return repos;
+}
+
+function report(dir) {
+    const repos = reposUnder(dir);
 
     const width = Math.max(...repos.map((p) => basename(p).length), 10);
 
@@ -383,7 +391,122 @@ function report(dir) {
         console.log(`  ${path.padEnd(keyWidth)} ${String(t.stale).padStart(3)} stale  ${String(t.modified).padStart(3)} modified`);
     }
 
-    console.log('\nNothing was written. Run with --into <repo> to update one.\n');
+    console.log('\nNothing was written. Run with --into <repo> to update one, or --sweep to update them all.\n');
+}
+
+/* ---- every repository, updated ------------------------------------------- */
+
+/**
+ * `--sweep <dir>`: `--into` for every repository `--report` lists, limited to
+ * what is safe without reading anything — **stale files only**. A modified
+ * copy is named and kept, a missing one is not added, package.json is not
+ * touched, and `--force` is refused: each of those is a decision about one
+ * repository, and a sweep makes none.
+ *
+ * Measured 2026-10-13 by `--report`: check-template.mjs stale in 29 of 31
+ * repositories, dom.js and hub-demo.html in 25 — a template change reaches
+ * every repository, and before this it took one `--into` run per repository.
+ *
+ * A repository with uncommitted changes is skipped, not refused, so one dirty
+ * tree does not stop the other thirty. `--commit` makes one commit per
+ * repository it wrote, holding only the files it wrote. It never pushes:
+ * each repository's checks run first, and a push is the step after that.
+ */
+function sweep(dir) {
+    if (args.force.length > 0) {
+        fail('--sweep does not take --force: a modified copy is a reading job, one repository at a time (--into <repo> --force <path>).');
+    }
+
+    const dryRun = Boolean(args['dry-run']);
+    const commit = Boolean(args.commit) && !dryRun;
+    const repos = reposUnder(dir);
+    const width = Math.max(...repos.map((p) => basename(p).length), 10);
+    const head = templateHead();
+    const touched = [];
+    const kept = [];
+
+    console.log(`\n${dryRun ? 'Sweep, dry run — nothing is written' : 'Sweep'}: stale files only, from _template ${head}\n`);
+
+    for (const repo of repos) {
+        const name = basename(repo).padEnd(width);
+
+        if (gitStatus(repo) !== '') {
+            console.log(`${name}  skipped    uncommitted changes — commit or stash, then --into ${basename(repo)}`);
+            continue;
+        }
+
+        let entries;
+
+        try {
+            entries = classify(repo, readShape(repo));
+        } catch (error) {
+            console.log(`${name}  unreadable ${error.message}`);
+            continue;
+        }
+
+        const stale = entries.filter((e) => e.state === 'stale');
+        const modified = entries.filter((e) => e.state === 'modified');
+
+        for (const e of modified) {
+            kept.push(`${basename(repo)}/${e.path}`);
+        }
+
+        const keptNote = modified.length > 0 ? `   kept (edited here): ${modified.map((e) => basename(e.path)).join(', ')}` : '';
+
+        if (stale.length === 0) {
+            console.log(`${name}  current${keptNote}`);
+            continue;
+        }
+
+        if (!dryRun) {
+            for (const e of stale) {
+                write(repo, e.path, e.wanted);
+            }
+        }
+
+        let sha = '';
+
+        if (commit) {
+            const paths = stale.map((e) => e.path);
+            const body = [
+                `Synced by _template/scripts/sync-rig.mjs --sweep from _template ${head}:`,
+                '',
+                ...stale.map((e) => `- ${e.path} ${e.note}`),
+            ].join('\n');
+
+            execFileSync('git', ['add', '--', ...paths], { cwd: repo, stdio: 'pipe' });
+            execFileSync('git', ['commit', '-m', 'Bring the shared scripts up to the template\'s current copy', '-m', body, '--', ...paths], {
+                cwd: repo, stdio: 'pipe',
+            });
+            sha = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8', stdio: 'pipe' }).trim();
+        }
+
+        touched.push(basename(repo));
+        console.log(
+            `${name}  ${dryRun ? 'would update' : 'updated'} ${stale.map((e) => e.path).join(', ')}`
+            + (sha ? `  [${sha}]` : '')
+            + keptNote,
+        );
+    }
+
+    console.log(
+        `\n  ${touched.length} repositor${touched.length === 1 ? 'y' : 'ies'} ${dryRun ? 'would change' : commit ? 'updated and committed' : 'updated, uncommitted'}`
+        + `; ${kept.length} locally edited cop${kept.length === 1 ? 'y' : 'ies'} kept.`,
+    );
+
+    if (touched.length > 0 && !dryRun) {
+        console.log(`  Run npm run check and npm run smoke in each before ${commit ? 'pushing' : 'committing'}.`);
+    }
+
+    console.log('');
+}
+
+function templateHead() {
+    try {
+        return execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: template, encoding: 'utf8', stdio: 'pipe' }).trim();
+    } catch {
+        return '(unknown)';
+    }
 }
 
 /* ---- one repository, one line -------------------------------------------- */
@@ -576,7 +699,7 @@ function parseArgs(argv) {
             continue;
         }
 
-        if (key === 'dry-run' || key === 'add-missing') {
+        if (key === 'dry-run' || key === 'add-missing' || key === 'commit') {
             out[key] = true;
         } else if (key === 'force') {
             const next = argv[i + 1];
@@ -608,8 +731,10 @@ if (args.report) {
     report(resolve(process.cwd(), args.report));
 } else if (args.status) {
     status(resolve(process.cwd(), args.status));
+} else if (args.sweep) {
+    sweep(resolve(process.cwd(), args.sweep));
 } else if (args.into) {
     sync(resolve(process.cwd(), args.into));
 } else {
-    fail('--into <repo>, --status <repo> or --report <dir> is required.');
+    fail('--into <repo>, --sweep <dir>, --status <repo> or --report <dir> is required.');
 }

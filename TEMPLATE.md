@@ -209,7 +209,17 @@ forward, run from the template against the repository:
 node ../_template/scripts/sync-rig.mjs --report ..          # every repository, writes nothing
 node ../_template/scripts/sync-rig.mjs --into . --dry-run   # this one, what would change
 node ../_template/scripts/sync-rig.mjs --into .             # update what is safe
+node ../_template/scripts/sync-rig.mjs --sweep .. --commit  # every repository: stale files, one commit each
 ```
+
+`--sweep` is `--into` across everything `--report` lists, cut down to what
+needs no judgement: it writes **stale** files only, keeps a modified copy, adds
+nothing missing, leaves `package.json` alone, refuses `--force`, and skips a
+repository with uncommitted changes rather than stopping. `--commit` makes one
+commit per repository holding only the files it wrote; nothing is pushed, so
+`npm run check` and `npm run smoke` run in each before the push. A template
+change reaches thirty repositories, and on 2026-10-13 `--report` found
+`check-template.mjs` stale in 29 of them.
 
 It replaces a file only when that file equals **some past version** of the
 template's copy, found in this repository's git history after the target's own
