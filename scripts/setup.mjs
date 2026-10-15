@@ -373,6 +373,13 @@ rmSync(join(root, 'scripts', 'add-control.mjs'), { force: true });
 rmSync(join(root, 'scripts', 'sync-rig.mjs'), { force: true });
 
 /*
+ * `workspace-status.mjs` reads every repository beside the template and says
+ * which owe a release. It is about the workspace, not about this repository;
+ * reach it as `node ../_template/scripts/workspace-status.mjs`.
+ */
+rmSync(join(root, 'scripts', 'workspace-status.mjs'), { force: true });
+
+/*
  * `verify-adoption.mjs` tests *this script*, by adopting the template into a
  * scratch directory and asserting what comes out. An adopted repository is the
  * output, not the subject, so it has no use for it — and carrying it would ship

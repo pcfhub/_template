@@ -1287,6 +1287,7 @@ function main() {
         // release that nothing references and everything can drift from.
         check('release-reusable.yml is not inherited', !has('.github/workflows/release-reusable.yml'));
         check('build-reusable.yml is not inherited', !has('.github/workflows/build-reusable.yml'));
+        check('the workspace tools are not inherited', !has('scripts/sync-rig.mjs') && !has('scripts/workspace-status.mjs'));
         check('adopt.mjs is removed', !has('scripts/adopt.mjs'));
         check('sync-rig.mjs is removed', !has('scripts/sync-rig.mjs'));
         check('the variants directory is removed', !has('variants'));

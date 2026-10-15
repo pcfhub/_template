@@ -210,6 +210,7 @@ node ../_template/scripts/sync-rig.mjs --report ..          # every repository, 
 node ../_template/scripts/sync-rig.mjs --into . --dry-run   # this one, what would change
 node ../_template/scripts/sync-rig.mjs --into .             # update what is safe
 node ../_template/scripts/sync-rig.mjs --sweep .. --commit  # every repository: stale files, one commit each
+node ../_template/scripts/workspace-status.mjs              # every repository: what owes a release
 ```
 
 `--sweep` is `--into` across everything `--report` lists, cut down to what
@@ -220,6 +221,18 @@ commit per repository holding only the files it wrote; nothing is pushed, so
 `npm run check` and `npm run smoke` run in each before the push. A template
 change reaches thirty repositories, and on 2026-10-13 `--report` found
 `check-template.mjs` stale in 29 of them.
+
+A sweep leaves a commit after the last tag in every repository it touches,
+which is why "clean and pushed" stopped meaning "released".
+`workspace-status.mjs` sorts the commits since each tag by what they touched —
+**release** (the control's source, its manifest, the solution, the build's
+config, `dependencies`: only a tag reaches a maker), **live** (`docs/`,
+`pcfhub.json`, `media/`, `demo/`: the hub reads the branch) and **tooling**
+(everything a sweep writes) — and lists the commits that need a release by
+subject. Its first run (2026-10-15) found control source in four repositories
+committed and pushed after their last tag, under 25 repositories' worth of
+sweep commits that hid them. Run it before calling the workspace clean;
+`--strict` exits 1 when anything is owed.
 
 It replaces a file only when that file equals **some past version** of the
 template's copy, found in this repository's git history after the target's own
