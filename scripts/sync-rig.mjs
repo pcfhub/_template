@@ -127,6 +127,15 @@ const MANAGED = [
         source: `variants/lib/close-when-hidden/${name}.ts`,
         needs: '__CONTROL__/lib/close-when-hidden',
     })),
+    /*
+     * And tree-keys: the WAI-ARIA tree's keyboard as a pure function, for a
+     * control that draws a tree of its own. Adopted by making the folder.
+     */
+    ...['keys', 'typeAhead'].map((name) => ({
+        path: `__CONTROL__/lib/tree-keys/${name}.ts`,
+        source: `variants/lib/tree-keys/${name}.ts`,
+        needs: '__CONTROL__/lib/tree-keys',
+    })),
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */

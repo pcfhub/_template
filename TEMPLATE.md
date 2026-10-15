@@ -267,6 +267,21 @@ state (`ref={setAnchor}`); `watch.ts` is the React-free half a suite can load.
 Every control with such a surface uses it; the skill's *And a portalled list
 follows its field out of the form* has the measurement.
 
+`variants/lib/tree-keys/` is the third, adopted by making
+`<Control>/lib/tree-keys`. It is the WAI-ARIA tree pattern's keyboard as a
+pure function over the rows a control draws — `treeKey(rows, focus, press,
+page)` answers the new focus, the ids to open and close, an action for Enter
+or Ctrl+C, and whether the key was the tree's (`preventDefault` on that
+only); `typeAhead.ts` has the search and its 500 ms buffer. The control keeps
+which rows are open and applies the answer. Lifted from `pcf-code-editor`
+1.7.0, whose probe pressed every key on a form; the skill's *A tree or a list
+of your own: one tab stop, arrows inside* is what it implements.
+
+Unlike the rig, these three are never exercised by an adopted repository's
+CI until a control adopts them, so `scripts/verify-adoption.mjs` loads each
+one from `variants/lib/` and checks its behaviour — the key map, the buffer,
+the anchor watcher — before anything is copied anywhere.
+
 ### What `npm start` already covers
 
 **Use `npm start` for the happy path**, and know exactly what it is. Read off

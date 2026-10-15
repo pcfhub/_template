@@ -32,6 +32,7 @@
 
 import { execFileSync, spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -678,6 +679,26 @@ function verifySync() {
             'as the template\'s own copy',
             lifted.every((name) => lf(repo.read(`${libDir}/${name}.ts`)) === lf(readFileSync(join(root, 'variants/lib/view-aggregate', `${name}.ts`), 'utf8'))),
         );
+
+        /*
+         * tree-keys by the same rule: out until its folder exists, then the
+         * template's copy, both files.
+         */
+        const keysDir = `${control}/lib/tree-keys`;
+
+        check('the tree-keys library stays out of a control that has not adopted it', !/lib\/tree-keys/.test(planned()), planned());
+
+        mkdirSync(file(keysDir), { recursive: true });
+
+        const keysAdopted = run(['--add-missing']);
+
+        check(
+            'and arrives as the template\'s own copy once its folder exists',
+            keysAdopted.status === 0
+                && ['keys', 'typeAhead'].every((name) => existsSync(file(`${keysDir}/${name}.ts`))
+                    && lf(repo.read(`${keysDir}/${name}.ts`)) === lf(readFileSync(join(root, 'variants/lib/tree-keys', `${name}.ts`), 'utf8'))),
+            keysAdopted.out,
+        );
     } finally {
         rmSync(repo.scratch, { recursive: true, force: true });
     }
@@ -1076,6 +1097,164 @@ function verifySibling() {
     }
 }
 
+/**
+ * The shared libraries' own behaviour, from `variants/lib/` as they stand.
+ *
+ * `setup.mjs` deletes `variants/` on adoption, so nothing the Windows build
+ * runs ever loads a library: until a control adopts one and its own suite
+ * reaches it, a broken edit here ships to every adopter on the next sync.
+ * close-when-hidden went out on 2026-10-14 tested only inside
+ * pcf-lookup-search. These are those tests, held by the template.
+ *
+ * Loaded through `dev/modules.js`, which needs `typescript`. The template
+ * job installs that one package into a folder of its own and points
+ * NODE_PATH at it, rather than installing the whole toolchain a pack needs;
+ * locally, `npm install` in the template is enough.
+ */
+function verifyLibs() {
+    console.log('\nChecking the shared libraries…\n');
+
+    const require = createRequire(import.meta.url);
+    let createLoader;
+    try {
+        ({ createLoader } = require(join(root, 'dev', 'modules.js')));
+        createLoader({ root: join(root, 'dev') });
+    } catch (error) {
+        check('typescript can be loaded, so the libraries can be (npm install, or NODE_PATH at a folder that has it)', false, String(error.message).split('\n')[0]);
+
+        return;
+    }
+    const loadFrom = (lib) => createLoader({
+        root: join(root, 'variants', 'lib', lib),
+        forbid: [[/react|fluentui/, 'stay free of React'], [/^[^.]/, 'any package']],
+    });
+
+    // --- tree-keys -------------------------------------------------------
+    const keys = loadFrom('tree-keys')('keys');
+    const ahead = loadFrom('tree-keys')('typeAhead');
+
+    /*
+     * The tree pcf-code-editor's suite walked, as generic rows:
+     *   $ (open) › a (closed), b (leaf), c (closed)
+     * and the same with a opened:  $ › a › a.x, a.y (closed) › b › c
+     */
+    const row = (id, level, expanded) => ({ id, level, expanded, name: id.split('.').pop() });
+    const closed = [row('$', 1, true), row('a', 2, false), row('b', 2, undefined), row('c', 2, false)];
+    const opened = [row('$', 1, true), row('a', 2, true), row('a.x', 3, undefined), row('a.y', 3, false), row('b', 2, undefined), row('c', 2, false)];
+    const go = (rows, focus, key, extra) => keys.treeKey(rows, focus, { key, ...(extra || {}) }, 3);
+    const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+    check('tree-keys: Down and Up move one row and stop at the ends', same(
+        [go(opened, 0, 'ArrowDown').focus, go(opened, 1, 'ArrowUp').focus, go(opened, 0, 'ArrowUp').focus, go(opened, 5, 'ArrowDown').focus],
+        [1, 0, 0, 5],
+    ));
+    check('tree-keys: Home, End, and Page Down/Up by the page given', same(
+        [go(opened, 2, 'Home').focus, go(opened, 0, 'End').focus, go(opened, 0, 'PageDown').focus, go(opened, 3, 'PageUp').focus],
+        [0, 5, 3, 0],
+    ));
+    check('tree-keys: Right on a closed node names it to open, focus stays', same(
+        (({ focus, open, close, handled }) => [focus, open, close, handled])(go(closed, 1, 'ArrowRight')),
+        [1, ['a'], [], true],
+    ));
+    check('tree-keys: Right on an open node moves to its first child', go(opened, 1, 'ArrowRight').focus === 2);
+    check('tree-keys: …but not past an open node whose children are not drawn yet', go([row('a', 1, true), row('b', 1, undefined)], 0, 'ArrowRight').focus === 0);
+    check('tree-keys: Right on a leaf moves nothing and is still taken', same([go(opened, 2, 'ArrowRight').focus, go(opened, 2, 'ArrowRight').handled], [2, true]));
+    check('tree-keys: Left on a leaf goes to its parent; on an open node names it to close', same(
+        [go(opened, 2, 'ArrowLeft').focus, go(opened, 1, 'ArrowLeft').close, go(opened, 1, 'ArrowLeft').focus],
+        [1, ['a'], 1],
+    ));
+    check('tree-keys: Left on the open top node closes it — there is no parent', same(go(opened, 0, 'ArrowLeft').close, ['$']));
+    check('tree-keys: * opens every closed sibling, and only siblings, focus stays', same(
+        [go(opened, 4, '*').open, go(opened, 4, '*').focus, go(opened, 2, '*').open],
+        [['c'], 4, ['a.y']],
+    ));
+    check('tree-keys: Enter asks for the row\'s action, Ctrl+C and Cmd+C for a copy', same(
+        [go(opened, 4, 'Enter').action, go(opened, 4, 'c', { ctrl: true }).action, go(opened, 4, 'C', { meta: true }).action],
+        ['activate', 'copy', 'copy'],
+    ));
+    check('tree-keys: every other shortcut is the host\'s, untouched', [
+        go(opened, 4, 's', { ctrl: true }), go(opened, 4, 'c', { ctrl: true, alt: true }), go(opened, 4, 'ArrowDown', { alt: true }),
+    ].every((r) => !r.handled && r.focus === 4));
+    check('tree-keys: Space is taken and moves nothing', same([go(opened, 4, ' ').handled, go(opened, 4, ' ').focus], [true, 4]));
+    check('tree-keys: Escape, Tab and F2 are not the tree\'s', ['Escape', 'Tab', 'F2'].every((k) => !go(opened, 4, k).handled));
+    check('tree-keys: no rows, nothing taken', keys.treeKey([], 0, { key: 'ArrowDown' }).handled === false);
+    check('tree-keys: parentIndex and siblingIndexes', same(
+        [keys.parentIndex(opened, 3), keys.parentIndex(opened, 1), keys.parentIndex(opened, 0), keys.siblingIndexes(opened, 4), keys.siblingIndexes(opened, 0)],
+        [1, 0, -1, [1, 4, 5], [0]],
+    ));
+
+    check('tree-keys: type-ahead — a first letter searches from the next row, wrapping', same(
+        [ahead.typeAhead(opened, 0, 'b'), ahead.typeAhead(opened, 4, 'b'), ahead.typeAhead(opened, 0, 'q'), ahead.typeAhead(opened, 0, 'C')],
+        [4, 4, -1, 5],
+    ));
+    {
+        const two = [row('beta', 1, undefined), row('bravo', 1, undefined)];
+        check('tree-keys: …one letter again moves on; a growing buffer searches from where it is', same(
+            [ahead.typeAhead(two, 0, 'b'), ahead.typeAhead(two, 0, 'be'), ahead.typeAhead(two, 0, 'br')],
+            [1, 0, 1],
+        ));
+    }
+    check('tree-keys: what counts as type-ahead: one character, no shortcut, not Space or *', same(
+        ['a', 'é', ' ', '*', 'Enter'].map((key) => ahead.isTypeAhead({ key })).concat(ahead.isTypeAhead({ key: 'a', ctrl: true })),
+        [true, true, false, false, false, false],
+    ));
+    {
+        const first = ahead.nextBuffer(null, 'b', 1000);
+        const grown = ahead.nextBuffer(first, 'r', 1400);
+        const fresh = ahead.nextBuffer(grown, 'c', 1400 + ahead.TYPE_AHEAD_QUIET_MS + 1);
+        check('tree-keys: the buffer grows within the quiet time and starts again after it', same(
+            [first.text, grown.text, fresh.text, fresh.at],
+            ['b', 'br', 'c', 1901],
+        ));
+    }
+
+    // --- close-when-hidden ----------------------------------------------
+    const watch = loadFrom('close-when-hidden')('watch');
+    let fire = null;
+    const asked = [];
+    let disconnected = 0;
+    class FakeObserver {
+        constructor(callback, options) {
+            fire = callback;
+            asked.push(options.threshold);
+        }
+        observe(target) {
+            asked.push(target);
+        }
+        disconnect() {
+            disconnected += 1;
+        }
+    }
+    let hidden = 0;
+    const stop = watch.watchAnchor('anchor', () => (hidden += 1), FakeObserver);
+    fire([{ intersectionRatio: 0.6 }]);
+    const keptOpen = hidden === 0;
+    fire([{ intersectionRatio: 0.49 }]);
+    check('close-when-hidden: more than half in view keeps the surface; less closes it', keptOpen && hidden === 1);
+    check('close-when-hidden: watches the anchor at 0, the line and 1', same(asked, [[0, watch.VISIBLE_AT_LEAST, 1], 'anchor']));
+    stop();
+    check('close-when-hidden: the returned function disconnects', disconnected === 1);
+    check('close-when-hidden: a host without IntersectionObserver gets a no-op', typeof watch.watchAnchor('anchor', () => undefined, undefined) === 'function');
+
+    /*
+     * The guard itself, or the two checks above prove nothing: a library
+     * that imports a package must throw by name here.
+     */
+    const scratch = mkdtempSync(join(tmpdir(), 'pcfhub-lib-'));
+    try {
+        writeFileSync(join(scratch, 'leaky.ts'), "import * as React from 'react';\nexport const leak = React;\n");
+        let refused = '';
+        try {
+            createLoader({ root: scratch, forbid: [[/react|fluentui/, 'stay free of React']] })('leaky');
+        } catch (error) {
+            refused = String(error.message);
+        }
+        check('a library that imports React is refused by name', /leaky\.ts imports react/.test(refused), refused);
+    } finally {
+        rmSync(scratch, { recursive: true, force: true });
+    }
+}
+
 function main() {
     console.log('\nAdopting the template into a scratch directory…\n');
 
@@ -1325,6 +1504,7 @@ function main() {
     verifyBindings();
     verifySibling();
     verifySync();
+    verifyLibs();
 
     console.log('\nChecking the template itself…\n');
     commentsDoNotCarryPlaceholders();

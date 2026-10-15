@@ -142,8 +142,18 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
 
+      # The shared libraries under variants/lib are tested from source by the
+      # verifier, through dev/modules.js, which needs TypeScript and nothing
+      # else of the toolchain. One package into a folder of its own, not an
+      # `npm install` here: that would reify pcf-scripts and the rest.
+      - name: TypeScript for the shared libraries' tests
+        if: inputs.adopt-first
+        run: npm install --prefix "${{ runner.temp }}/ts" --no-save --no-package-lock --ignore-scripts typescript@5
+
       - name: Verify adoption produces a correct repository
         if: inputs.adopt-first
+        env:
+          NODE_PATH: ${{ runner.temp }}/ts/node_modules
         run: node scripts/verify-adoption.mjs
 
       - name: Check the template was adopted
