@@ -264,12 +264,62 @@
         ':where(.stub-button):focus-visible{outline:2px solid var(--colorStrokeFocus2,#000);outline-offset:1px;}',
     ].join('');
 
+    /*
+     * `Avatar`: a circle at `size` with the picture, or the name's initials
+     * when there is none or it fails to load — what Fluent's does — in its
+     * neutral colours. Added for pcf-hierarchy-view 0.3.0's pictures.
+     */
+    var AVATAR_STYLES = [
+        ':where(.stub-avatar){display:inline-flex;align-items:center;justify-content:center;flex:0 0 auto;box-sizing:border-box;',
+        'border-radius:50%;overflow:hidden;background:var(--colorNeutralBackground6,#e6e6e6);color:var(--colorNeutralForeground3,#616161);',
+        'font-family:var(--fontFamilyBase,"Segoe UI",system-ui,sans-serif);font-weight:600;line-height:1;}',
+        ':where(.stub-avatar) img{display:block;width:100%;height:100%;object-fit:cover;}',
+    ].join('');
+
     if (global.document && !global.document.getElementById('fluent-stub-styles')) {
         var styleTag = global.document.createElement('style');
 
         styleTag.id = 'fluent-stub-styles';
-        styleTag.textContent = BUTTON_STYLES + '\n' + SPINNER_STYLES;
+        styleTag.textContent = BUTTON_STYLES + '\n' + SPINNER_STYLES + '\n' + AVATAR_STYLES;
         global.document.head.appendChild(styleTag);
+    }
+
+    /** "Contoso Europe" → "CE", "Contoso" → "C": the first and last word's first letters. */
+    function initialsOf(name) {
+        var words = String(name || '').trim().split(/\s+/).filter(function (word) {
+            return /[A-Za-z0-9\u00C0-\uFFFF]/.test(word.charAt(0));
+        });
+
+        if (words.length === 0) {
+            return '';
+        }
+
+        return (words[0].charAt(0) + (words.length > 1 ? words[words.length - 1].charAt(0) : '')).toUpperCase();
+    }
+
+    function Avatar(props) {
+        var size = props.size || 32;
+        var src = props.image && props.image.src;
+        var state = React.useState(false);
+        var failed = state[0];
+        var attributes = {
+            className: ['stub-avatar', props.className].filter(Boolean).join(' '),
+            style: { width: size + 'px', height: size + 'px', fontSize: Math.round(size * 0.4) + 'px' },
+        };
+
+        Object.keys(props).forEach(function (key) {
+            if (key.indexOf('aria-') === 0) {
+                attributes[key] = props[key];
+            }
+        });
+
+        return React.createElement(
+            'span',
+            attributes,
+            src && !failed
+                ? React.createElement('img', { src: src, alt: '', onError: function () { state[1](true); } })
+                : initialsOf(props.name),
+        );
     }
 
     function Button(props) {
@@ -422,6 +472,7 @@
         PopoverSurface: PopoverSurface,
         Button: Button,
         Spinner: Spinner,
+        Avatar: Avatar,
         Menu: Menu,
         MenuTrigger: MenuTrigger,
         MenuPopover: MenuPopover,
