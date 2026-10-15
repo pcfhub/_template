@@ -905,6 +905,45 @@ const dispositionName = (header) => {
     return word ? Buffer.from(word[1], 'base64').toString('utf8') : (/filename=([^;]+)/.exec(header || '') || [])[1];
 };
 
+/*
+ * A Web API action through the stub — the shapes pcf-hierarchy-view's 0.2.9
+ * probe measured on a form (2026-10-15), refusals first.
+ */
+async function actionSelfCheck() {
+    const ctx = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
+    const base = `${ctx.page.getClientUrl()}/api/data/v9.2/`;
+    const json = { Accept: 'application/json', 'Content-Type': 'application/json; charset=utf-8' };
+    const post = (path, body, init = {}) => fetch(base + path, { method: 'POST', headers: json, body, credentials: 'same-origin', ...init });
+    const said = async (res) => [res.status, (await res.json()).error?.code];
+
+    const ok = await post('pcfhub_Echo', JSON.stringify({ Text: 'hi' }));
+    const okBody = await ok.json();
+    check('rig: an unbound action answers 200 with its response properties under an @odata.context', ok.status === 200 && okBody.Echo === 'hi' && /\$metadata#Microsoft\.Dynamics\.CRM\.pcfhub_EchoResponse$/.test(okBody['@odata.context']), JSON.stringify(okBody));
+    const boundOk = await post('accounts(c1)/Microsoft.Dynamics.CRM.pcfhub_EchoAccount', JSON.stringify({ Text: 'hi' }));
+    check('rig: a bound one, qualified, gets its row\'s id', boundOk.status === 200 && (await boundOk.json()).Echo === 'c1: hi');
+    check('rig: no Content-Type is a 415', (await post('pcfhub_Echo', '{"Text":"x"}', { headers: { Accept: 'application/json' } })).status === 415);
+    const omitted = await post('pcfhub_Echo', '{"Text":"x"}', { credentials: 'omit' });
+    check('rig: without the session cookie it is a 401 with no body', omitted.status === 401 && (await omitted.text()) === '');
+    check('rig: a bound action unqualified, or called unbound, is a 404 0x80060888', JSON.stringify([await said(await post('accounts(c1)/pcfhub_EchoAccount', '{"Text":"x"}')), await said(await post('pcfhub_EchoAccount', '{"Text":"x"}'))]) === JSON.stringify([[404, '0x80060888'], [404, '0x80060888']]));
+    check('rig: an action the environment does not have is a 404 0x80060888', JSON.stringify(await said(await post('pcfhub_Nope', '{}'))) === JSON.stringify([404, '0x80060888']));
+    const payload = await Promise.all([post('pcfhub_Echo', '{}'), post('pcfhub_Echo', '{"Text":5}'), post('pcfhub_Echo', '{"Text":"x","Nope":1}'), post('pcfhub_Echo', '{not json')].map(async (p) => {
+        const res = await p;
+        const body = await res.json();
+        return `${res.status} ${body.error.code} ${/missing parameters are: Text|Cannot convert the literal '5'|'Nope' in the request payload|Stream was not readable/.exec(body.error.message)?.[0]}`;
+    }));
+    check(
+        'rig: a missing, wrong-typed or unknown parameter and a body that is not JSON are each a 400 0x80048d19 saying which',
+        payload.join(' | ') === "400 0x80048d19 missing parameters are: Text | 400 0x80048d19 Cannot convert the literal '5' | 400 0x80048d19 'Nope' in the request payload | 400 0x80048d19 Stream was not readable",
+        payload.join(' | '),
+    );
+    const get = await fetch(base + 'pcfhub_Echo', { headers: json });
+    check('rig: a GET on an action is a 404 whose code is empty', get.status === 404 && (await get.json()).error.code === '');
+    let offline = null;
+    const away = host.createContext({ fixture, clientUrl: host.nextClientUrl(), actionStatus: 0 });
+    await fetch(`${away.page.getClientUrl()}/api/data/v9.2/pcfhub_Echo`, { method: 'POST', headers: json, body: '{"Text":"x"}' }).catch((e) => { offline = e; });
+    check('rig: actionStatus 0 rejects with a TypeError, the offline shape', offline instanceof TypeError);
+}
+
 async function fileColumnSelfCheck() {
     const ctx = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
     const base = `${ctx.page.getClientUrl()}/api/data/v9.2/`;
@@ -1220,6 +1259,7 @@ async function rigSelfCheck() {
 
     await metadataSelfCheck();
     await fileColumnSelfCheck();
+    await actionSelfCheck();
     typedColumnSelfCheck();
 
     checkModuleLoader();

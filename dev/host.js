@@ -897,6 +897,15 @@
         auditStatus: 200,
 
         /**
+         * What a Web API **action** (a POST to `<name>` or `<set>(<id>)/
+         * Microsoft.Dynamics.CRM.<name>`, from `fixture.actions`) answers
+         * beyond its own refusals: `200` runs it, `0` rejects with a
+         * `TypeError` (offline), anything else refuses every action with that
+         * status — unmeasured, so a generic body. See `actionAnswer`.
+         */
+        actionStatus: 200,
+
+        /**
          * Whether `retrieveMultipleRecords('audit', …)` answers. `false` is
          * the user without `prvReadAuditSummary`: the query rejects in the
          * fault shape while the functions above may still answer, because the
@@ -2697,6 +2706,166 @@
         return Promise.reject(new TypeError('The rig cannot read this body.'));
     }
 
+    /** A header off a fetch init, whether `headers` is a plain object or a `Headers`. */
+    function headerOf(init, name) {
+        var headers = init && init.headers;
+
+        if (!headers) {
+            return null;
+        }
+        if (typeof headers.get === 'function') {
+            return headers.get(name);
+        }
+
+        var key = Object.keys(headers).filter(function (k) {
+            return k.toLowerCase() === name.toLowerCase();
+        })[0];
+
+        return key === undefined ? null : headers[key];
+    }
+
+    /** A reply with nothing in its body — the 401 a request without the session gets. */
+    function emptyReply(status) {
+        return Promise.resolve({
+            ok: status >= 200 && status < 300,
+            status: status,
+            headers: { get: function () { return null; } },
+            json: function () { return Promise.reject(new SyntaxError('Unexpected end of JSON input')); },
+            text: function () { return Promise.resolve(''); },
+        });
+    }
+
+    var PAYLOAD_FAULT = "Error identified in Payload provided by the user for Entity :'', For more information on this error please follow this help link https://go.microsoft.com/fwlink/?linkid=2195293  ---->  InnerException : ";
+
+    /**
+     * A Web API **action** — a POST `context.webAPI` cannot make — answered
+     * from `fixture.actions`, as `pcf-hierarchy-view`'s 0.2.9 probe measured
+     * one on a form (2026-10-15, SPEC.md A1–A4, a no-plug-in Custom API):
+     *
+     *   POST <prefix><name>                                   unbound
+     *   POST <prefix><set>(<id>)/Microsoft.Dynamics.CRM.<name> bound
+     *
+     * Refusals first, in the order the server meets them: a GET on an action
+     * is a 404 whose `code` is **empty**; no `Content-Type: application/json`
+     * is a 415; `credentials: 'omit'` is a 401 with no body; a name the
+     * environment does not have — or a bound action without its
+     * `Microsoft.Dynamics.CRM.` prefix, or called unbound — is a 404
+     * `0x80060888`; a body that is not JSON, a parameter the action does not
+     * take, a value of the wrong type and a required parameter left out are
+     * each a 400 `0x80048d19` whose message carries the server's exception
+     * text. Then 200 with the response properties under an `@odata.context`.
+     * The OData headers are not required (measured). **The record is never
+     * touched** — a no-plug-in action left `modifiedon` and `versionnumber`
+     * alone (A4) — so the stub hands `answer` the parameters and no row.
+     *
+     *   actions: { pcfhub_Echo: { parameters: { Text: { type: 'Edm.String' } },
+     *                             response: ['Echo'], answer: (p) => ({ Echo: p.Text }) },
+     *              pcfhub_EchoAccount: { boundTo: 'account', … } }
+     *
+     * A parameter is required unless `optional: true`. Unmeasured, so
+     * modelled plainly: an action with no response properties answers 204
+     * (the real one is likely the same — not asked), and `actionStatus` other
+     * than 200 refuses every action with that status and a generic body.
+     * Returns `null` for a path that is not an action's, so the rest of the
+     * stub answers it.
+     */
+    function actionAnswer(fixture, o, method, path, init, clientUrl) {
+        var actions = fixture.actions || {};
+        var bound = path.match(/^([A-Za-z_][\w]*)\(([^)]*)\)\/((?:Microsoft\.Dynamics\.CRM\.)?)([A-Za-z_][\w]*)$/);
+        var unbound = path.match(/^([A-Za-z_][\w]*)$/);
+        var name = bound ? bound[4] : unbound ? unbound[1] : null;
+        var sets = fixture.entitySets || {};
+        var isSet = unbound && Object.keys(sets).some(function (t) { return sets[t] === unbound[1]; });
+
+        if (name === null || isSet) {
+            return null;
+        }
+
+        var notFound = function (period) {
+            return reply(404, { error: { code: '0x80060888', message: "Resource not found for the segment '" + name + "'" + (period ? '.' : '') } });
+        };
+
+        if (method !== 'POST') {
+            return method === 'GET' && actions[name]
+                ? reply(404, { error: { code: '', message: "No HTTP resource was found that matches the request URI '" + clientUrl + '/api/data/v9.2/' + path + "'." } })
+                : null;
+        }
+
+        var status = o.actionStatus;
+
+        if (status === 0) {
+            return Promise.reject(new TypeError('Failed to fetch'));
+        }
+        if (init && init.credentials === 'omit') {
+            return emptyReply(401);
+        }
+        if (!/application\/json/i.test(String(headerOf(init, 'Content-Type') || ''))) {
+            return reply(415, { error: { code: '0x80060888', message: 'POST request requires Content-Type application/json.' } });
+        }
+
+        var def = actions[name];
+
+        if (bound && !bound[3]) {
+            return notFound(false);
+        }
+        if (!def || Boolean(bound) !== Boolean(def.boundTo) || (bound && sets[def.boundTo] !== undefined && sets[def.boundTo] !== bound[1])) {
+            return notFound(true);
+        }
+        if (status !== undefined && status !== 200) {
+            return reply(status, { error: { code: '0x80040220', message: 'Refused by the rig.' } });
+        }
+
+        var body;
+
+        try {
+            body = JSON.parse(String(init && init.body !== undefined ? init.body : ''));
+        } catch (e) {
+            return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + 'System.ArgumentException: Stream was not readable.' } });
+        }
+
+        var params = def.parameters || {};
+        var given = Object.keys(body || {}).filter(function (k) { return k.indexOf('@') === -1; });
+        var unknown = given.filter(function (k) { return !params[k]; })[0];
+
+        if (unknown !== undefined) {
+            return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.OData.ODataException: The parameter '" + unknown + "' in the request payload is not a valid parameter for the operation '" + name + "'." } });
+        }
+
+        var wrong = given.filter(function (k) {
+            var t = params[k].type || 'Edm.String';
+            var v = body[k];
+
+            return v !== null && ((t === 'Edm.String' || t === 'Edm.Guid') ? typeof v !== 'string'
+                : t === 'Edm.Boolean' ? typeof v !== 'boolean'
+                : /^Edm\.(Int|Decimal|Double)/.test(t) ? typeof v !== 'number' : false);
+        })[0];
+
+        if (wrong !== undefined) {
+            return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.OData.ODataException: Cannot convert the literal '" + body[wrong] + "' to the expected type '" + (params[wrong].type || 'Edm.String') + "'." } });
+        }
+
+        var missing = Object.keys(params).filter(function (k) { return !params[k].optional && given.indexOf(k) === -1; });
+
+        if (missing.length > 0) {
+            return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.OData.ODataException: One or more parameters of the operation '" + name + "' are missing from the request payload. The missing parameters are: " + missing.join(', ') + '.' } });
+        }
+
+        var response = def.response || [];
+
+        if (response.length === 0) {
+            return emptyReply(204);
+        }
+
+        var answered = typeof def.answer === 'function' ? def.answer(JSON.parse(JSON.stringify(body)), bound ? bound[2] : null) || {} : {};
+        var out = { '@odata.context': clientUrl + '/api/data/v9.2/$metadata#Microsoft.Dynamics.CRM.' + name + 'Response' };
+
+        response.forEach(function (prop) {
+            out[prop] = answered[prop] === undefined ? null : answered[prop];
+        });
+
+        return reply(200, out);
+    }
+
     /**
      * The answer to a File or Image column request, or `null` when the path
      * is not one — a column the fixture's metadata does not type as File or
@@ -2897,6 +3066,14 @@
 
             if (file) {
                 return file;
+            }
+
+            // ---- <action>, <set>(<id>)/Microsoft.Dynamics.CRM.<action> -----
+            // A POST the control makes itself; see `actionAnswer`.
+            var action = actionAnswer(fixture, o, method, path, init, clientUrl);
+
+            if (action) {
+                return action;
             }
 
             // ---- organizations?$select=… — the organisation row ------------

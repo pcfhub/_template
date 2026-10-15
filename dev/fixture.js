@@ -296,6 +296,25 @@
         /** What `audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails` answers, by row. */
         audits: { details: DETAILS },
 
+        /**
+         * Web API actions a control POSTs itself (`actionAnswer` in host.js).
+         * The pair the 0.2.9 probe measured: one unbound, one bound to an
+         * account, a string in and a string out. Replace with your own.
+         */
+        actions: {
+            pcfhub_Echo: {
+                parameters: { Text: { type: 'Edm.String' } },
+                response: ['Echo'],
+                answer: (params) => ({ Echo: params.Text }),
+            },
+            pcfhub_EchoAccount: {
+                boundTo: 'account',
+                parameters: { Text: { type: 'Edm.String' } },
+                response: ['Echo'],
+                answer: (params, id) => ({ Echo: `${id}: ${params.Text}` }),
+            },
+        },
+
         /** Display names `utils.getEntityMetadata(table, columns).Attributes` answers, per table. */
         labels: {
             account: {
