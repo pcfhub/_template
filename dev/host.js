@@ -2816,7 +2816,12 @@
             return notFound(false);
         }
         if (!def || Boolean(bound) !== Boolean(def.boundTo) || (bound && sets[def.boundTo] !== undefined && sets[def.boundTo] !== bound[1])) {
-            return notFound(true);
+            // The server names the segment it could not resolve, measured 2026-10-16
+            // (pcf-row-commands P2): a qualified bound one with its namespace and no
+            // period, an unbound one — or a bound action called unbound — with a period.
+            return bound
+                ? reply(404, { error: { code: '0x80060888', message: "Resource not found for the segment 'Microsoft.Dynamics.CRM." + name + "'" } })
+                : notFound(true);
         }
         if (status !== undefined && status !== 200) {
             return reply(status, { error: { code: '0x80040220', message: 'Refused by the rig.' } });

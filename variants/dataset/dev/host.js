@@ -965,7 +965,12 @@
             return notFound(false);
         }
         if (!def || Boolean(bound) !== Boolean(def.boundTo) || (bound && entitySetOf(fixture, def.boundTo) !== bound[1])) {
-            return notFound(true);
+            // The server names the segment it could not resolve, measured 2026-10-16
+            // (pcf-row-commands P2): a qualified bound one with its namespace and no
+            // period, an unbound one — or a bound action called unbound — with a period.
+            return bound
+                ? actionReply(404, { error: { code: '0x80060888', message: "Resource not found for the segment 'Microsoft.Dynamics.CRM." + name + "'" } })
+                : notFound(true);
         }
         if (status !== undefined && status !== 200) {
             return actionReply(status, { error: { code: '0x80040220', message: 'Refused by the rig.' } });
@@ -1867,10 +1872,18 @@
                     });
                 }
 
-                var definition = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)(\?\$select=EntitySetName)?$/i);
+                /*
+                 * The table's definition, under any `$select` of LogicalName,
+                 * EntitySetName and PrimaryIdAttribute — the real one answers
+                 * any. The view's own table and a `related` one are known as
+                 * well as `entitySets` (`entitySetOf`); a command that calls an
+                 * action reads both keys here when `getEntityMetadata` cannot.
+                 */
+                var definition = address.slice(prefix.length).match(/^([a-z0-9_]+)'\)(?:\?\$select=((?:LogicalName|EntitySetName|PrimaryIdAttribute)(?:,(?:LogicalName|EntitySetName|PrimaryIdAttribute))*))?$/i);
 
                 if (definition) {
-                    var set = (fixture.entitySets || {})[definition[1]];
+                    var set = entitySetOf(fixture, definition[1]);
+                    var wanted = definition[2] ? definition[2].split(',') : ['LogicalName', 'EntitySetName', 'PrimaryIdAttribute'];
 
                     if (set === undefined) {
                         return reply(404, {
@@ -1881,9 +1894,17 @@
                         });
                     }
 
-                    return reply(200, quirks.entitySetAbsent
-                        ? { LogicalName: definition[1] }
-                        : { LogicalName: definition[1], EntitySetName: set });
+                    var answered = { LogicalName: definition[1] };
+
+                    if (wanted.indexOf('EntitySetName') !== -1 && !quirks.entitySetAbsent) {
+                        answered.EntitySetName = set;
+                    }
+
+                    if (wanted.indexOf('PrimaryIdAttribute') !== -1) {
+                        answered.PrimaryIdAttribute = (fixture.primaryIds || {})[definition[1]] || definition[1] + 'id';
+                    }
+
+                    return reply(200, answered);
                 }
 
                 var status = quirks.relationshipsStatus;
