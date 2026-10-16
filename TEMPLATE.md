@@ -187,6 +187,10 @@ free port, reaches into an out-of-process frame, and captures one without
 is the control's own — its recipes — and `sync-rig.mjs` never writes it;
 `cdp.js`, `hub-demo.html` and `demo-check.js` are the template's and are kept
 current. A grid customizer gets none of the four: its demo is the hub's grid.
+`demo-check` refuses a port that serves another repository's `pcfhub.json`:
+`serve.js` moves to the next free port when its own is taken, so a harness
+left running for one control used to answer for the next, and every preset —
+falling back to that control's default — read clean.
 
 `dev/keys.js` is the keyboard on the same engine: `press(chrome, 'ArrowDown')`,
 `type(chrome, 'na')`, and `focused(chrome)`, which reads where focus is and
