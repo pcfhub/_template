@@ -1730,7 +1730,68 @@ async function hostChecks() {
     check('rig: ownerid@odata.bind to a team is accepted and reads back as a team', bound !== 'resolved' ? false : owner && owner.etn === 'team', JSON.stringify(owner));
 }
 
-metadataChecks().then(rejectionChecks).then(statusChecks).then(hostChecks).then(report, (error) => {
+/*
+ * A Web API action through the stub — a command on a row calling a Custom API
+ * or a platform message — in the shapes pcf-hierarchy-view's 0.2.9 probe
+ * measured on a form (2026-10-15), refusals first. The field rig's suite
+ * asserts the same; this one also asserts the two a row adds: a bound action
+ * on another table's set, and an action with no response properties.
+ */
+async function actionChecks() {
+    const silent = Object.assign({}, fixture, {
+        actions: Object.assign({}, fixture.actions, {
+            pcfhub_Ping: { boundTo: fixture.targetEntityType, parameters: {}, response: [], answer: (params, id) => { pinged.push(id); } },
+        }),
+    });
+    const pinged = [];
+    const handle = host.createHost(silent);
+    const base = `${handle.context.page.getClientUrl()}/api/data/v9.2/`;
+    const json = { Accept: 'application/json', 'Content-Type': 'application/json; charset=utf-8' };
+    const post = (path, body, init = {}) => fetch(base + path, { method: 'POST', headers: json, body, credentials: 'same-origin', ...init });
+    const said = async (res) => [res.status, (await res.json()).error?.code];
+
+    const ok = await post('pcfhub_Echo', JSON.stringify({ Text: 'hi' }));
+    const okBody = await ok.json();
+    check('rig: an unbound action answers 200 with its response properties under an @odata.context', ok.status === 200 && okBody.Echo === 'hi' && /\$metadata#Microsoft\.Dynamics\.CRM\.pcfhub_EchoResponse$/.test(okBody['@odata.context']), JSON.stringify(okBody));
+    const boundOk = await post('accounts(a01)/Microsoft.Dynamics.CRM.pcfhub_EchoAccount', JSON.stringify({ Text: 'hi' }));
+    check('rig: a bound one, qualified, on the row\'s own set, gets the row\'s id', boundOk.status === 200 && (await boundOk.json()).Echo === 'a01: hi');
+    check('rig: no Content-Type is a 415', (await post('pcfhub_Echo', '{"Text":"x"}', { headers: { Accept: 'application/json' } })).status === 415);
+    const omitted = await post('pcfhub_Echo', '{"Text":"x"}', { credentials: 'omit' });
+    check('rig: without the session cookie it is a 401 with no body', omitted.status === 401 && (await omitted.text()) === '');
+    check(
+        'rig: a bound action unqualified, called unbound, or on another table\'s set is a 404 0x80060888',
+        JSON.stringify([
+            await said(await post('accounts(a01)/pcfhub_EchoAccount', '{"Text":"x"}')),
+            await said(await post('pcfhub_EchoAccount', '{"Text":"x"}')),
+            await said(await post('systemusers(b3f1a0c2-0000-4000-8000-000000000001)/Microsoft.Dynamics.CRM.pcfhub_EchoAccount', '{"Text":"x"}')),
+        ]) === JSON.stringify([[404, '0x80060888'], [404, '0x80060888'], [404, '0x80060888']]),
+    );
+    check('rig: an action the environment does not have is a 404 0x80060888', JSON.stringify(await said(await post('pcfhub_Nope', '{}'))) === JSON.stringify([404, '0x80060888']));
+    const payload = await Promise.all([post('pcfhub_Echo', '{}'), post('pcfhub_Echo', '{"Text":5}'), post('pcfhub_Echo', '{"Text":"x","Nope":1}'), post('pcfhub_Echo', '{not json')].map(async (p) => {
+        const res = await p;
+        const body = await res.json();
+
+        return `${res.status} ${body.error.code} ${/missing parameters are: Text|Cannot convert the literal '5'|'Nope' in the request payload|Stream was not readable/.exec(body.error.message)?.[0]}`;
+    }));
+    check(
+        'rig: a missing, wrong-typed or unknown parameter and a body that is not JSON are each a 400 0x80048d19 saying which',
+        payload.join(' | ') === "400 0x80048d19 missing parameters are: Text | 400 0x80048d19 Cannot convert the literal '5' | 400 0x80048d19 'Nope' in the request payload | 400 0x80048d19 Stream was not readable",
+        payload.join(' | '),
+    );
+    const get = await fetch(base + 'pcfhub_Echo', { headers: json });
+    check('rig: a GET on an action is a 404 whose code is empty', get.status === 404 && (await get.json()).error.code === '');
+    const ping = await post('accounts(a02)/Microsoft.Dynamics.CRM.pcfhub_Ping', '{}');
+    check('rig: an action with no response properties answers 204, and its answer still ran', ping.status === 204 && (await ping.text()) === '' && pinged.join() === 'a02', `${ping.status} ${pinged.join()}`);
+    check('rig: the action is on the host\'s call list', handle.state.calls.includes('fetch("POST /api/data/v9.2/pcfhub_Echo")'), JSON.stringify(handle.state.calls.slice(-3)));
+    check('rig: and the row is left alone', handle.stored('a01', 'name') === fixture.records[0].values.name);
+
+    let offline = null;
+    const away = host.createHost(fixture, { quirks: { actionStatus: 0 } });
+    await fetch(`${away.context.page.getClientUrl()}/api/data/v9.2/pcfhub_Echo`, { method: 'POST', headers: json, body: '{"Text":"x"}' }).catch((e) => { offline = e; });
+    check('rig: actionStatus 0 rejects with a TypeError, the offline shape', offline instanceof TypeError);
+}
+
+metadataChecks().then(rejectionChecks).then(statusChecks).then(hostChecks).then(actionChecks).then(report, (error) => {
     check('the asynchronous rig checks ran at all', false, String((error && error.stack) || error));
     report();
 });

@@ -182,6 +182,35 @@
         links: [],
 
         /**
+         * Web API actions a control POSTs itself — a command on a row that
+         * calls a Custom API or a platform message (`actionAnswer` in
+         * host.js). The pair `pcf-hierarchy-view`'s 0.2.9 probe measured: one
+         * unbound, one bound to the view's own table, a string in and a string
+         * out. A parameter is required unless `optional: true`; `response`
+         * names the properties the answer carries, and an empty one answers
+         * 204. `answer` gets the parameters and the bound row's id — never the
+         * row, because the measured action left its row alone. Replace with
+         * your own.
+         */
+        actions: {
+            pcfhub_Echo: {
+                parameters: { Text: { type: 'Edm.String' } },
+                response: ['Echo'],
+                answer: function (params) {
+                    return { Echo: params.Text };
+                },
+            },
+            pcfhub_EchoAccount: {
+                boundTo: 'account',
+                parameters: { Text: { type: 'Edm.String' } },
+                response: ['Echo'],
+                answer: function (params, id) {
+                    return { Echo: id + ': ' + params.Text };
+                },
+            },
+        },
+
+        /**
          * The tables a lookup can point at: the entity set name — the plural
          * the `@odata.bind` value is spelled with, off
          * `getEntityMetadata(table).EntitySetName` — and the rows a pick can

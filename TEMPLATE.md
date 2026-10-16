@@ -517,6 +517,18 @@ And `page` on canvas is **present, and `getClientUrl()` throws** — measured on
 a real canvas app 2026-09-22. It used to be absent here, which passed a control
 that tested `typeof` and failed it on canvas.
 
+**A Web API action from a row** (added for `pcf-row-commands` 0.4.0): the
+`fetch` stub answers a POST to `<name>` or `<set>(<id>)/Microsoft.Dynamics.CRM.<name>`
+from `fixture.actions`, exactly as the field rig does — the refusals
+`pcf-hierarchy-view`'s probe measured come first (415 with no `Content-Type`,
+401 without the session, 404 for an unqualified, unbound-called or
+wrong-table bound action, 400 for a parameter missing, unknown, wrong-typed or
+a body that is not JSON), then 200 with the response properties, or 204 for an
+action that names none. `answer(params, id)` gets the bound row's id, never the
+row: the measured action changed nothing, so a suite that wants a plug-in's
+effect writes it in its own `answer`. `quirks.actionStatus` is `0` for offline
+(a `TypeError`) or another status to refuse every action.
+
 `webAPI.deleteRecord` is there on the dataset side with a `webApiFails` switch
 beside it, because a delete failing on a cascade restriction or a privilege is
 ordinary rather than exceptional. Its rejection is a plain object carrying
