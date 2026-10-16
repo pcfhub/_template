@@ -938,6 +938,45 @@ async function actionSelfCheck() {
     );
     const get = await fetch(base + 'pcfhub_Echo', { headers: json });
     check('rig: a GET on an action is a 404 whose code is empty', get.status === 404 && (await get.json()).error.code === '');
+    // pcf-row-commands' 0.3.4 probe, 2026-10-16 (its SPEC.md P2, P3, P5).
+    const more = host.createContext({
+        fixture: Object.assign({}, fixture, {
+            actions: Object.assign({}, fixture.actions, {
+                pcfhub_Refs: { parameters: { RowId: { type: 'Edm.Guid' }, Target: { type: 'Microsoft.Dynamics.CRM.crmbaseentity' } }, response: [] },
+                pcfhub_Refuses: { parameters: {}, response: ['Echo'], refuse: () => ({ status: 404, code: '0x80040217', message: "Entity 'systemuser' With Id = 00000000-0000-0000-0000-0000000000a1 Does Not Exist" }) },
+            }),
+        }),
+        clientUrl: host.nextClientUrl(),
+    });
+    const moreBase = `${more.page.getClientUrl()}/api/data/v9.2/`;
+    const guid = 'f98abecc-52c3-f111-aaaf-6045bd06056e';
+    const typed = { '@odata.type': 'Microsoft.Dynamics.CRM.account', accountid: guid };
+    const refs = await Promise.all([
+        { RowId: guid, Target: typed },
+        { RowId: `{${guid}}`, Target: typed },
+        { RowId: guid, Target: { '@odata.type': 'Microsoft.Dynamics.CRM.contact', contactid: guid } },
+        { RowId: 'not-a-guid', Target: typed },
+        { RowId: guid, Target: { accountid: guid } },
+    ].map(async (body) => {
+        const res = await fetch(moreBase + 'pcfhub_Refs', { method: 'POST', headers: json, body: JSON.stringify(body) });
+        const text = await res.text();
+
+        return `${res.status}${text ? ` ${/Edm\.Guid|crmbaseentity/.exec(text)?.[0]}` : ''}`;
+    }));
+    check(
+        'rig: a Guid and a typed reference are 204, braces and the wrong table too; not-a-Guid and an untyped reference are 400s naming why',
+        refs.join(' | ') === '204 | 204 | 204 | 400 Edm.Guid | 400 crmbaseentity',
+        refs.join(' | '),
+    );
+    check('rig: the name is case-sensitive — another spelling is a 404', (await post('pcfhub_echo', '{"Text":"x"}')).status === 404);
+    const refused = await fetch(moreBase + 'pcfhub_Refuses', { method: 'POST', headers: json, body: '{}' });
+    const refusedBody = await refused.json();
+    check(
+        'rig: an action\'s own refusal comes back short and whole, with no InnerException',
+        refused.status === 404 && refusedBody.error.code === '0x80040217' && !/InnerException/.test(refusedBody.error.message),
+        JSON.stringify(refusedBody),
+    );
+
     let offline = null;
     const away = host.createContext({ fixture, clientUrl: host.nextClientUrl(), actionStatus: 0 });
     await fetch(`${away.page.getClientUrl()}/api/data/v9.2/pcfhub_Echo`, { method: 'POST', headers: json, body: '{"Text":"x"}' }).catch((e) => { offline = e; });

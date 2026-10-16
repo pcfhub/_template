@@ -2762,12 +2762,19 @@
      *                             response: ['Echo'], answer: (p) => ({ Echo: p.Text }) },
      *              pcfhub_EchoAccount: { boundTo: 'account', … } }
      *
-     * A parameter is required unless `optional: true`. Unmeasured, so
-     * modelled plainly: an action with no response properties answers 204
-     * (the real one is likely the same — not asked), and `actionStatus` other
-     * than 200 refuses every action with that status and a generic body.
-     * Returns `null` for a path that is not an action's, so the rest of the
-     * stub answers it.
+     * A parameter is required unless `optional: true`. Since
+     * `pcf-row-commands`' 0.3.4 probe (2026-10-16, its SPEC.md P2–P5): the
+     * name is case-sensitive (another spelling is the 404 above); an
+     * `Edm.Guid` that is not one is a 400 (braces are fine); a parameter typed
+     * `Microsoft.Dynamics.CRM.crmbaseentity` — an EntityReference — is a 400
+     * without its `@odata.type` and takes any table with one; an action with
+     * no response properties answers **204** (measured). `refuse(params, id)`
+     * returning `{ status, code, message }` is a refusal of the action's own —
+     * a plug-in's, or the platform's, which arrives short and whole with no
+     * *InnerException* (404 `0x80040217` *… Does Not Exist*). `actionStatus`
+     * other than 200 refuses every action with that status and a generic
+     * body. Returns `null` for a path that is not an action's, so the rest of
+     * the stub answers it.
      */
     function actionAnswer(fixture, o, method, path, init, clientUrl) {
         var actions = fixture.actions || {};
@@ -2844,10 +2851,41 @@
             return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.OData.ODataException: Cannot convert the literal '" + body[wrong] + "' to the expected type '" + (params[wrong].type || 'Edm.String') + "'." } });
         }
 
+        // Measured 2026-10-16 (pcf-row-commands SPEC.md P3): a Guid that is not one, and an
+        // EntityReference without its @odata.type, are payload faults; braces around a Guid
+        // are accepted, and so is a reference typed as the *wrong* table — nothing checks it.
+        var notGuid = given.filter(function (k) {
+            return params[k].type === 'Edm.Guid' && typeof body[k] === 'string'
+                && !/^{?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}}?$/i.test(body[k]);
+        })[0];
+
+        if (notGuid !== undefined) {
+            return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.OData.ODataException: Cannot convert the literal '" + body[notGuid] + "' to the expected type 'Edm.Guid'. ---> System.FormatException: Guid should contain 32 digits with 4 dashes (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx)." } });
+        }
+
+        var untyped = given.filter(function (k) {
+            return /crmbaseentity$/.test(params[k].type || '') && body[k] !== null && typeof body[k] === 'object' && !body[k]['@odata.type'];
+        })[0];
+
+        if (untyped !== undefined) {
+            var property = Object.keys(body[untyped])[0];
+
+            return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.Crm.CrmException: Invalid property '" + property + "' was found in entity 'Microsoft.Dynamics.CRM.crmbaseentity'. ---> Microsoft.OData.ODataException: The property '" + property + "' does not exist on type 'Microsoft.Dynamics.CRM.crmbaseentity'." } });
+        }
+
         var missing = Object.keys(params).filter(function (k) { return !params[k].optional && given.indexOf(k) === -1; });
 
         if (missing.length > 0) {
             return reply(400, { error: { code: '0x80048d19', message: PAYLOAD_FAULT + "Microsoft.OData.ODataException: One or more parameters of the operation '" + name + "' are missing from the request payload. The missing parameters are: " + missing.join(', ') + '.' } });
+        }
+
+        // A refusal the action raises for a reason of its own — a plug-in's message, or
+        // the platform's: short and whole, no InnerException (P5, GrantAccess to nobody:
+        // 404 0x80040217 "Entity 'systemuser' With Id = … Does Not Exist").
+        var refusal = typeof def.refuse === 'function' ? def.refuse(JSON.parse(JSON.stringify(body)), bound ? bound[2] : null) : null;
+
+        if (refusal) {
+            return reply(refusal.status || 400, { error: { code: refusal.code || '0x80040265', message: refusal.message || 'Refused by the action.' } });
         }
 
         var response = def.response || [];

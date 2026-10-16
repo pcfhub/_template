@@ -531,7 +531,14 @@ a body that is not JSON), then 200 with the response properties, or 204 for an
 action that names none. `answer(params, id)` gets the bound row's id, never the
 row: the measured action changed nothing, so a suite that wants a plug-in's
 effect writes it in its own `answer`. `quirks.actionStatus` is `0` for offline
-(a `TypeError`) or another status to refuse every action.
+(a `TypeError`) or another status to refuse every action. Both rigs also follow
+what `pcf-row-commands`' 0.3.4 probe measured (2026-10-16): names are
+case-sensitive, a 204 is the answer of an action with no response properties,
+an `Edm.Guid` that is not one is a 400, an EntityReference
+(`type: 'Microsoft.Dynamics.CRM.crmbaseentity'`) is a 400 without its
+`@odata.type` and takes any table with one, and `refuse(params, id)` →
+`{ status, code, message }` models the action's own refusal — short and whole,
+no *InnerException*, as the platform's *… Does Not Exist* is.
 
 `webAPI.deleteRecord` is there on the dataset side with a `webApiFails` switch
 beside it, because a delete failing on a cascade restriction or a privilege is

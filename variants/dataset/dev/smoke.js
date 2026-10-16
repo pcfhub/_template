@@ -1741,6 +1741,14 @@ async function actionChecks() {
     const silent = Object.assign({}, fixture, {
         actions: Object.assign({}, fixture.actions, {
             pcfhub_Ping: { boundTo: fixture.targetEntityType, parameters: {}, response: [], answer: (params, id) => { pinged.push(id); } },
+            pcfhub_Refs: { parameters: { RowId: { type: 'Edm.Guid' }, Target: { type: 'Microsoft.Dynamics.CRM.crmbaseentity' } }, response: [] },
+            pcfhub_Refuses: {
+                boundTo: fixture.targetEntityType,
+                parameters: {},
+                response: ['Echo'],
+                refuse: (params, id) => (id === 'a03' ? { status: 404, code: '0x80040217', message: "Entity 'account' With Id = a03 Does Not Exist" } : null),
+                answer: () => ({ Echo: 'ran' }),
+            },
         }),
     });
     const pinged = [];
@@ -1784,6 +1792,36 @@ async function actionChecks() {
     check('rig: an action with no response properties answers 204, and its answer still ran', ping.status === 204 && (await ping.text()) === '' && pinged.join() === 'a02', `${ping.status} ${pinged.join()}`);
     check('rig: the action is on the host\'s call list', handle.state.calls.includes('fetch("POST /api/data/v9.2/pcfhub_Echo")'), JSON.stringify(handle.state.calls.slice(-3)));
     check('rig: and the row is left alone', handle.stored('a01', 'name') === fixture.records[0].values.name);
+
+    // pcf-row-commands' 0.3.4 probe, 2026-10-16 (its SPEC.md P2, P3, P5).
+    const guid = 'f98abecc-52c3-f111-aaaf-6045bd06056e';
+    const typed = { '@odata.type': 'Microsoft.Dynamics.CRM.account', accountid: guid };
+    const refs = await Promise.all([
+        post('pcfhub_Refs', JSON.stringify({ RowId: guid, Target: typed })),
+        post('pcfhub_Refs', JSON.stringify({ RowId: `{${guid}}`, Target: typed })),
+        post('pcfhub_Refs', JSON.stringify({ RowId: guid, Target: { '@odata.type': 'Microsoft.Dynamics.CRM.contact', contactid: guid } })),
+        post('pcfhub_Refs', JSON.stringify({ RowId: 'not-a-guid', Target: typed })),
+        post('pcfhub_Refs', JSON.stringify({ RowId: guid, Target: { accountid: guid } })),
+    ].map(async (p) => {
+        const res = await p;
+        const text = await res.text();
+
+        return `${res.status}${text ? ` ${/Edm\.Guid|crmbaseentity/.exec(text)?.[0]}` : ''}`;
+    }));
+    check(
+        'rig: a Guid and a typed reference are 204, braces and the wrong table too; not-a-Guid and an untyped reference are 400s naming why',
+        refs.join(' | ') === '204 | 204 | 204 | 400 Edm.Guid | 400 crmbaseentity',
+        refs.join(' | '),
+    );
+    check('rig: the name is case-sensitive — another spelling is a 404', (await said(await post('accounts(a01)/Microsoft.Dynamics.CRM.pcfhub_echoaccount', '{"Text":"x"}')))[0] === 404);
+    const refused = await post('accounts(a03)/Microsoft.Dynamics.CRM.pcfhub_Refuses', '{}');
+    const refusedBody = await refused.json();
+    const ran = await post('accounts(a02)/Microsoft.Dynamics.CRM.pcfhub_Refuses', '{}');
+    check(
+        'rig: an action\'s own refusal comes back short and whole, with no InnerException, and another row still runs',
+        refused.status === 404 && refusedBody.error.code === '0x80040217' && !/InnerException/.test(refusedBody.error.message) && ran.status === 200 && (await ran.json()).Echo === 'ran',
+        JSON.stringify(refusedBody),
+    );
 
     let offline = null;
     const away = host.createHost(fixture, { quirks: { actionStatus: 0 } });
