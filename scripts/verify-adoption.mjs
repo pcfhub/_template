@@ -656,6 +656,22 @@ function verifySync() {
         check('while dom.js, which that suite never loads, stays out', !/add\s+dev\/dom\.js/.test(planned()), planned());
 
         /*
+         * keys.js is loaded by a walk of its own, never by the suite, so its
+         * `loadedBy` is the folder: any file in dev/ that requires it. Twenty
+         * repositories read it as missing until 2026-10-17, none of which
+         * presses a key.
+         */
+        if (existsSync(file('dev/keys.js'))) {
+            rmSync(file('dev/keys.js'));
+        }
+
+        check('keys.js is not used where nothing in dev/ requires it', /not used\s+dev\/keys\.js\s+— nothing in dev\/ loads it/.test(planned()), planned());
+
+        writeFileSync(file('dev/keys-walk.js'), "const { press } = require('./keys');\n");
+        check('and restored once a walk in dev/ requires it', /add\s+dev\/keys\.js/.test(planned()), planned());
+        rmSync(file('dev/keys-walk.js'));
+
+        /*
          * The shared view-aggregate library is control code, not rig: it
          * arrives only in a control that has adopted it — its folder exists —
          * and lands under the control's own name.

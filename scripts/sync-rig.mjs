@@ -96,8 +96,10 @@ const MANAGED = [
     { path: 'dev/cdp.js', when: notCustomizer },
     { path: 'dev/hub-demo.html', when: notCustomizer },
     { path: 'dev/demo-check.js', when: notCustomizer },
-    // Real key presses on cdp.js's engine — the keyboard dom.js does not model.
-    { path: 'dev/keys.js', when: notCustomizer },
+    // Real key presses on cdp.js's engine — the keyboard dom.js does not model. Loaded by
+    // a walk of its own (dev/keys-walk.js), never by the suite, so `loadedBy` is the folder:
+    // any file in dev/ that requires it. Without one, twenty repositories read it as missing.
+    { path: 'dev/keys.js', when: notCustomizer, loadedBy: 'dev/' },
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
     { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm, needs: 'dev/harness.html' },
@@ -196,7 +198,8 @@ function sync(target) {
             console.log(`  modified   ${label} ${entry.note} — kept; --force ${entry.path} to replace`);
             held += 1;
         } else if (entry.state === 'unused') {
-            console.log(`  not used   ${label} — dev/smoke.js never loads it, so it is not added`);
+            const why = entry.loadedBy.endsWith('/') ? `nothing in ${entry.loadedBy} loads it` : `${entry.loadedBy} never loads it`;
+            console.log(`  not used   ${label} — ${why}, so it is not added`);
         } else if (entry.state === 'missing') {
             if (args['add-missing']) {
                 console.log(`  add        ${label}`);
@@ -227,6 +230,27 @@ function sync(target) {
 }
 
 /**
+ * The files that would load a managed file, for `loadedBy`: the one file it
+ * names, or — when it names a folder (`dev/`) — every `.js` directly in that
+ * folder except the managed file itself. Only those that exist.
+ */
+function loaders(target, loadedBy, self) {
+    const where = join(target, loadedBy);
+
+    if (!loadedBy.endsWith('/')) {
+        return existsSync(where) ? [where] : [];
+    }
+
+    if (!existsSync(where)) {
+        return [];
+    }
+
+    return readdirSync(where)
+        .filter((name) => name.endsWith('.js') && join(loadedBy, name).replace(/\\/g, '/') !== self)
+        .map((name) => join(where, name));
+}
+
+/**
  * Each managed file for this shape, with the state it is in and the content it
  * should have. `wanted` is the template's current copy with the target's
  * tokens substituted — what `setup.mjs` would have written today.
@@ -251,14 +275,15 @@ function classify(target, shape) {
         const file = join(target, m.path);
 
         if (!existsSync(file)) {
-            const suite = m.loadedBy ? join(target, m.loadedBy) : null;
-
             // A require, not a mention: a suite explaining why it does *not* load dom.js names it.
             const name = basename(m.path).replace(/\.js$/, '');
             const loads = new RegExp(String.raw`require\(\s*['"]\./${name}(\.js)?['"]\s*\)`);
 
-            if (suite && existsSync(suite) && !loads.test(readFileSync(suite, 'utf8'))) {
-                return { path: m.path, key: m.key, state: 'unused', wanted };
+            // No loader to ask (no suite, no dev/) is not evidence of disuse; that stays missing.
+            const candidates = m.loadedBy ? loaders(target, m.loadedBy, m.path) : [];
+
+            if (candidates.length > 0 && !candidates.some((loader) => loads.test(readFileSync(loader, 'utf8')))) {
+                return { path: m.path, key: m.key, state: 'unused', wanted, loadedBy: m.loadedBy };
             }
 
             return { path: m.path, key: m.key, state: 'missing', wanted };
