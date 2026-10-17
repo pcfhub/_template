@@ -55,8 +55,12 @@
  * git history and its `variants/`, and an adopted repository has neither.
  * `setup.mjs` deletes it on adoption.
  *
- * Like `add-control.mjs`, it refuses a dirty target tree (unless `--force`) so
- * a sync lands as its own reviewable diff.
+ * Like `add-control.mjs`, it refuses a dirty target tree so a sync lands as its
+ * own reviewable diff. `--allow-dirty` lets it run anyway and changes nothing
+ * else. A bare `--force` lets it run too, **and replaces every locally modified
+ * file** — on 2026-10-17 it was passed to get past a dirty tree and overwrote
+ * pcf-data-table's own `dev/modules.js` and `dev/serve.js`, which a
+ * `git checkout` put back. Reach for `--allow-dirty`.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -186,13 +190,14 @@ function sync(target) {
     const dryRun = Boolean(args['dry-run']);
     const forceAll = args.force.includes(true);
 
-    if (!dryRun && !forceAll) {
+    if (!dryRun && !forceAll && !args['allow-dirty']) {
         const dirty = gitStatus(target);
 
         if (dirty !== '') {
             fail(
                 `${basename(target)} has uncommitted changes. Commit or stash first so the sync is reviewable\n`
-                + `  as its own diff, or pass --force if you are certain.\n\n  ${dirty.split('\n').slice(0, 8).join('\n  ')}`,
+                + '  as its own diff, or pass --allow-dirty if you are certain. (A bare --force runs too, and also\n'
+                + `  replaces every locally modified file.)\n\n  ${dirty.split('\n').slice(0, 8).join('\n  ')}`,
             );
         }
     }
@@ -765,7 +770,7 @@ function parseArgs(argv) {
             continue;
         }
 
-        if (key === 'dry-run' || key === 'add-missing' || key === 'commit') {
+        if (key === 'dry-run' || key === 'add-missing' || key === 'commit' || key === 'allow-dirty') {
             out[key] = true;
         } else if (key === 'force') {
             const next = argv[i + 1];
