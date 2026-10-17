@@ -100,6 +100,9 @@ const MANAGED = [
     // a walk of its own (dev/keys-walk.js), never by the suite, so `loadedBy` is the folder:
     // any file in dev/ that requires it. Without one, twenty repositories read it as missing.
     { path: 'dev/keys.js', when: notCustomizer, loadedBy: 'dev/' },
+    // Dataset linking and the hierarchy operators, as pcf-data-table's 0.7.3 probe measured
+    // them. Only a dataset rig's host requires it; a harness page loads it before the host.
+    { path: 'dev/linked.js', when: notCustomizer, loadedBy: 'dev/host.js' },
     // Both exist to serve dev/harness.html; a React repository without the page has no use for either.
     { path: 'dev/fluent-stub.js', source: 'variants/react/dev/fluent-stub.js', when: isReactForm, needs: 'dev/harness.html' },
     { path: 'dev/virtual-bundle.js', source: 'variants/react/dev/virtual-bundle.js', when: isReactForm, needs: 'dev/harness.html' },
@@ -138,6 +141,26 @@ const MANAGED = [
         source: `variants/lib/tree-keys/${name}.ts`,
         needs: '__CONTROL__/lib/tree-keys',
     })),
+    /*
+     * related-rows: a FetchXML <link-entity> fragment with {id}, parsed into
+     * dataset links and conditions and back into FetchXML for an aggregate —
+     * the shape pcf-data-table 0.8.0's probe measured. Adopted by making the folder.
+     */
+    {
+        path: '__CONTROL__/lib/related-rows/fragment.ts',
+        source: 'variants/lib/related-rows/fragment.ts',
+        needs: '__CONTROL__/lib/related-rows',
+    },
+    /*
+     * config-source: a property that holds its text inline or names a web
+     * resource holding it (the designer's 100-character ceiling). Lifted from
+     * pcf-row-commands, whose own copy has not moved onto it. Adopted by making the folder.
+     */
+    {
+        path: '__CONTROL__/lib/config-source/load.ts',
+        source: 'variants/lib/config-source/load.ts',
+        needs: '__CONTROL__/lib/config-source',
+    },
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */

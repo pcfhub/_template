@@ -74,6 +74,9 @@ const PLACEHOLDER = /__[A-Z][A-Z0-9_]*__/g;
 
 const failures = [];
 
+/** Checks that answer later (a stand-in Web API resolves a promise), awaited before the verdict. */
+const pending = [];
+
 function check(description, condition, detail = '') {
     if (condition) {
         console.log(`  ok    ${description}`);
@@ -204,6 +207,97 @@ function adoptWith(extra) {
  * deletes it, so the two run in an order that matters and only this shape
  * exercises it.
  */
+/**
+ * The dataset rig's linking (`dev/linked.js`), driven through an adopted
+ * copy — the only place `host.js` and `linked.js` sit in one folder. Every
+ * expected number is the fixture's: nine records point at Parent 1, three at
+ * Parent 2, and Parent 1 is under Holding. What each case reproduces was
+ * measured by pcf-data-table's 0.7.3 probe (its SPEC.md 0.8.0).
+ */
+function verifyLinking(scratch) {
+    console.log('\nChecking the dataset rig\'s linking…\n');
+
+    const load = createRequire(join(scratch, 'dev', 'smoke.js'));
+    const host = load('./host.js');
+    const fixture = load('./fixture.js');
+    const HOLDING = 'c0ffee00-0000-4000-8000-000000000000';
+    const PARENT1 = 'c0ffee00-0000-4000-8000-000000000001';
+    const PARENT2 = 'c0ffee00-0000-4000-8000-000000000002';
+    const toParent = { name: 'account', from: 'accountid', to: 'parentaccountid', linkType: 'inner', alias: 'p' };
+
+    /** A fresh form host, linked to the parent, filtered by one condition on it, fetched. */
+    const linkedBy = (operator, value) => {
+        const h = host.createHost(fixture, { pageSize: 50 });
+        const ds = h.dataset;
+        ds.linking.addLinkedEntity(toParent);
+        ds.filtering.setFilter({ conditions: [{ attributeName: 'accountid', conditionOperator: operator, value, entityAliasName: 'p' }], filterOperator: 0 });
+        ds.paging.reset();
+        ds.refresh();
+        return ds;
+    };
+
+    const form = host.createHost(fixture, { pageSize: 50 });
+    check('linking is on a form\'s dataset, and starts empty', typeof form.dataset.linking.addLinkedEntity === 'function' && form.dataset.linking.getLinkedEntities().length === 0);
+    check('and absent on canvas, as Learn says', host.createHost(fixture, { host: 'canvas' }).dataset.linking === undefined);
+
+    const unrefreshed = host.createHost(fixture, { pageSize: 50 }).dataset;
+    unrefreshed.linking.addLinkedEntity(toParent);
+    unrefreshed.filtering.setFilter({ conditions: [{ attributeName: 'accountid', conditionOperator: 0, value: PARENT1, entityAliasName: 'p' }], filterOperator: 0 });
+    check('a link and its condition change nothing until a fetch', unrefreshed.paging.totalResultCount === 12, String(unrefreshed.paging.totalResultCount));
+
+    const equal = linkedBy(0, PARENT1);
+    check('a condition on the link\'s alias is judged at the other end (P1): 9 of 12 have Parent 1', equal.paging.totalResultCount === 9 && equal.error === false, String(equal.paging.totalResultCount));
+    check('getLinkedEntities answers the measured shape', JSON.stringify(equal.linking.getLinkedEntities()[0]) === JSON.stringify({ ...toParent, filtering: { aliasMap: {} }, linking: {}, sorting: [] }), JSON.stringify(equal.linking.getLinkedEntities()));
+
+    // P2: the dataset's numbering — 75 Above, 76 Under, 77 NotUnder, 78 AboveOrEqual, 79 UnderOrEqual.
+    const counts = {
+        75: linkedBy(75, PARENT1).paging.totalResultCount,
+        76: linkedBy(76, HOLDING).paging.totalResultCount,
+        77: linkedBy(77, HOLDING).paging.totalResultCount,
+        78: linkedBy(78, PARENT1).paging.totalResultCount,
+        79: linkedBy(79, HOLDING).paging.totalResultCount,
+    };
+    check('the hierarchy operators are numbered the dataset\'s way, not the SDK\'s (P2)', JSON.stringify(counts) === JSON.stringify({ 75: 0, 76: 9, 77: 3, 78: 9, 79: 9 }), JSON.stringify(counts));
+
+    const root = host.createHost(fixture, { pageSize: 50 }).dataset;
+    root.filtering.setFilter({ conditions: [{ attributeName: 'accountid', conditionOperator: 76, value: PARENT2 }], filterOperator: 0 });
+    root.paging.reset();
+    root.refresh();
+    check('a hierarchy operator on the bound table walks its own rows', root.paging.totalResultCount === 3, String(root.paging.totalResultCount));
+
+    const twice = linkedBy(0, PARENT1);
+    twice.linking.addLinkedEntity(toParent);
+    twice.refresh();
+    check('the same link added again is kept once (P5)', twice.linking.getLinkedEntities().length === 1 && twice.paging.totalResultCount === 9);
+
+    twice.linking.addLinkedEntity({ ...toParent, to: 'masterid' });
+    twice.refresh();
+    check('a different link under the same alias is appended and refused (P5)',
+        twice.linking.getLinkedEntities().length === 2 && twice.error === true && twice.errorMessage === '0x80041103 Query Builder Error' && twice.sortedRecordIds.length === 0,
+        JSON.stringify({ links: twice.linking.getLinkedEntities().length, error: twice.error, message: twice.errorMessage, rows: twice.sortedRecordIds.length }));
+    check('…with the rows cleared and the total left as it was (P11)', twice.paging.totalResultCount === 9 && Object.keys(twice.records).length === 0, String(twice.paging.totalResultCount));
+
+    const chained = linkedBy(0, PARENT1);
+    chained.linking.addLinkedEntity({ name: 'account', from: 'accountid', to: 'p.parentaccountid', linkType: 'inner', alias: 'q' });
+    chained.refresh();
+    check('a link chained from another link\'s alias is refused (P6)', chained.error === true && chained.sortedRecordIds.length === 0);
+
+    const missing = host.createHost(fixture, { pageSize: 50 }).dataset;
+    missing.linking.addLinkedEntity({ ...toParent, to: 'nosuchcolumn' });
+    missing.refresh();
+    check('a link to a column the table does not have is refused (P11)', missing.error === true && missing.errorMessage === '0x80041103 Query Builder Error' && missing.paging.totalResultCount === 12);
+
+    const fetchXml = (xml) => form.context.webAPI.retrieveMultipleRecords('account', `?fetchXml=${xml}`);
+
+    return Promise.all([
+        fetchXml(`<fetch aggregate='true'><entity name='account'><attribute name='accountid' aggregate='count' alias='n'/><link-entity name='account' from='accountid' to='parentaccountid' alias='p'><filter><condition attribute='accountid' operator='eq-or-under' value='${HOLDING}'/></filter></link-entity></entity></fetch>`),
+        fetchXml(`<fetch aggregate='true'><entity name='account'><attribute name='accountid' aggregate='count' alias='n'/><link-entity name='account' from='accountid' to='parentaccountid' alias='p' link-type='outer'><filter><condition attribute='accountid' operator='eq' value='${PARENT2}'/></filter></link-entity></entity></fetch>`),
+    ]).then(([inner, outer]) => {
+        check('FetchXML: an inner link-entity\'s filter is judged at its other end', inner.entities[0].n === 9, JSON.stringify(inner.entities));
+        check('FetchXML: an outer one narrows nothing', outer.entities[0].n === 12, JSON.stringify(outer.entities));
+    });
+}
+
 function verifyOtherShapes() {
     console.log('\nAdopting as a dataset control…\n');
 
@@ -254,6 +348,15 @@ function verifyOtherShapes() {
             hub.demo.datasetFixture === 'demo/records.json' && dataset.has(hub.demo.datasetFixture),
             String(hub.demo.datasetFixture),
         );
+
+        check('the dataset rig carries dev/linked.js, and its host requires it', dataset.has('dev/linked.js') && /require\('\.\/linked'\)/.test(dataset.read('dev/host.js')));
+        check('and the harness and preview load it before the host', ['dev/harness.html', 'dev/preview.html'].every((page) => {
+            const html = dataset.read(page);
+            const at = (file) => html.search(new RegExp(`<script src="${file.replace('.', '\\.')}"`));
+            return at('linked.js') !== -1 && at('linked.js') < at('host.js');
+        }));
+
+        pending.push(verifyLinking(dataset.scratch));
     } finally {
         rmSync(dataset.scratch, { recursive: true, force: true });
     }
@@ -1224,6 +1327,81 @@ function verifyLibs() {
         ));
     }
 
+    // --- view-aggregate: the operator table -------------------------------
+    {
+        const fx = loadFrom('view-aggregate')('fetchXml');
+        const spelled = (operator) => fx.filterToFetchXml({ conditions: [{ attributeName: 'accountid', conditionOperator: operator, value: 'x' }], filterOperator: 0 }).xml.match(/operator='([^']+)'/)[1];
+        check('view-aggregate: a dataset\'s 75–79 are spelled the dataset\'s way, not the SDK\'s (pcf-data-table P2)', same(
+            [75, 76, 77, 78, 79].map(spelled),
+            ['above', 'under', 'not-under', 'eq-or-above', 'eq-or-under'],
+        ));
+    }
+
+    // --- related-rows ----------------------------------------------------
+    {
+        const { parseRelated, isInlineFragment } = loadFrom('related-rows')('fragment');
+        const ID = '{7DE84297-9486-EC11-93B0-000D3A5C8441}';
+        const one = parseRelated("<link-entity name='account' from='accountid' to='cll_customer'><filter><condition attribute='accountid' operator='eq-or-under' value='{id}'/></filter></link-entity>", 'cll_account');
+        check('related-rows: a link with {id} becomes one inner link, aliased rel0', one.ok && same(one.plan.links, [{ name: 'account', from: 'accountid', to: 'cll_customer', linkType: 'inner', alias: 'rel0' }]) && one.plan.usesRecord === true, JSON.stringify(one));
+        check('related-rows: …a condition on rel0 with the dataset\'s number for eq-or-under (79) and the id bare', one.ok && same(one.plan.conditionsFor(ID), [{ attributeName: 'accountid', conditionOperator: 79, value: '7de84297-9486-ec11-93b0-000d3a5c8441', entityAliasName: 'rel0' }]));
+        check('related-rows: …and the same link as FetchXML, for an aggregate', one.ok && one.plan.fetchXml(ID) === "<link-entity name='account' from='accountid' to='cll_customer' alias='rel0' link-type='inner'><filter type='and'><condition attribute='accountid' operator='eq-or-under' value='7de84297-9486-ec11-93b0-000d3a5c8441'/></filter></link-entity>", one.ok ? one.plan.fetchXml(ID) : '');
+        check('related-rows: …and the names to check against the definitions', one.ok && same(one.plan.names.map((n) => `${n.role}:${n.table}.${n.column}`), ['to:cll_account.cll_customer', 'from:account.accountid', 'condition:account.accountid']));
+
+        const two = parseRelated(`<link-entity name="account" from="accountid" to="cll_customer" alias="acc"><filter type="and"><condition attribute="statecode" operator="eq" value="0"/></filter></link-entity>
+            <link-entity name="systemuser" from="systemuserid" to="ownerid"><filter><condition attribute="isdisabled" operator="eq" value="0"/><condition attribute="businessunitid" operator="in"><value>b1</value><value>b2</value></condition></filter></link-entity>`, 'cll_account');
+        check('related-rows: sibling links keep their alias or get the next free one; in takes a list', two.ok && same(two.plan.links.map((l) => l.alias), ['acc', 'rel0']) && same(two.plan.conditionsFor('x').map((c) => [c.entityAliasName, c.conditionOperator, c.value]), [['acc', 0, '0'], ['rel0', 0, '0'], ['rel0', 8, ['b1', 'b2']]]) && two.plan.usesRecord === false, JSON.stringify(two));
+
+        const refused = (text) => { const r = parseRelated(text, 'cll_account'); return r.ok ? 'ok' : r.problem; };
+        const link = (inner, attrs = "name='account' from='accountid' to='cll_customer'") => `<link-entity ${attrs}>${inner}</link-entity>`;
+        const cond = "<filter><condition attribute='accountid' operator='eq' value='{id}'/></filter>";
+        check('related-rows: refuses by name — nested, outer, chained, no condition, or-filter, columns, operator, name, empty, not a link', same(
+            [
+                refused(link(cond + link(cond))),
+                refused(link(cond, "name='account' from='accountid' to='cll_customer' link-type='outer'")),
+                refused(link(cond, "name='account' from='accountid' to='rel0.parentaccountid'")),
+                refused(link('')),
+                refused(link("<filter type='or'><condition attribute='accountid' operator='eq' value='1'/></filter>")),
+                refused(link("<attribute name='name'/>" + cond)),
+                refused(link("<filter><condition attribute='name' operator='begins-with' value='a'/></filter>")),
+                refused(link("<filter><condition attribute='Account Id' operator='eq' value='1'/></filter>")),
+                refused('   '),
+                refused("<fetch><entity name='account'/></fetch>"),
+            ],
+            ['nested', 'outer', 'nested', 'no-condition', 'or-filter', 'columns', 'operator', 'name', 'empty', 'not-a-link'],
+        ));
+        check('related-rows: <filter> with no-value operators and missing values are told apart', same(
+            [refused(link("<filter><condition attribute='parentaccountid' operator='null'/></filter>")), refused(link("<filter><condition attribute='accountid' operator='eq'/></filter>"))],
+            ['ok', 'value'],
+        ));
+        check('related-rows: inline means it starts with <', isInlineFragment('  <link-entity/>') && !isInlineFragment('pcfhub_/related.xml'));
+    }
+
+    // --- config-source ---------------------------------------------------
+    {
+        const { classifySource, loadSource, webResourceUrl } = loadFrom('config-source')('load');
+        const inline = (text) => text.startsWith('<');
+        check('config-source: blank is none, inline is answered at once, anything else is a name', same(
+            [classifySource('  ', inline), classifySource(' <x/> ', inline), classifySource('pcfhub_/a b.xml', inline), classifySource(undefined, inline)],
+            [{ kind: 'none' }, { kind: 'inline', text: '<x/>' }, { kind: 'named', name: 'pcfhub_/a b.xml' }, { kind: 'none' }],
+        ));
+        check('config-source: a web resource address encodes each segment', webResourceUrl('pcfhub_/a b.xml', 'https://org.crm.dynamics.com/') === 'https://org.crm.dynamics.com/WebResources/pcfhub_/a%20b.xml');
+        const answer = (status, body = '') => () => Promise.resolve({ status, ok: status >= 200 && status < 300, text: () => Promise.resolve(body) });
+        pending.push(Promise.all([
+            loadSource('pcfhub_x.xml', inline, 'https://org', answer(200, '<link-entity/>')),
+            loadSource('pcfhub_x.xml', inline, 'https://org', answer(404)),
+            loadSource('pcfhub_x.xml', inline, 'https://org', answer(403)),
+            loadSource('pcfhub_x.xml', inline, 'https://org', answer(500)),
+            loadSource('pcfhub_x.xml', inline, 'https://org', () => Promise.reject(new TypeError('Failed to fetch'))),
+            loadSource('pcfhub_x.xml', inline, null, answer(200)),
+            loadSource('<inline/>', inline, null, undefined),
+        ]).then((states) => {
+            check('config-source: ready, notFound, denied, failed, offline, noHost — and inline needs no host', same(
+                states.map((s) => s.state + (s.from ? ':' + s.from : '')),
+                ['ready:webresource', 'notFound', 'denied', 'failed', 'offline', 'noHost', 'ready:inline'],
+            ), JSON.stringify(states));
+        }));
+    }
+
     // --- close-when-hidden ----------------------------------------------
     const watch = loadFrom('close-when-hidden')('watch');
     let fire = null;
@@ -1271,7 +1449,7 @@ function verifyLibs() {
     }
 }
 
-function main() {
+async function main() {
     console.log('\nAdopting the template into a scratch directory…\n');
 
     const scratch = mkdtempSync(join(tmpdir(), 'pcfhub-adopt-'));
@@ -1522,6 +1700,7 @@ function main() {
     verifySibling();
     verifySync();
     verifyLibs();
+    await Promise.all(pending);
 
     console.log('\nChecking the template itself…\n');
     commentsDoNotCarryPlaceholders();
@@ -1538,4 +1717,7 @@ function main() {
     console.log('\nAdoption produces a repository that builds, releases and gates correctly.\n');
 }
 
-main();
+main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+});

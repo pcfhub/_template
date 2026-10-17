@@ -131,6 +131,25 @@
         OnOrAfter: 27,
     };
 
+    /*
+     * Dataset linking — `linking.addLinkedEntity`, conditions on a link's
+     * alias, the hierarchy operators (75–79, numbered the dataset's way, which
+     * is not the SDK's) and a `<link-entity>` in FetchXML — lives in
+     * `dev/linked.js`, shared with every dataset rig through `sync-rig.mjs`.
+     * In a browser `harness.html` loads it first; in Node it is required. A
+     * repository without the file gets a dataset with no `linking`, which is
+     * what this rig was before 2026-10-17.
+     */
+    var linked = (typeof window !== 'undefined' && window.__pcfLinked) || null;
+
+    if (!linked && typeof require === 'function') {
+        try {
+            linked = require('./linked');
+        } catch (missing) {
+            linked = null;
+        }
+    }
+
     /**
      * `dateFormattingInfo` as an en-US tenant publishes it. Every key is
      * present on a real tenant under both Pascal and camel spellings; the
@@ -1341,6 +1360,26 @@
         var columns = canvasColumns((o.columns || fixture.columns).slice());
 
         /*
+         * Linking, per host (see `linked` above). **Model-driven only**, as
+         * Learn's DataSet reference says and canvas has not contradicted: a
+         * canvas host has no `linking`. `linkError` is the refusal a fetch
+         * found in the links, and `staleTotal` the count the platform leaves
+         * behind it — measured (P11): the rows go, `totalResultCount` stays.
+         */
+        var link = linked && o.host !== 'canvas'
+            ? linked.createLinking(function (name, argument) { log(name, argument); })
+            : null;
+        var tables = linked
+            ? linked.makeTables(fixture, function () {
+                return allRecords.filter(function (row) {
+                    return removed.indexOf(row.id) === -1;
+                });
+            })
+            : null;
+        var linkError = null;
+        var staleTotal = 0;
+
+        /*
          * **Canvas hands the roles over twice, and an unset one as a column
          * with no name.** Measured 2026-10-10 in a canvas app
          * (`pcf-kanban-board` 0.4.8): every role arrived by its alias with
@@ -2016,7 +2055,23 @@
          * itself and expects an exact match here is testing something the
          * server does not do.
          */
-        function holds(row, condition) {
+        function holds(row, condition, viaLinks) {
+            /*
+             * A condition that names a link is judged at the other end of it
+             * (`dev/linked.js`): the dataset's links, or — for a FetchXML
+             * `<link-entity>` — the ones the query carries (`viaLinks`).
+             */
+            if (condition.entityAliasName && linked) {
+                return linked.holdsLinked(row, condition, viaLinks || (link ? link.links() : []), tables, holds);
+            }
+
+            // A hierarchy operator on the bound table: the row's own place in it.
+            if (linked && linked.isHierarchy(condition.conditionOperator)) {
+                var key = condition.attributeName === fixture.targetEntityType + 'id' ? row.id : row.values[condition.attributeName];
+
+                return linked.hierarchyHolds(tables, fixture.targetEntityType, key, condition.conditionOperator, condition.value);
+            }
+
             var actual = row.values[condition.attributeName];
 
             // A lookup cell is an EntityReference; a condition on it names the GUID.
@@ -2169,7 +2224,7 @@
         }
 
         /** A `FilterExpression`, including any child `filters`, against one row. */
-        function passes(row, expression) {
+        function passes(row, expression, viaLinks) {
             if (!expression) {
                 return true;
             }
@@ -2179,11 +2234,11 @@
 
             var results = conditions
                 .map(function (condition) {
-                    return holds(row, condition);
+                    return holds(row, condition, viaLinks);
                 })
                 .concat(
                     children.map(function (child) {
-                        return passes(row, child);
+                        return passes(row, child, viaLinks);
                     }),
                 );
 
@@ -2317,6 +2372,11 @@
          * that renders the array directly stacks page two under page one.
          */
         function visibleIds() {
+            // A refused link clears the rows (measured, P11), whatever the page.
+            if (linkError !== null) {
+                return [];
+            }
+
             var rows = ordered();
             var end = state.page * state.pageSize;
             var start = quirks.accumulatePages ? 0 : (state.page - 1) * state.pageSize;
@@ -2795,7 +2855,7 @@
             },
 
             get sortedRecordIds() {
-                return o.loading || o.error ? [] : visibleIds();
+                return o.loading || o.error || linkError !== null ? [] : visibleIds();
             },
 
             /*
@@ -2877,11 +2937,16 @@
                  * reading a number the platform never gave it.
                  */
                 get totalResultCount() {
+                    // Under a refused link, the count from before it: the platform leaves it there.
+                    if (linkError !== null) {
+                        return staleTotal;
+                    }
+
                     return quirks.uncounted ? -1 : matching().length;
                 },
 
                 get hasNextPage() {
-                    return state.page * state.pageSize < matching().length;
+                    return linkError === null && state.page * state.pageSize < matching().length;
                 },
 
                 /*
@@ -2942,11 +3007,21 @@
             },
 
             get error() {
-                return o.error;
+                return o.error || linkError !== null;
             },
 
             get errorMessage() {
-                return o.errorMessage;
+                return linkError !== null ? linkError : o.errorMessage;
+            },
+
+            /**
+             * `linking`, from `dev/linked.js`: model-driven only, absent where
+             * the repository has no copy of that file. A link is for the
+             * page's life — there is no remove, and a different link under an
+             * alias already used is appended and refused at the next fetch.
+             */
+            get linking() {
+                return link ? link.linking : undefined;
             },
 
             getTitle: function () {
@@ -3091,6 +3166,22 @@
                 createdPending = [];
             }
 
+            /*
+             * The links are judged at the fetch, as the server judges them: a
+             * refusal clears the rows and leaves the total that was showing.
+             * Read before `filter` moves, because that total is the old one.
+             */
+            if (link) {
+                var shown = linkError !== null ? staleTotal : (quirks.uncounted ? -1 : matching().length);
+                var why = linked.refusal(link.links(), tables, fixture.targetEntityType);
+
+                if (why !== null) {
+                    staleTotal = shown;
+                }
+
+                linkError = why;
+            }
+
             state.pageSize = state.requestedPageSize;
             filter = requestedFilter;
             state.refreshes += 1;
@@ -3124,6 +3215,12 @@
             'on': OPERATOR.On,
             'on-or-before': OPERATOR.OnOrBefore,
             'on-or-after': OPERATOR.OnOrAfter,
+            // The dataset's numbering for the hierarchy operators (dev/linked.js), judged only where that file is.
+            'above': 75,
+            'under': 76,
+            'not-under': 77,
+            'eq-or-above': 78,
+            'eq-or-under': 79,
         };
 
         function xmlAttr(tag, name) {
@@ -3135,9 +3232,10 @@
          * A `<filter>` element and everything inside it → a `FilterExpression`
          * `passes()` reads. Nested filters nest; a `<condition>` with
          * `<value>` children is an `in`. Conditions inside a `<link-entity>`
-         * are dropped with the link-entity, because the rig has no joined
-         * rows to judge them against — a suite asserting a linked filter's
-         * effect is asserting nothing here, and the header says so.
+         * are left out here and judged by `answerFetchXml` at the other end
+         * of the link (`dev/linked.js`) — or not at all in a repository
+         * without that file, where a suite asserting a linked filter's effect
+         * is asserting nothing.
          */
         function parseFilter(xml) {
             var withoutLinks = xml.replace(/<link-entity\b[^>]*\/>/g, '').replace(/<link-entity\b[^>]*>[\s\S]*?<\/link-entity>/g, '');
@@ -3286,7 +3384,8 @@
 
         /**
          * Answer a `?fetchXml=` query from the rows: the entity's conditions
-         * applied (link-entities and their conditions ignored — said above),
+         * applied (an inner link-entity's own filter judged at its other end
+         * where `dev/linked.js` is present — said above),
          * then either the plain rows or, under `aggregate='true'`, one row
          * per distinct combination of the `groupby` attributes carrying each
          * aggregate under its alias.
@@ -3321,6 +3420,47 @@
             var rows = fetchRows(entity).filter(function (row) {
                 return passes(row, expression);
             });
+
+            /*
+             * Each top-level **inner** `<link-entity>`, with its own `<filter>`
+             * judged at the other end — the route a control's aggregate takes
+             * when it appends a related-rows fragment. An outer link narrows
+             * nothing (a view's usually is one, carrying a display column), and
+             * a link inside a link is not judged: the platform refused that
+             * shape on a dataset (pcf-data-table P6), and the log says so.
+             */
+            if (linked && tables) {
+                linked.parseLinks(xml).forEach(function (fx, index) {
+                    if (fx.linkType === 'outer') {
+                        return;
+                    }
+
+                    if (fx.nested) {
+                        log('webAPI.fetchXml', 'a link-entity inside ' + (fx.alias || fx.name) + ' is not judged');
+                    }
+
+                    var alias = '__fetch' + index;
+                    var via = [{ name: fx.name, from: fx.from, to: fx.to, linkType: 'inner', alias: alias }];
+                    var tag = function (filter) {
+                        return {
+                            conditions: filter.conditions.map(function (condition) {
+                                return Object.assign({}, condition, { entityAliasName: alias });
+                            }),
+                            filterOperator: filter.filterOperator,
+                            filters: (filter.filters || []).map(tag),
+                        };
+                    };
+                    var tagged = parseFilter(fx.body.replace(/<link-entity\b[^>]*\/>/g, '').replace(/<link-entity\b[^>]*>[\s\S]*?<\/link-entity>/g, '')).map(tag);
+                    // An inner link with no filter still needs something at the other end.
+                    var present = { entityAliasName: alias, attributeName: fx.from, conditionOperator: OPERATOR.NotNull, value: null };
+
+                    rows = rows.filter(function (row) {
+                        return tagged.length === 0
+                            ? holds(row, present, via)
+                            : tagged.every(function (filter) { return passes(row, filter, via); });
+                    });
+                });
+            }
 
             log('webAPI.fetchXml', { entity: entity, aggregate: aggregate, attributes: attributes.length, conditions: filters.length, rows: rows.length });
 

@@ -294,10 +294,46 @@ which rows are open and applies the answer. Lifted from `pcf-code-editor`
 1.7.0, whose probe pressed every key on a form; the skill's *A tree or a list
 of your own: one tab stop, arrows inside* is what it implements.
 
-Unlike the rig, these three are never exercised by an adopted repository's
+`variants/lib/related-rows/` is the fourth, adopted by making
+`<Control>/lib/related-rows`. `parseRelated(text, boundTable)` reads a
+FetchXML `<link-entity>` fragment with `{id}` for the form's record and
+answers both halves of one plan: `links` for `dataset.linking.addLinkedEntity`
+and `conditionsFor(id)` for `setFilter` (each naming its link by
+`entityAliasName`), and `fetchXml(id)` for an aggregate that must count what
+the dataset shows. It refuses by name what the platform refuses unexplained —
+a nested link, an outer one, a link with no condition, an `or` filter — and
+numbers the hierarchy operators the dataset's way (79 is `eq-or-under`, not
+the SDK's 77). `pcf-data-table` 0.8.0's probe measured all of it.
+
+`variants/lib/config-source/` is the fifth, adopted by making
+`<Control>/lib/config-source`: a property that holds its text inline or names
+a web resource holding it, because the form designer refuses a static value
+over 100 characters. `classifySource` answers inline text at once (a dataset
+control can link rows in `init`); `loadSource` fetches a name and says which
+of six things happened. Lifted from `pcf-row-commands`, whose own copy has not
+moved onto it yet.
+
+Unlike the rig, these five are never exercised by an adopted repository's
 CI until a control adopts them, so `scripts/verify-adoption.mjs` loads each
 one from `variants/lib/` and checks its behaviour — the key map, the buffer,
-the anchor watcher — before anything is copied anywhere.
+the anchor watcher, the fragment's refusals, the loader's states, and
+view-aggregate's operator table — before anything is copied anywhere.
+
+### Dataset linking in the rig: `dev/linked.js`
+
+The dataset rig answers `dataset.linking` from `dev/linked.js`, which
+`sync-rig` keeps current wherever `dev/host.js` requires it, and which
+`harness.html` and `preview.html` load before `host.js`. It reproduces what
+`pcf-data-table`'s 0.7.3 probe measured on a subgrid: a condition on a link's
+alias judged at the other end, inner; 75–79 the dataset's way; an identical
+link kept once and a different one under the same alias appended and refused;
+a chained link refused; every refusal *0x80041103 Query Builder Error* with
+the rows cleared and `totalResultCount` left stale; and none of it on canvas.
+A FetchXML query's inner `<link-entity>` is judged the same way, so an
+aggregate with a related fragment appended counts what the dataset shows. The
+fixture's `related.account` rows and `hierarchy: { account: 'parentaccountid' }`
+give the records' two parents a holding company, which is what the hierarchy
+operators walk.
 
 ### What `npm start` already covers
 

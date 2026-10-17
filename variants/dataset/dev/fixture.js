@@ -231,7 +231,31 @@
                     { id: 'e8d840ff-0000-4000-8000-000000000001', name: 'Owner Users' },
                 ],
             },
+            /*
+             * The two parents the records point at through `parentaccountid`,
+             * and a holding company above the first — so a link from a row to
+             * its parent can be asked about a hierarchy (`dev/linked.js`):
+             * nine rows have Parent 1, three have Parent 2, and only Parent 1
+             * is under Holding. `values` carries what a condition at the other
+             * end of a link can name.
+             */
+            account: {
+                entitySet: 'accounts',
+                rows: [
+                    { id: 'c0ffee00-0000-4000-8000-000000000000', name: 'Holding', values: { statecode: 0 } },
+                    { id: 'c0ffee00-0000-4000-8000-000000000001', name: 'Parent 1', values: { statecode: 0, parentaccountid: { id: { guid: 'c0ffee00-0000-4000-8000-000000000000' }, etn: 'account', name: 'Holding' } } },
+                    { id: 'c0ffee00-0000-4000-8000-000000000002', name: 'Parent 2', values: { statecode: 1 } },
+                ],
+            },
         },
+
+        /**
+         * The lookup each hierarchical table's rows point at their parent
+         * through — what the hierarchy operators (`under`, `eq-or-above` …)
+         * walk in `dev/linked.js`. A table not named here has no hierarchy,
+         * and every hierarchy condition on it finds nothing above or below.
+         */
+        hierarchy: { account: 'parentaccountid' },
 
         /*
          * `order` is not the array order, on purpose: a view's columns arrive
