@@ -5,10 +5,17 @@
  *
  *   node scripts/setup.mjs
  *   node scripts/setup.mjs --yes \
- *     --control ColorPicker --namespace PCFHub --slug pcf-color-picker \
+ *     --control ColorPicker --namespace Contoso --slug pcf-color-picker \
  *     --title "Color Picker" --tagline "A WCAG-compliant colour picker." \
- *     --category pickers --owner pcfhub --repo pcf-color-picker \
- *     --publisher PCFHub --prefix pcfhub
+ *     --category pickers --owner contoso --repo pcf-color-picker \
+ *     --publisher Contoso --prefix contoso
+ *
+ * `Contoso` stands for the author's own namespace, GitHub owner, publisher and
+ * prefix. It is deliberately not `PCFHub`: that publisher is the catalogue's,
+ * and a control from anyone else declared under it shares a publisher with the
+ * catalogue's controls in every environment that installs both — and one whose
+ * name the catalogue already uses is the same component to Dataverse, so
+ * importing one overwrites the other.
  *
  * Under `--yes` every value must be answerable without a prompt, and TAGLINE,
  * CATEGORY and OWNER have no `derive` — so a short example that omits them does
@@ -131,7 +138,7 @@ if (bind !== 'text' && (type !== 'field' || framework !== 'standard')) {
     fail(
         `--bind ${bind} scaffolds a standard field control, so it does not combine with ` +
         `--type ${type === 'field' ? 'field' : type} or --framework ${framework}. Scaffold without it ` +
-        'and change the bound property by hand — the skill\'s references/properties.md has the types.',
+        'and change the bound property by hand — the pcf-controls skill\'s references/properties.md has the types.',
     );
 }
 
@@ -142,11 +149,18 @@ const rules = {
         test: /^[A-Za-z][A-Za-z0-9_]*$/,
         hint: 'letters, digits and underscores, starting with a letter',
     },
+    /*
+     * The example is shown in the prompt, and the answer seeds PUBLISHER and
+     * then PREFIX below — so an example of `PCFHub` walked an author who took
+     * it straight onto the catalogue's own publisher, two answers later and
+     * with both of them permanent. Hence a placeholder company, here and in
+     * OWNER.
+     */
     NAMESPACE: {
         question: 'Namespace',
-        example: 'PCFHub',
+        example: 'Contoso',
         test: /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)*$/,
-        hint: 'a PCF namespace such as "PCFHub" or "Contoso.Controls"',
+        hint: 'a PCF namespace such as "Contoso" or "Contoso.Controls"',
     },
     SLUG: {
         question: 'Hub slug (the /components/… URL, and the pcfhub.json slug)',
@@ -197,7 +211,7 @@ const rules = {
     },
     OWNER: {
         question: 'GitHub owner',
-        example: 'pcfhub',
+        example: 'contoso',
         test: /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})$/,
         hint: 'a GitHub user or organisation',
     },

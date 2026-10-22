@@ -903,13 +903,21 @@ back to sensible values — it exits 1:
 
 ```bash
 node scripts/setup.mjs --yes \
-  --control ColorPicker --namespace PCFHub --slug pcf-color-picker \
+  --control ColorPicker --namespace Contoso --slug pcf-color-picker \
   --title "Color Picker" --tagline "A WCAG-compliant colour picker." \
-  --category pickers --owner pcfhub --repo pcf-color-picker \
-  --publisher PCFHub --prefix pcfhub
+  --category pickers --owner contoso --repo pcf-color-picker \
+  --publisher Contoso --prefix contoso
 ```
 
 Note `SLUG` derives from `CONTROL` as `color-picker`, not `pcf-color-picker`.
+
+`Contoso` stands for your own namespace, GitHub owner, publisher and prefix.
+Not `PCFHub`: that publisher is the catalogue's, and a control from anyone else
+declared under it shares a publisher with the catalogue's controls in every
+environment that installs both — one whose name the catalogue already uses is
+the same component to Dataverse, so importing one overwrites the other. Pass
+`--prefix` explicitly, too: it derives from the publisher's first five letters,
+so `Contoso` alone gives `conto`.
 
 `npm run check` — which CI runs first, before the slow Windows build — fails
 while any placeholder remains, so a half-adopted template cannot reach a
@@ -953,13 +961,13 @@ the next import creates a *second* solution instead of upgrading the first.
 | Token | Becomes | Example |
 | --- | --- | --- |
 | `__CONTROL__` | Constructor, directory and file names, CSS class | `ColorPicker` |
-| `__NAMESPACE__` | PCF namespace | `PCFHub` |
+| `__NAMESPACE__` | PCF namespace | `Contoso` |
 | `__SLUG__` | Hub slug and npm package name | `pcf-color-picker` |
 | `__TITLE__` | Display name | `Color Picker` |
 | `__TAGLINE__` | One-line description | `A WCAG-compliant colour picker.` |
 | `__CATEGORY__` | Hub category slug | `pickers` |
-| `__OWNER__` / `__REPO__` | GitHub coordinates | `pcfhub` / `pcf-color-picker` |
-| `__PUBLISHER__` / `__PREFIX__` | Dataverse publisher | `PCFHub` / `pcfh` |
+| `__OWNER__` / `__REPO__` | GitHub coordinates | `contoso` / `pcf-color-picker` |
+| `__PUBLISHER__` / `__PREFIX__` | Dataverse publisher | `Contoso` / `contoso` |
 
 Generated rather than asked for: both project GUIDs, and the publisher's
 option-value prefix.
