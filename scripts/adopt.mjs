@@ -289,6 +289,12 @@ put('scripts/check-template.mjs', () => readFileSync(join(template, 'scripts', '
 // on a clean tree, `git checkout-index --force --all` rewrites them all at once.
 put('.gitattributes', () => readFileSync(join(template, '.gitattributes'), 'utf8'));
 
+// The pcfhub-controls plugin, offered to whoever opens the repository in
+// Claude Code. Never over a settings file the repository already has: `put`
+// skips an existing path, and merging into someone's permissions is not this
+// script's to do — the plugin can be added from there by hand.
+put('.claude/settings.json', () => readFileSync(join(template, '.claude', 'settings.json'), 'utf8'));
+
 put('SPEC.md', () => substitute(readFileSync(join(template, 'SPEC.md'), 'utf8')));
 
 for (const page of readdirSync(join(template, 'docs'))) {

@@ -11,13 +11,25 @@ below is about adopting the template; everything in `README.md` is about the
 component you are building, and `SPEC.md` is where you record what building it
 taught you.
 
+## With Claude Code
+
+Opening this repository in [Claude Code](https://claude.com/claude-code) offers
+the `pcfhub-controls` plugin, which `.claude/settings.json` declares: five skills
+that know this template and the hub's contract, and the hub's read-only MCP
+server. Accept it and the `pcfhub-new-control` skill runs the setup below for
+you, asking for the publisher, prefix and solution name before anything else;
+decline it and nothing changes. <https://pcfhub.dev/ai> has the rest.
+
+The file stays in an adopted repository, so whoever opens it next is offered
+the same. Delete it if you would rather they were not.
+
 ## Adopt it
 
 ```bash
 npm run setup
 ```
 
-You are asked for ten values, four of which offer a derived default. Then:
+You are asked for eleven values, six of which offer a derived default. Then:
 
 ```bash
 npm install
