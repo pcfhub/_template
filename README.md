@@ -131,7 +131,10 @@ already mirrored. `demo-check` stands the hub's demo harness up locally from
 the manifest (`dev/hub-demo.html`; `npm run dev:demo-harness` in the hub
 repository serves the harness), picks every preset in `pcfhub.json`, and
 fails on a frame that overflows, a harness error, or anything the control
-threw; `--live` runs the same presets on the published page.
+threw; `--live` runs the same presets on the published page. A check of your
+own presses through `cdp.js`'s `click` and `drag`, which send real mouse
+input — with `button` on every move, without which Chrome drops pointer
+capture and a narrow target stops following the drag.
 
 Run `npm run refreshTypes` after every manifest edit — until you do,
 `context.parameters` is typed from the old manifest and `tsc` will accept code that
@@ -157,8 +160,13 @@ it.
 npm run bump -- --minor      # every version location, in one edit
 npm run release -- --draft   # .release-notes.md, from the commits since the last tag
 # …rewrite the notes, commit the bump…
+git push                     # the branch first: the hub reads docs and pcfhub.json there
 npm run release -- --push
 ```
+
+`--push` sends the tag alone, and the hub reads the docs, `pcfhub.json`, its
+media and the demo fixture from the default branch — so it is refused while
+the branch is ahead of its upstream (`--force` overrides).
 
 **On PowerShell, call the scripts directly** — `node scripts/version.mjs --minor`.
 npm swallows a `--` flag there, warns *"Unknown cli config"*, and runs the
