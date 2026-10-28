@@ -1402,6 +1402,65 @@ function verifyLibs() {
         }));
     }
 
+    // --- web-api-action --------------------------------------------------
+    {
+        const lib = loadFrom('web-api-action');
+        const { actionPath, actionBody, readRefusal, readResult, callAction } = lib('action');
+        const { loadRecordKeys } = lib('keys');
+        const { organisationUrl } = lib('clientUrl');
+        const keys = { table: 'account', set: 'accounts', primaryId: 'accountid' };
+        const id = '{AAAA0000-0000-0000-0000-000000000001}';
+        const bound = { name: 'pcfhub_Run', bound: true, parameters: { Note: 'from {id}', Target: '{record}', List: ['{record}'] }, result: 'Message' };
+        const unbound = { name: 'pcfhub_Ping', bound: false, parameters: {}, result: null };
+        check('web-api-action: bound is the set, the bare id and the qualified name; unbound is the name alone', same(
+            [actionPath(bound, keys, id), actionPath(unbound, keys, id)],
+            ['accounts(AAAA0000-0000-0000-0000-000000000001)/Microsoft.Dynamics.CRM.pcfhub_Run', 'pcfhub_Ping'],
+        ));
+        const reference = { '@odata.type': 'Microsoft.Dynamics.CRM.account', accountid: 'AAAA0000-0000-0000-0000-000000000001' };
+        check('web-api-action: {id} is filled in text, {record} becomes a typed reference, deep', same(
+            actionBody(bound.parameters, keys, id),
+            { Note: 'from AAAA0000-0000-0000-0000-000000000001', Target: reference, List: [reference] },
+        ));
+        const payload = JSON.stringify({ error: { code: '0x80048d19', message: "Error identified in Payload provided by the user for Entity :''  ---->  InnerException : Microsoft.OData.ODataException: Cannot convert the literal 'x' to the expected type 'Edm.Guid'. ---> stack" } });
+        const missing = JSON.stringify({ error: { code: '0x80060888', message: "Resource not found for the segment 'Microsoft.Dynamics.CRM.pcfhub_Run'" } });
+        check('web-api-action: a payload refusal reads as the exception\'s own sentence; a qualified 404 is a wrong name; an empty 401 says its status', same(
+            [readRefusal(400, payload, bound).sentence, readRefusal(404, missing, bound).nameWrong, readRefusal(401, '', bound).sentence],
+            ["Cannot convert the literal 'x' to the expected type 'Edm.Guid'.", true, 'HTTP 401'],
+        ));
+        check('web-api-action: a named result is read as text, a 204 and an unnamed one as null', same(
+            [readResult('{"Message":"Sent"}', 'Message'), readResult('', 'Message'), readResult('{"Message":"x"}', null)],
+            ['Sent', null, null],
+        ));
+        check('web-api-action: no page and no Xrm is no organisation; a throwing getClientUrl is an answer, not a crash', same(
+            [organisationUrl({}), organisationUrl({ page: { getClientUrl: () => { throw new Error('Method not implemented.'); } } }), organisationUrl({ page: { getClientUrl: () => 'https://org' } })],
+            [null, null, 'https://org'],
+        ));
+        const sent = [];
+        const reply = (status, body = '') => (url, init) => {
+            sent.push({ url, init });
+            return Promise.resolve({ status, text: () => Promise.resolve(body) });
+        };
+        pending.push(Promise.all([
+            callAction(reply(200, '{"Message":"Done"}'), 'https://org', bound, keys, id),
+            callAction(reply(204), 'https://org', unbound, keys, id),
+            callAction(reply(404, missing), 'https://org', bound, keys, id),
+            callAction(() => Promise.reject(new TypeError('Failed to fetch')), 'https://org', bound, keys, id),
+            loadRecordKeys({ getEntityMetadata: () => Promise.resolve({ EntitySetName: 'accounts', PrimaryIdAttribute: 'accountid' }) }, null, undefined, 'account'),
+            loadRecordKeys({ getEntityMetadata: () => Promise.resolve({}) }, 'https://org', () => Promise.resolve({ ok: true, json: () => Promise.resolve({ EntitySetName: 'cll_accounts', PrimaryIdAttribute: 'cll_accountid' }) }), 'cll_account'),
+            loadRecordKeys(undefined, null, undefined, 'account'),
+        ]).then(([ok, empty, wrong, offline, fromMeta, fromDefinitions, none]) => {
+            check('web-api-action: 200 with its result, 204 with none, a 404 refused as a wrong name, offline as status 0', same(
+                [ok, empty.ok && empty.result, wrong.ok || wrong.refusal.nameWrong, offline.ok || offline.refusal.status],
+                [{ ok: true, status: 200, result: 'Done' }, null, true, 0],
+            ), JSON.stringify([ok, empty, wrong, offline]));
+            check('web-api-action: every call is a same-origin POST with Content-Type JSON', sent.every((s) => s.init.method === 'POST' && s.init.credentials === 'same-origin' && /application\/json/.test(s.init.headers['Content-Type'])));
+            check('web-api-action: keys come from metadata, else from EntityDefinitions, else null', same(
+                [fromMeta, fromDefinitions, none],
+                [keys, { table: 'cll_account', set: 'cll_accounts', primaryId: 'cll_accountid' }, null],
+            ));
+        }));
+    }
+
     // --- close-when-hidden ----------------------------------------------
     const watch = loadFrom('close-when-hidden')('watch');
     let fire = null;

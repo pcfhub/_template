@@ -325,7 +325,19 @@ control can link rows in `init`); `loadSource` fetches a name and says which
 of six things happened. Lifted from `pcf-row-commands`, whose own copy has not
 moved onto it yet.
 
-Unlike the rig, these five are never exercised by an adopted repository's
+`variants/lib/web-api-action/` is the sixth, adopted by making
+`<Control>/lib/web-api-action`: a Web API action — a Custom API or a platform
+message — called as the same-origin POST `context.webAPI` cannot make.
+`callAction(fetch, clientUrl, action, keys, id)` resolves either way, a
+refusal read into the sentence a person can act on (and `nameWrong` for the
+case-sensitive 404); `actionBody` fills `{id}` and `{record}`, the second as
+the typed reference the server insists on; `loadRecordKeys` finds a table's
+entity set and id column from metadata; `organisationUrl` is the base, and the
+test of whether a Dataverse is there at all. Lifted from `pcf-row-commands`
+0.4.0 (which moved onto it in 0.4.3) for `pcf-form-action-button` 0.2.0; the
+skill's *Calling a Web API action* is what it implements.
+
+Unlike the rig, these six are never exercised by an adopted repository's
 CI until a control adopts them, so `scripts/verify-adoption.mjs` loads each
 one from `variants/lib/` and checks its behaviour — the key map, the buffer,
 the anchor watcher, the fragment's refusals, the loader's states, and

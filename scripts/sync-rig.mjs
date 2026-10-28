@@ -165,6 +165,16 @@ const MANAGED = [
         source: 'variants/lib/config-source/load.ts',
         needs: '__CONTROL__/lib/config-source',
     },
+    /*
+     * web-api-action: a Web API action called as a same-origin POST, the
+     * record's address from metadata, and the organisation's URL — lifted from
+     * pcf-row-commands 0.4.0 for pcf-form-action-button 0.2.0. Adopted by making the folder.
+     */
+    ...['action', 'keys', 'clientUrl'].map((name) => ({
+        path: `__CONTROL__/lib/web-api-action/${name}.ts`,
+        source: `variants/lib/web-api-action/${name}.ts`,
+        needs: '__CONTROL__/lib/web-api-action',
+    })),
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */
