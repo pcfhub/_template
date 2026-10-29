@@ -883,6 +883,23 @@
         blockedAttachments: 'ade;adp;app;asa;ashx;asmx;asp;bas;bat;cdx;cer;chm;class;cmd;com;config;cpl;crt;csh;dll;exe;fxp;hlp;hta;htr;htw;ida;idc;idq;inf;ins;isp;its;jar;js;jse;ksh;lnk;mad;maf;mag;mam;maq;mar;mas;mat;mau;mav;maw;mda;mdb;mde;mdt;mdw;mdz;msc;msh;msh1;msh1xml;msh2;msh2xml;mshxml;msi;msp;mst;ops;pcd;pif;prf;prg;printer;pst;reg;rem;scf;scr;sct;shb;shs;shtm;shtml;soap;stm;tmp;url;vb;vbe;vbs;vsmacros;vss;vst;vsw;ws;wsc;wsf;wsh',
 
         /**
+         * The organisation's fiscal year, as the synthesised `organization`
+         * row answers `$select=fiscalcalendarstart,fiscalperiodtype,
+         * fiscalyeardisplaycode`. Read off a real organisation on 2026-10-29:
+         * `fiscalcalendarstart` is **an instant, not a day** — the column is
+         * UserLocal with a Date Only *format* — so `'2022-01-01T10:59:00Z'`
+         * means 1 January only in the zone it was set in, and a control takes
+         * the month from that instant in the Dataverse user's zone
+         * (`userSettings.getTimeZoneOffsetMinutes(that date)`), never from its
+         * UTC or browser components. `fiscalperiodtype` 2002 is quarters
+         * (*Quarter {0}* is that organisation's period format);
+         * `fiscalyeardisplaycode` 1 names the year by its start.
+         */
+        fiscalStart: '2022-01-01T10:59:00Z',
+        fiscalPeriodType: 2002,
+        fiscalYearDisplayCode: 1,
+
+        /**
          * What the two audit **functions** answer on the `fetch` stub —
          * `audits(<id>)/Microsoft.Dynamics.CRM.RetrieveAuditDetails` (bound to
          * the audit row) and `RetrieveRecordChangeHistory(Target=@t,
@@ -2289,6 +2306,9 @@
                 organizationid: '00000000-0000-0000-0000-00000000000f',
                 isauditenabled: Boolean(o.auditEnabled.org),
                 blockedattachments: o.blockedAttachments,
+                fiscalcalendarstart: o.fiscalStart,
+                fiscalperiodtype: o.fiscalPeriodType,
+                fiscalyeardisplaycode: o.fiscalYearDisplayCode,
             }];
         }
         var h = hierarchyOf(fixture, entity);

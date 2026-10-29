@@ -155,6 +155,39 @@ function commentsDoNotCarryPlaceholders() {
 }
 
 /**
+ * The field rig's organisation row carries the fiscal year the way a real
+ * organisation's Web API answers it (read on 2026-10-29): `fiscalcalendarstart`
+ * an ISO instant — UserLocal behind a Date Only format, so the month is the
+ * user's zone's, not the string's — `fiscalperiodtype` 2002 (quarters) and
+ * `fiscalyeardisplaycode` 1. A control that reads the fiscal year
+ * (pcf-date-range-picker 0.4.0) is tested against this row; a rig that
+ * dropped the columns would answer `undefined` and every fiscal range would
+ * quietly fall back to January.
+ */
+async function fieldRigAnswersTheFiscalYear() {
+    const require = createRequire(import.meta.url);
+    const host = require(join(root, 'dev', 'host.js'));
+    const fixture = require(join(root, 'dev', 'fixture.js'));
+    const context = host.createContext({ fixture, clientUrl: host.nextClientUrl() });
+    const answer = await context.webAPI.retrieveMultipleRecords(
+        'organization',
+        '?$select=fiscalcalendarstart,fiscalperiodtype,fiscalyeardisplaycode',
+    );
+    const row = answer.entities[0] ?? {};
+
+    check(
+        'the field rig\'s organisation row answers the fiscal year as the server holds it',
+        row.fiscalcalendarstart === '2022-01-01T10:59:00Z' && row.fiscalperiodtype === 2002 && row.fiscalyeardisplaycode === 1,
+        JSON.stringify(row),
+    );
+
+    const april = host.createContext({ fixture, clientUrl: host.nextClientUrl(), fiscalStart: '2026-04-01T09:00:00Z' });
+    const moved = (await april.webAPI.retrieveMultipleRecords('organization', '?$select=fiscalcalendarstart')).entities[0] ?? {};
+
+    check('…and `fiscalStart` moves it', moved.fiscalcalendarstart === '2026-04-01T09:00:00Z', JSON.stringify(moved));
+}
+
+/**
  * Adopt once more, with shape flags, and hand back a reader.
  *
  * The caller owns the scratch directory and must remove it.
@@ -1763,6 +1796,7 @@ async function main() {
 
     console.log('\nChecking the template itself…\n');
     commentsDoNotCarryPlaceholders();
+    await fieldRigAnswersTheFiscalYear();
 
     if (failures.length > 0) {
         console.error(`\n${failures.length} check(s) failed:\n`);
