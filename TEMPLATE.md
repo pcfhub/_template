@@ -337,11 +337,34 @@ test of whether a Dataverse is there at all. Lifted from `pcf-row-commands`
 0.4.0 (which moved onto it in 0.4.3) for `pcf-form-action-button` 0.2.0; the
 skill's *Calling a Web API action* is what it implements.
 
-Unlike the rig, these six are never exercised by an adopted repository's
+`variants/lib/rank-order/` is the seventh, adopted by making
+`<Control>/lib/rank-order`: rows in an order people choose, kept in a
+whole-number column. `planMove(rows, from, to, edges)` answers the writes that
+put the row drawn at `from` at `to` once the page is re-read — the values the
+rows it passes already hold, handed out in the new order; failing that a window
+numbered with consecutive values inside the page's limits; failing that
+`noRoom` — and refuses a page holding a row with no value (`unnumbered`), since
+that sorts first. `planNumbering(rows, mode, whole)` numbers those rows just
+under the first numbered one, or 1 … n. `liftKey` is the keyboard: Space lifts,
+the arrows move, Space drops, Escape and Tab cancel. The control writes what
+comes back (`setValue` + `save` per row), holds the order on screen until the
+re-read, and re-reads with `loadExactPage` — `refresh()` from page 2 lands on
+page 1. Written for `pcf-data-table` 0.9.0, whose probe measured all of it; the
+skill's *Rows in your own order* is what it implements.
+
+The dataset rig learned two of that probe's answers as quirks, both on by
+default because the platform does them: `refuses` — a predicate on
+`(name, value)` for a save the server refuses, which leaves the refused value on
+the record until a later save of that column is re-read — and
+`outsideViewReadsNull`, a column outside `dataset.columns` reading `null` until
+`addColumn` and a fetch bring it in.
+
+Unlike the rig, these seven are never exercised by an adopted repository's
 CI until a control adopts them, so `scripts/verify-adoption.mjs` loads each
 one from `variants/lib/` and checks its behaviour — the key map, the buffer,
-the anchor watcher, the fragment's refusals, the loader's states, and
-view-aggregate's operator table — before anything is copied anywhere.
+the anchor watcher, the fragment's refusals, the loader's states, a move's
+writes surviving a re-sort, and view-aggregate's operator table — before
+anything is copied anywhere.
 
 ### Dataset linking in the rig: `dev/linked.js`
 

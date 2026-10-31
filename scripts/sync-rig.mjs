@@ -175,6 +175,17 @@ const MANAGED = [
         source: `variants/lib/web-api-action/${name}.ts`,
         needs: '__CONTROL__/lib/web-api-action',
     })),
+    /*
+     * rank-order: rows in your own order, held in a whole-number column — the
+     * writes a move needs, numbering the rows with no value, and the
+     * lift/move/drop keyboard. Written for pcf-data-table 0.9.0, whose probe
+     * measured what it rests on. Adopted by making the folder.
+     */
+    ...['plan', 'lift'].map((name) => ({
+        path: `__CONTROL__/lib/rank-order/${name}.ts`,
+        source: `variants/lib/rank-order/${name}.ts`,
+        needs: '__CONTROL__/lib/rank-order',
+    })),
 ];
 
 /** Written for the control; reported against the template's copy for its shape, never written. */

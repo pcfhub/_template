@@ -851,6 +851,23 @@ function verifySync() {
                     && lf(repo.read(`${keysDir}/${name}.ts`)) === lf(readFileSync(join(root, 'variants/lib/tree-keys', `${name}.ts`), 'utf8'))),
             keysAdopted.out,
         );
+
+        // rank-order by the same rule.
+        const rankDir = `${control}/lib/rank-order`;
+
+        check('the rank-order library stays out of a control that has not adopted it', !/lib\/rank-order/.test(planned()), planned());
+
+        mkdirSync(file(rankDir), { recursive: true });
+
+        const rankAdopted = run(['--add-missing']);
+
+        check(
+            'and arrives as the template\'s own copy once its folder exists',
+            rankAdopted.status === 0
+                && ['plan', 'lift'].every((name) => existsSync(file(`${rankDir}/${name}.ts`))
+                    && lf(repo.read(`${rankDir}/${name}.ts`)) === lf(readFileSync(join(root, 'variants/lib/rank-order', `${name}.ts`), 'utf8'))),
+            rankAdopted.out,
+        );
     } finally {
         rmSync(repo.scratch, { recursive: true, force: true });
     }
@@ -1493,6 +1510,49 @@ function verifyLibs() {
             ));
         }));
     }
+
+    // --- rank-order ------------------------------------------------------
+    /*
+     * Rows in your own order, as pcf-data-table 0.9.0's probe measured them:
+     * a row with no value sorts first, and nothing is re-sorted until a
+     * re-read. Each plan is checked by applying it and sorting as the server
+     * would; a tie a move relies on would be the server's to break.
+     */
+    const rank = loadFrom('rank-order')('plan');
+    const lifting = loadFrom('rank-order')('lift');
+    const rows = (values) => values.map((value, i) => ({ id: String.fromCharCode(97 + i), value }));
+    const resorted = (page, writes) => {
+        const next = new Map(page.map((r) => [r.id, r.value]));
+        writes.forEach((w) => next.set(w.id, w.to));
+        return page.map((r, i) => ({ id: r.id, value: next.get(r.id), i }))
+            .sort((x, y) => (x.value === null ? -1 : y.value === null ? 1 : x.value - y.value || x.i - y.i))
+            .map((r) => r.id).join('');
+    };
+    const spaced = rows([10, 20, 30, 40]);
+    const moved = rank.planMove(spaced, 3, 0, { first: false, last: false });
+
+    check('rank-order: a move reuses the values it passes, and a re-sort agrees', same(
+        [moved.writes.map((w) => w.id + w.to), resorted(spaced, moved.writes)],
+        [['d10', 'a20', 'b30', 'c40'], 'dabc'],
+    ));
+    const tied = rows([1, 2, 2, 3]);
+    const untied = rank.planMove(tied, 3, 1, { first: true, last: true });
+    check('rank-order: a tie the move relies on is numbered away', untied.ok && resorted(tied, untied.writes) === untied.order.join(''));
+    check('rank-order: a page with a row of no value is refused; a full middle page has no room', same(
+        [rank.planMove(rows([null, 1, 2]), 2, 1, { first: true, last: true }).reason, rank.planMove(rows([5, 5, 6]), 1, 0, { first: false, last: false }).reason],
+        ['unnumbered', 'noRoom'],
+    ));
+    check('rank-order: numbering takes the values under the first numbered row, or 1 … n when there is no room', same(
+        [rank.planNumbering(rows([null, null, 10])).writes.map((w) => w.to), rank.planNumbering(rows([null, 1, 2])).writes.map((w) => w.to)],
+        [[8, 9], [1, 2, 3]],
+    ));
+    const up = lifting.liftKey(lifting.RESTING, { key: ' ' }, 'b', 1, 3);
+    check('rank-order: Space lifts, Down moves, Space drops, Tab cancels and lets the focus go', same(
+        [up.event, lifting.liftKey(up.state, { key: 'ArrowDown' }, 'b', 1, 3).state.at,
+            lifting.liftKey({ ...up.state, at: 2 }, { key: ' ' }, 'b', 1, 3).event,
+            [lifting.liftKey(up.state, { key: 'Tab' }, 'b', 1, 3).event, lifting.liftKey(up.state, { key: 'Tab' }, 'b', 1, 3).handled]],
+        ['lift', 2, 'drop', ['cancel', false]],
+    ));
 
     // --- close-when-hidden ----------------------------------------------
     const watch = loadFrom('close-when-hidden')('watch');

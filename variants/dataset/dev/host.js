@@ -799,6 +799,25 @@
             saveRejects: false,
 
             /**
+             * A save the server refuses by its value: `function (name, value)`
+             * answering `true` for a write to refuse. Measured by
+             * `pcf-data-table` 0.9.0 (SPEC.md R5): a whole number over
+             * 2,147,483,647 was refused — and **the refused value stayed on the
+             * record**, through a `refresh()` too, with `isDirty()` saying
+             * `false`, until a later save of that column went through and the
+             * page was read again. `saveRejects` drops what was staged, which is
+             * the generous half.
+             */
+            refuses: null,
+
+            /**
+             * A column outside the view reads `null`, whatever the row holds
+             * (`pcf-data-table` 0.9.0, R2: 3.5 on the server, `null` in the
+             * dataset), until `addColumn` and a fetch bring it in.
+             */
+            outsideViewReadsNull: true,
+
+            /**
              * Columns `isEditable` answers `false` for.
              *
              * Not hypothetical: on the measured subgrid `statecode` and
@@ -1444,6 +1463,13 @@
          * added it synchronously would pass a control that never refreshed.
          */
         var requestedColumns = [];
+
+        /** In `dataset.columns` now — what `outsideViewReadsNull` asks. */
+        function inView(name) {
+            return columns.some(function (column) {
+                return column.name === name;
+            });
+        }
 
         var state = {
             /** The page the platform believes it is on. */
@@ -2352,7 +2378,7 @@
                 var compared;
 
                 if (left === null || right === null) {
-                    // Blanks first ascending, as SQL Server orders NULL — unmeasured on a form.
+                    // Blanks first ascending, last descending: measured on a subgrid by pcf-data-table 0.9.0 (R1).
                     compared = left === right ? 0 : left === null ? -1 : 1;
                 } else if (typeof left === 'number' && typeof right === 'number') {
                     compared = left - right;
@@ -2584,6 +2610,15 @@
                  * name }`, GUID unbraced and lower-case.
                  */
                 getValue: function (name) {
+                    // A refused value, held until a later save and re-read (R5).
+                    if (row.stuck && Object.prototype.hasOwnProperty.call(row.stuck, name)) {
+                        return row.stuck[name];
+                    }
+
+                    if (quirks.outsideViewReadsNull && !inView(name)) {
+                        return null;
+                    }
+
                     /*
                      * **Canvas reads a staged value back at once** — a text
                      * column showed the new title right after `setValue`, a
@@ -2618,6 +2653,14 @@
                     return value;
                 },
                 getFormattedValue: function (name) {
+                    if (row.stuck && Object.prototype.hasOwnProperty.call(row.stuck, name)) {
+                        return row.stuck[name] === null ? null : String(row.stuck[name]);
+                    }
+
+                    if (quirks.outsideViewReadsNull && !inView(name)) {
+                        return null;
+                    }
+
                     /*
                      * A row may carry its own `formatted` bag, and it exists so a
                      * fixture can make the formatted value differ from the raw one
@@ -2771,6 +2814,24 @@
                             delete row.staged[name];
                         }
                     });
+                }
+
+                var refused = typeof quirks.refuses === 'function'
+                    ? Object.keys(row.staged).filter(function (name) {
+                        return quirks.refuses(name, row.staged[name]);
+                    })
+                    : [];
+
+                if (refused.length > 0) {
+                    // Kept on the record, as the platform keeps it (R5).
+                    row.stuck = row.stuck || {};
+                    refused.forEach(function (name) {
+                        row.stuck[name] = row.staged[name];
+                    });
+                    row.staged = {};
+
+                    // The measured shape: a message that is an OData stack trace.
+                    return Promise.reject(webApiFault(2147781913, '', "Error identified in Payload provided by the user for Entity :'' ---->  InnerException : Microsoft.OData.ODataException: Cannot convert the literal"));
                 }
 
                 if (quirks.saveRejects) {
@@ -4608,6 +4669,11 @@
 
                     Object.keys(row.committed).forEach(function (name) {
                         row.values[name] = row.committed[name];
+
+                        // A later save of a refused column, read again, clears it (R5).
+                        if (row.stuck) {
+                            delete row.stuck[name];
+                        }
                     });
                     row.committed = null;
                 });
